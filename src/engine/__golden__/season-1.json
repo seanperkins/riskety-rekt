@@ -1,0 +1,17 @@
+{
+  "days": 21,
+  "winner": "Blitz",
+  "finalTerritories": {
+    "Turtle": 6,
+    "Blitz": 31,
+    "GymRat": 3,
+    "Slacker": 2
+  },
+  "finalReserves": {
+    "Turtle": 7,
+    "Blitz": 16,
+    "GymRat": 8,
+    "Slacker": 5
+  },
+  "day3Leader": "Blitz"
+}
