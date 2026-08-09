@@ -70,7 +70,7 @@ interface MarketAdapter {
 }
 
 interface SlackAdapter {
-  getApprovedActions(day: number): Promise<Record<PlayerId, number>>
+  getApprovedActions(day: number): Promise<ApprovedAction[]>   // {playerId, approvedAt}
   postRecap(state: GameState, events: TickEvent[]): Promise<void>
 }
 
@@ -145,7 +145,7 @@ submitting early or late.
 Seven steps, always in this order:
 
 1. **Settle yesterday's wagers.** Credit or debit reserves.
-2. **Grant approved IRL actions.** Capped, see economy.
+2. **Grant approved IRL actions.** Capped, plus timing bonuses. See economy.
 3. **Grant territory and continent income.**
 4. **Apply deploys.** Reserve → garrison.
 5. **Escrow new wagers.** Debit reserve, move to `pending`.
@@ -243,6 +243,32 @@ that is about 42 extra soldiers: meaningful, never decisive.
 
 Effort is a participation floor, not the lever that decides the game. Strategy and
 wagers decide the game.
+
+### Timing bonuses
+
+Two extra soldiers are available each day for *when* an action lands:
+
+- **Early Bird** — the first player with an approved action that day: +1
+- **Under the Wire** — the last approved action before the tick cutoff: +1
+
+Maximum one timing bonus per player per day, granted on top of the 2-action cap. Peak
+daily IRL income is therefore 3, still small against 4–7 baseline territory income, so
+the balance sizing above is unchanged.
+
+These attach to workout photos and **never to order submission**. Order timing must stay
+neutral: orders are freely editable until lock, and market prices are frozen at 08:00,
+precisely so nothing is gained by submitting late. A bonus for submitting last would pay
+the position that already holds the most information — having watched the markets move
+and read the day's Slack traffic — and a bonus for submitting first would reward having
+a free 8am, which is the schedule-flexibility advantage the action cap exists to
+suppress. It would also be trivially gamed by submitting an empty order at 08:01 and
+editing it all day.
+
+Photo timing leaks no strategic information, so there is nothing to exploit, and it
+rewards actually exercising in the morning rather than intending to all day.
+
+If Early Bird is won by the same early riser every day and goes stale, make it a
+rotating exclusion — no player may take it twice in a row — rather than removing it.
 
 ### Approval is social, not adversarial
 
@@ -349,10 +375,12 @@ In priority order:
 1. **Combat edge cases.** Mutual attacks, three factions on one territory, exact ties,
    an attack that wins with zero survivors, a territory captured and lost in the same
    tick. This is where the bugs live.
-2. **Protection edge cases.** Parity with one, two, and three picks on the same
-   territory. A pick from an eliminated player with no approved action that day (must
-   not count toward parity). A protected territory that is also mutually attacked. A
-   protection on a territory whose owner is also attacking out of it.
+2. **Protection and timing-bonus edge cases.** Parity with one, two, and three picks on
+   the same territory. A pick from an eliminated player with no approved action that day
+   (must not count toward parity). A protected territory that is also mutually attacked.
+   A protection on a territory whose owner is also attacking out of it. For timing: a
+   day with exactly one approved action (that player takes one bonus, not both), a day
+   with zero approved actions, and two approvals sharing a timestamp.
 3. **Property tests.** Troops are conserved (in = out + casualties). Reserves never go
    negative. Every territory always has exactly one owner.
 4. **Season simulation.** Run several thousand synthetic seasons with scripted
