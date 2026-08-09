@@ -100,10 +100,8 @@ round-robin so holdings are even to within one territory. Every territory starts
 territories after the day 21 tick wins. Ties break on total troops, then on continents
 held.
 
-There is no elimination check — a faction reduced to zero territories simply has
-nothing to order, and can still earn reserves. This is intentional: a player knocked
-out on day 8 should not stop exercising for the remaining two weeks. In practice they
-have no way back onto the map, so this is a soft landing rather than a comeback path.
+A faction reduced to zero territories is *eliminated* — it has no army and no path back
+onto the map — but it is not out of the game. See "Elimination and protection".
 
 ### State
 
@@ -135,6 +133,7 @@ Order {
   deploys: [{territory, count}]        // reserve → owned territory
   attacks: [{from, to, count}]         // adjacent only; count ≤ garrison(from) − 1
   wagers:  [{marketId, side, stake}]   // from reserve
+  protect: territoryId | null          // eliminated factions only
 }
 ```
 
@@ -150,7 +149,7 @@ Seven steps, always in this order:
 3. **Grant territory and continent income.**
 4. **Apply deploys.** Reserve → garrison.
 5. **Escrow new wagers.** Debit reserve, move to `pending`.
-6. **Resolve all attacks simultaneously.**
+6. **Resolve protections, then all attacks simultaneously.**
 7. **Check season end.**
 
 Two consequences of this ordering are load-bearing. Wagers are escrowed *after*
@@ -180,6 +179,52 @@ its uncertainty is reasoned rather than noise.
 
 The multi-attacker rule is what gives handshake alliances teeth. Two allies can take a
 territory neither could take alone, both bleed for it, and only one of them keeps it.
+
+### Elimination and protection
+
+A faction with zero territories is eliminated. It cannot deploy, attack, or return to
+the map. Instead it gains a **daily protection**: it names one territory anywhere on the
+map, and every attack targeting that territory is voided.
+
+This is a role change, not an exit. The eliminated player becomes a kingmaker that
+living factions have to negotiate with, which in practice means more Slack conversation
+than they had while playing.
+
+Four rules govern it:
+
+**It requires a workout.** The protection only fires if that player has at least one
+approved IRL action that day. No photo, no veto. This is what keeps elimination inside
+the accountability loop rather than turning it into free power for doing nothing — the
+whole reason the mechanic exists.
+
+**Picks are secret.** Submitted in the normal order window, revealed in the recap. If
+picks were public, attackers would simply route around them and the veto would be a
+mild inconvenience. Secrecy makes it a real threat that shapes how everyone plans.
+
+**Blocked attacks are voided, not destroyed.** A cancelled attack leaves its troops in
+the origin territory. Combined with secrecy, a blocked attack costs a tempo rather than
+an army — the difference between a fun surprise and a season-ending gotcha. Destroying
+armies on a hidden condition would feel arbitrary and punishing.
+
+**Protections toggle by parity.** A territory is protected if an *odd* number of
+eliminated factions named it. Two picks cancel out, three protect again:
+
+```
+protected(t) = count(picks on t, from factions with an approved action today) % 2 === 1
+```
+
+Because picks are secret, eliminated players cancel each other blind. Two allies of
+opposing living factions can neutralize each other without knowing it, and a living
+faction can lobby one eliminated player into cancelling another's shield. This also
+self-limits board lockup late in a season, when several eliminated players might
+otherwise freeze a territory each.
+
+Protection is a shield, not a stasis field: the owner can still deploy into a protected
+territory and still attack out of it. Only incoming attacks are affected. Any territory
+is a legal pick, not just ones the eliminated faction used to own.
+
+Mechanically this sits at the head of step 6 — resolve parity, then drop every attack
+targeting a protected territory, then sum what remains.
 
 ## Economy
 
@@ -304,21 +349,28 @@ In priority order:
 1. **Combat edge cases.** Mutual attacks, three factions on one territory, exact ties,
    an attack that wins with zero survivors, a territory captured and lost in the same
    tick. This is where the bugs live.
-2. **Property tests.** Troops are conserved (in = out + casualties). Reserves never go
+2. **Protection edge cases.** Parity with one, two, and three picks on the same
+   territory. A pick from an eliminated player with no approved action that day (must
+   not count toward parity). A protected territory that is also mutually attacked. A
+   protection on a territory whose owner is also attacking out of it.
+3. **Property tests.** Troops are conserved (in = out + casualties). Reserves never go
    negative. Every territory always has exactly one owner.
-3. **Season simulation.** Run several thousand synthetic seasons with scripted
+4. **Season simulation.** Run several thousand synthetic seasons with scripted
    policies: *Turtle* (never attacks), *Blitz* (always attacks the weakest neighbor),
    *Gambler* (stakes heavily daily), *Slacker* (zero workouts), *Gym Rat* (max workouts,
    mediocre strategy). Answer the questions the economy hinges on:
    - Does Gym Rat beat Blitz? If yes, the IRL grant is too strong.
    - Does Gambler ever win? If never, variance is too weak to produce comebacks.
    - How often does the day-3 leader win? If usually, the season is decided too early.
+   - How often does a protection actually void an attack that would have succeeded? If
+     near zero the mechanic is decorative; if it decides most late-season territory
+     changes, eliminated players have too much say over a game they cannot win.
 
    This is the reason for the pure-engine architecture. Discovering that the 1.1×
    payout is wrong costs nothing in simulation and costs the whole season on day six.
-4. **Golden-file replay.** Record one real season's orders, replay, assert identical
+5. **Golden-file replay.** Record one real season's orders, replay, assert identical
    output. Catches regressions when tuning numbers between seasons.
-5. **Adapter tests against recorded fixtures.** Saved Kalshi and Slack responses on
+6. **Adapter tests against recorded fixtures.** Saved Kalshi and Slack responses on
    disk. Tests never hit the network.
 
 ## Deployment
@@ -341,5 +393,6 @@ implementation.
   balance data.
 - **Scripted bot factions.** The order interface already accommodates them. Useful for
   filling out a small roster.
-- **Respawn on elimination**, if losing players disengaging turns out to be a real
-  problem in practice.
+- **Respawn on elimination.** Superseded for season one by the daily protection, which
+  keeps eliminated players engaged without letting them re-enter the map. Revisit only
+  if protections turn out not to hold their interest.
