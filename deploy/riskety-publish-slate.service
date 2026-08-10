@@ -1,0 +1,14 @@
+[Unit]
+Description=Riskety Rekt — publish the daily market slate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=riskety
+WorkingDirectory=/srv/riskety-rekt
+EnvironmentFile=/etc/riskety-rekt/env
+ExecStart=/usr/bin/npm run publish-slate
+# An early failure still leaves 13 hours before the 21:00 lock, so retry.
+Restart=on-failure
+RestartSec=300

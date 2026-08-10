@@ -3171,6 +3171,18 @@ const log = (msg: string) => console.log(msg)
 let exitCode = 0
 let store: ReturnType<typeof openStore> | undefined
 
+/**
+ * A truncated candidate walk still yields a playable slate, so this warns
+ * rather than failing. But it must never pass silently: the first sampling run
+ * against the live API returned exactly MAX_PAGES x 1000 markets on seven
+ * consecutive days and looked entirely like real data.
+ */
+const onTruncate = (pages: number, collected: number) =>
+  console.error(
+    `WARNING: stopped at the ${pages}-page cap with ${collected} markets and more pending;` +
+      ` today's candidate set is incomplete. Raise MAX_PAGES.`,
+  )
+
 try {
   store = openStore(required("RR_DB_PATH"))
 
@@ -3186,7 +3198,7 @@ try {
   } else if (command === "publish-slate") {
     const out = await runPublishSlate({
       store,
-      adapter: createKalshiAdapter(),
+      adapter: createKalshiAdapter({ onTruncate }),
       seasonId: required("RR_SEASON_ID"),
       now: new Date(),
       log,
@@ -3195,7 +3207,7 @@ try {
   } else if (command === "poll-settlements") {
     const out = await runPollSettlements({
       store,
-      adapter: createKalshiAdapter(),
+      adapter: createKalshiAdapter({ onTruncate }),
       seasonId: required("RR_SEASON_ID"),
       now: new Date(),
       log,

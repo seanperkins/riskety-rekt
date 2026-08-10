@@ -1,0 +1,99 @@
+/**
+ * Entrypoint for the systemd timers.
+ *
+ *   tsx src/jobs/cli.ts publish-slate
+ *   tsx src/jobs/cli.ts poll-settlements
+ *   tsx src/jobs/cli.ts season-init <start-date> [length]
+ *
+ * Configuration comes from the environment:
+ *   RR_DB_PATH    path to the SQLite file  (required)
+ *   RR_SEASON_ID  the active season id     (required)
+ *
+ * Exit codes: 0 success or a deliberate skip, 1 failure worth a systemd retry.
+ */
+import { SEASON_LENGTH } from "../config.js"
+import { createKalshiAdapter } from "../adapters/kalshi/index.js"
+import { openStore } from "../store/sqlite.js"
+import { runPublishSlate } from "./publish-slate.js"
+import { runPollSettlements } from "./poll-settlements.js"
+
+class UsageError extends Error {}
+
+function required(name: string): string {
+  const v = process.env[name]
+  if (v === undefined || v === "") throw new UsageError(`${name} is not set`)
+  return v
+}
+
+const command = process.argv[2]
+const log = (msg: string) => console.log(msg)
+
+/**
+ * Never call process.exit() with the database open: it terminates immediately
+ * and skips the finally block, leaving the WAL file behind on every bad
+ * invocation. Set the code, fall through, close, then exit.
+ */
+let exitCode = 0
+let store: ReturnType<typeof openStore> | undefined
+
+/**
+ * A truncated candidate walk still yields a playable slate, so this warns
+ * rather than failing. But it must never pass silently: the first sampling run
+ * against the live API returned exactly MAX_PAGES x 1000 markets on seven
+ * consecutive days and looked entirely like real data.
+ */
+const onTruncate = (pages: number, collected: number) =>
+  console.error(
+    `WARNING: stopped at the ${pages}-page cap with ${collected} markets and more pending;` +
+      ` today's candidate set is incomplete. Raise MAX_PAGES.`,
+  )
+
+try {
+  store = openStore(required("RR_DB_PATH"))
+
+  if (command === "season-init") {
+    const startDate = process.argv[3]
+    if (startDate === undefined || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      throw new UsageError("usage: season-init <YYYY-MM-DD> [length]")
+    }
+    const seasonId = required("RR_SEASON_ID")
+    const lengthDays = Number(process.argv[4] ?? SEASON_LENGTH)
+    store.upsertSeason({ seasonId, startDate, lengthDays })
+    log(`season ${seasonId}: day 0 dealt ${startDate}, ${lengthDays} ticks`)
+  } else if (command === "publish-slate") {
+    const out = await runPublishSlate({
+      store,
+      adapter: createKalshiAdapter({ onTruncate }),
+      seasonId: required("RR_SEASON_ID"),
+      now: new Date(),
+      log,
+    })
+    if (out.status === "skipped") log(`skipped day ${out.day}: ${out.reason}`)
+  } else if (command === "poll-settlements") {
+    const out = await runPollSettlements({
+      store,
+      adapter: createKalshiAdapter({ onTruncate }),
+      seasonId: required("RR_SEASON_ID"),
+      now: new Date(),
+      log,
+    })
+    if (out.checked === 0) log("nothing awaiting settlement")
+  } else {
+    throw new UsageError(
+      `unknown command: ${String(command)}\n` +
+        `expected one of: publish-slate, poll-settlements, season-init`,
+    )
+  }
+} catch (err) {
+  // Exit 1 so systemd's Restart=on-failure can retry. The publish job in
+  // particular is worth retrying: an early failure still leaves hours before
+  // the 21:00 lock.
+  console.error(
+    err instanceof UsageError ? err.message : err instanceof Error ? err.stack : String(err),
+  )
+  exitCode = 1
+} finally {
+  store?.close()
+}
+
+process.exit(exitCode)

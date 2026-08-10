@@ -1,6 +1,6 @@
 # Riskety Rekt — Handoff
 
-**Last updated:** 2026-08-09 · **Branch:** `main` · **State:** engine + simulator complete, no server yet
+**Last updated:** 2026-08-09 · **Branch:** `main` · **State:** engine + simulator + market adapter complete, no server yet
 
 A Risk-like conquest game for a private group of friends. One tick per day, orders
 resolved simultaneously. Reinforcements come from two places beyond territory income:
@@ -19,30 +19,46 @@ variance, with uncertainty players can actually reason about.
 | `docs/superpowers/specs/2026-08-09-riskety-rekt-design.md` | **The spec. Start here.** Every rule, and why. |
 | `docs/superpowers/reviews/2026-08-09-balance-run.md` | Simulation results and what they mean |
 | `docs/superpowers/reviews/2026-08-09-round1/` | Seven reviewer reports that reshaped the design |
-| `docs/superpowers/plans/2026-08-09-engine-and-sim.md` | The plan that built what exists |
+| `docs/superpowers/plans/2026-08-09-engine-and-sim.md` | Plan 1 — the engine and simulator |
+| `docs/superpowers/plans/2026-08-09-market-adapter-and-poller.md` | Plan 2 — the market adapter. Its **Spec deltas** section lists what live API data corrected |
 
 ## Current state
 
-**Done:** the pure rules engine and the offline season simulator. 21 commits,
-~1,300 lines of source, ~1,600 lines of tests, **130 tests passing**.
+**Done:** the pure rules engine, the offline season simulator, and the Kalshi market
+adapter with its slate publisher and settlement poller. ~2,400 lines of source, ~3,200
+lines of tests, **271 tests passing**, none of which touch the network.
 
-**Not built:** anything that touches a network, a database, or a browser. There is no
-server, no Slack app, no Kalshi client, no web UI.
+**Not built:** the tick runner, Slack, and the web UI. Nothing here calls `resolve()` —
+wiring the 21:00 tick is Plan 4.
 
 ```bash
 npm install
-npm test          # 130 tests
+npm test          # 271 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom roster
+
+# market jobs — see deploy/README.md
+export RR_DB_PATH=./riskety.db RR_SEASON_ID=season-1
+npm run season:init -- 2026-09-01   # date is the day-0 deal
+npm run publish-slate               # the 08:00 job
+npm run poll-settlements            # the 30-minute job
+npm run sample:kalshi               # re-derive VOLUME_FLOOR from live data
 ```
 
 ## Architecture
 
 ```
-src/engine/   pure, zero dependencies, no I/O, no clock, no randomness
-src/sim/      drives thousands of synthetic seasons through the engine
+src/engine/    pure, zero dependencies, no I/O, no clock, no randomness
+src/sim/       drives thousands of synthetic seasons through the engine
+src/adapters/  the only code that speaks HTTP; parsing split from networking
+src/slate/     pure slate selection
+src/store/     SQLite (node:sqlite, WAL) — slates and settlements
+src/jobs/      the 08:00 publish and 30-minute poll, plus their CLI
 ```
+
+The tick never touches the network. Both external systems are cached to SQLite ahead of
+it — that is why the engine can stay pure and offline.
 
 The engine is one function: `resolve(state, orders, context) → GameState`. It imports
 nothing outside its own folder — `src/engine/types.test.ts` enforces that, along with a
@@ -135,11 +151,12 @@ as zero-effort at identical strategy."
 
 ## What's next
 
-**Plan 2 — Market adapter + settlement poller.** Kalshi client, slate selection and
-persistence, price validation at the boundary, the 30-minute poller. Note the spec's
-warning: `NaN` survives `Math.max(0.05, Math.min(0.95, NaN))`, so validate prices are
-finite in `(0,1)` at the adapter boundary and drop the market otherwise — a `NaN`
-reserve persists to disk and poisons the season.
+**Plan 2 — Market adapter + settlement poller. Done.** Kalshi client, slate selection,
+SQLite persistence and the 30-minute poller all exist and are tested offline against
+recorded fixtures. See the plan's "Spec deltas" section — several spec rules were
+corrected against live API data, most importantly that the volume floor cannot be the
+median (two thirds of same-day markets never trade) and that slate selection must take
+at most one market per series or it publishes five rungs of one crypto ladder.
 
 **Plan 3 — Slack ingress + recap.** Bolt with signature verification that **fails the
 boot** if the signing secret is missing, a 5-minute replay window, scope checks on
@@ -158,6 +175,24 @@ runner, and add a policy that attacks more than once per tick.
 ## Gotchas
 
 - **No git remote.** Local repo only. Add one before attempting a PR flow.
+- **Wagers must lock at `min(closeTime, settlement observed_at)`**, not at `closeTime`
+  alone. Every Kalshi market sampled carries `can_close_early`, so an outcome can become
+  public before the stated close — the same exploit the per-market lock exists to close,
+  arriving by a different door. The `settlements.observed_at` column exists for this;
+  Plan 4's web app has to use it.
+- **`node:sqlite` is loaded via `createRequire`, not a static import.** Vite builds its
+  builtin list with `builtinModules.filter(id => !id.includes(":"))` and Node lists this
+  module only as `node:sqlite`, so a static import resolves to bare `sqlite` and every
+  store test fails to load. No vitest config option reaches that path. It also prints an
+  `ExperimentalWarning`, which is expected — it is why the project still has zero runtime
+  dependencies. Rows come back with a `null` prototype, so spread them rather than
+  calling `Object.prototype` methods.
+- **A market closing at exactly 21:00 ET is excluded, and this matters more than it
+  looks.** In one live check it dropped 2,440 markets — Kalshi uses 21:00 ET as a
+  standard daily close. Kalshi's `min_close_ts`/`max_close_ts` are inclusive, so the
+  parser re-checks the window strictly.
+- **`npm run publish-slate` late in the ET day legitimately publishes nothing.** Judge it
+  by an 08:00 run.
 - **`.tmp/` is gitignored** — it holds debate-plugin scratch. It was committed by
   accident once and untracked in `a397764`.
 - **The golden file pins engine behavior via a fixed order script**, not via sim

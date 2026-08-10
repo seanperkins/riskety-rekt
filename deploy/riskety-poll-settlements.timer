@@ -1,0 +1,9 @@
+[Unit]
+Description=Riskety Rekt — 30-minute settlement poll
+
+[Timer]
+OnCalendar=*:00/30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

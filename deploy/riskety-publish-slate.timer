@@ -1,0 +1,11 @@
+[Unit]
+Description=Riskety Rekt — 08:00 slate publish
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+# OnCalendar fires exactly once on DST-transition days when the system timezone
+# is America/New_York. Do not replace this with an interval timer.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
