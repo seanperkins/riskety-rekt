@@ -217,6 +217,29 @@ export interface OrderStore {
   assembleOrders(seasonId: string, day: number): Order[]
 }
 
+export type RecapKind = "original" | "correction" | "gap"
+
+/**
+ * Outbound-message idempotency. A lost acknowledgement must not post twice.
+ *
+ * `attempt` is in the key because a second correction for the same day is an
+ * ordinary event — the first fix was wrong — and a `(season, day, kind)` key
+ * would suppress it.
+ */
+export interface RecapLedger {
+  /**
+   * Claim the right to post. Returns false when this `(day, kind, attempt)` has
+   * already been claimed, which is the signal to post nothing.
+   *
+   * The claim happens BEFORE the post, so a crash in between loses that recap
+   * rather than duplicating it. That is the deliberate trade: a duplicate is
+   * confusing and public, a miss is recoverable with `--force`.
+   */
+  claimRecap(seasonId: string, day: number, kind: RecapKind, attempt: number, at: Date): boolean
+  /** Highest attempt recorded for this (day, kind), or 0 if there is none. */
+  latestRecapAttempt(seasonId: string, day: number, kind: RecapKind): number
+}
+
 /** The frozen inputs of one resolved tick. Only `tick:rerun` reads them. */
 export interface TickContextRow {
   orders: Order[]

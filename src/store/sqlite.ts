@@ -31,6 +31,8 @@ import type {
   WagerRow,
   ApproverRow,
   PostRow,
+  RecapKind,
+  RecapLedger,
   RosterMember,
   RosterStore,
   SeasonRow,
@@ -45,20 +47,6 @@ import { etDate, slackTsToIso } from "../time.js"
 /** SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; stay well under it. */
 const PARAM_CHUNK = 500
 
-/**
- * The `orders.body` column, back into a typed body.
- *
- * The only writer is `saveOrder`, stringifying an `OrderBody`, so a row that
- * fails this check means the file was edited by hand. It throws rather than
- * coercing to an empty body: assembly runs inside the tick's transaction, so a
- * throw rolls the tick back and refuses loudly, where a coercion would resolve
- * the day having silently dropped a player's deploys and attacks.
- *
- * Element shapes are the engine's job -- `validateOrder` checks every count and
- * territory and publishes a named rejection for each. This only has to
- * guarantee the three fields are the right kind, so a bad row fails here with
- * the faction in the message instead of somewhere in the pipeline.
- */
 const isCount = (n: unknown): boolean => typeof n === "number" && Number.isSafeInteger(n) && n >= 0
 
 /**
@@ -98,6 +86,20 @@ function parseState(json: string, seasonId: string, day: number): GameState {
   return s
 }
 
+/**
+ * The `orders.body` column, back into a typed body.
+ *
+ * The only writer is `saveOrder`, stringifying an `OrderBody`, so a row that
+ * fails this check means the file was edited by hand. It throws rather than
+ * coercing to an empty body: assembly runs inside the tick's transaction, so a
+ * throw rolls the tick back and refuses loudly, where a coercion would resolve
+ * the day having silently dropped a player's deploys and attacks.
+ *
+ * Element shapes are the engine's job -- `validateOrder` checks every count and
+ * territory and publishes a named rejection for each. This only has to
+ * guarantee the three fields are the right kind, so a bad row fails here with
+ * the faction in the message instead of somewhere in the pipeline.
+ */
 function parseBody(json: string, factionId: string): OrderBody {
   const raw: unknown = JSON.parse(json)
   const body = raw as OrderBody
@@ -123,6 +125,7 @@ export function openStore(
   path: string,
 ): SeasonStore &
   SlateStore &
+  RecapLedger &
   RosterStore &
   ApprovalStore &
   OrderStore &
@@ -702,6 +705,34 @@ export function openStore(
         context: JSON.parse(row.context) as DailyContext,
         engineVersion: row.engine_version,
       }
+    },
+
+    claimRecap(
+      seasonId: string,
+      day: number,
+      kind: RecapKind,
+      attempt: number,
+      at: Date,
+    ): boolean {
+      // INSERT OR IGNORE, so the claim is the primary key. Two processes racing
+      // to post the same recap: one inserts, the other sees changes = 0.
+      const res = db
+        .prepare(
+          `INSERT OR IGNORE INTO recaps (season_id, day, kind, attempt, posted_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(seasonId, day, kind, attempt, at.toISOString())
+      return Number(res.changes) > 0
+    },
+
+    latestRecapAttempt(seasonId: string, day: number, kind: RecapKind): number {
+      const row = db
+        .prepare(
+          `SELECT MAX(attempt) AS attempt FROM recaps
+            WHERE season_id = ? AND day = ? AND kind = ?`,
+        )
+        .get(seasonId, day, kind) as { attempt: number | null } | undefined
+      return row?.attempt == null ? 0 : Number(row.attempt)
     },
 
     deleteStatesFrom(seasonId: string, day: number): void {
