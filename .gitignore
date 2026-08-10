@@ -8,3 +8,4 @@ node_modules/
 *.db-shm
 .next/
 dist/
+.DS_Store
