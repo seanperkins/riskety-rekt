@@ -14,6 +14,14 @@ export interface ClientOptions {
   /** Injected so retry tests do not actually wait. */
   sleep?: (ms: number) => Promise<void>
   baseUrl?: string
+  /** Overrides MAX_PAGES. The sampling script needs a far larger walk. */
+  maxPages?: number
+  /**
+   * Called when the walk stops at the page cap with a cursor still pending, so
+   * the caller knows its result is incomplete. A truncated candidate set is
+   * survivable — a truncated candidate set nobody knows about is not.
+   */
+  onTruncate?: (pages: number, collected: number) => void
 }
 
 export class KalshiHttpError extends Error {
@@ -86,8 +94,9 @@ export async function getAllMarkets(
   opts: ClientOptions = {},
 ): Promise<RawKalshiMarket[]> {
   const out: RawKalshiMarket[] = []
+  const maxPages = opts.maxPages ?? MAX_PAGES
   let cursor = ""
-  for (let page = 0; page < MAX_PAGES; page++) {
+  for (let page = 0; page < maxPages; page++) {
     const query = cursor ? { ...params, cursor } : params
     const body = (await getJson("/markets", query, opts)) as RawKalshiMarketsResponse
     // A page without a markets array is a malformed response, and the only
@@ -106,8 +115,11 @@ export async function getAllMarkets(
     const next = typeof body.cursor === "string" ? body.cursor : ""
     // An empty page ends the walk even when a cursor is returned -- Kalshi
     // hands back a cursor on the final page and following it loops.
-    if (next === "" || markets.length === 0) break
+    if (next === "" || markets.length === 0) return out
     cursor = next
   }
+  // Fell out of the loop with a cursor still pending: the result is a prefix of
+  // the real window, not the window.
+  opts.onTruncate?.(maxPages, out.length)
   return out
 }

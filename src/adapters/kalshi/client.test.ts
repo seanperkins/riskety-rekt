@@ -118,15 +118,39 @@ describe("getAllMarkets", () => {
     expect(cursors).toEqual([null, "c1", "c2"])
   })
 
-  it("stops at MAX_PAGES rather than looping forever on a repeating cursor", async () => {
+  it("stops at the page cap rather than looping forever on a repeating cursor", async () => {
     let calls = 0
     const fetchImpl: FetchLike = async () => {
       calls++
       return jsonResponse({ markets: [{ ticker: `T${calls}` }], cursor: "always-the-same" })
     }
-    const out = await getAllMarkets({}, { fetchImpl, sleep: noSleep })
-    expect(calls).toBe(12)
-    expect(out).toHaveLength(12)
+    const out = await getAllMarkets({}, { fetchImpl, sleep: noSleep, maxPages: 5 })
+    expect(calls).toBe(5)
+    expect(out).toHaveLength(5)
+  })
+
+  it("reports truncation when it stops with a cursor still pending", async () => {
+    // A truncated candidate set is survivable. One nobody knows about is not:
+    // a sampling run once returned exactly MAX_PAGES x 1000 markets on seven
+    // consecutive days and looked like real data.
+    const truncations: [number, number][] = []
+    const fetchImpl: FetchLike = async () =>
+      jsonResponse({ markets: [{ ticker: "T" }], cursor: "more" })
+    await getAllMarkets(
+      {},
+      { fetchImpl, sleep: noSleep, maxPages: 3, onTruncate: (p, c) => truncations.push([p, c]) },
+    )
+    expect(truncations).toEqual([[3, 3]])
+  })
+
+  it("does not report truncation on a walk that finished", async () => {
+    const truncations: unknown[] = []
+    const fetchImpl: FetchLike = async () => jsonResponse({ markets: [{ ticker: "A" }], cursor: "" })
+    await getAllMarkets(
+      {},
+      { fetchImpl, sleep: noSleep, onTruncate: (p, c) => truncations.push([p, c]) },
+    )
+    expect(truncations).toEqual([])
   })
 
   it("stops when a page returns no markets even if a cursor is present", async () => {

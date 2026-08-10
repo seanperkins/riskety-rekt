@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { PRICE_MAX, PRICE_MIN } from "../../config.js"
+import { PRICE_MAX, PRICE_MIN, VOLUME_FLOOR } from "../../config.js"
 import { capQuestion, parseDecimal, seriesOf, toCandidate, toSettlement } from "./parse.js"
 import type { CandidateWindow } from "../types.js"
 
@@ -311,6 +312,66 @@ describe("toSettlement", () => {
   it("treats junk as unsettled", () => {
     for (const junk of [null, undefined, 42, "yes", []]) {
       expect(toSettlement(junk)).toBe("unsettled")
+    }
+  })
+})
+
+describe("recorded fixtures", () => {
+  const body = JSON.parse(
+    readFileSync(new URL("./__fixtures__/candidates-page.json", import.meta.url), "utf8"),
+  ) as { markets: unknown[] }
+
+  // A window wide enough that close-time filtering does not dominate; the point
+  // of these tests is that real payloads never produce a bad Candidate.
+  const wide: CandidateWindow = {
+    opensAfter: new Date("2000-01-01T00:00:00Z"),
+    closesBefore: new Date("2100-01-01T00:00:00Z"),
+  }
+
+  it("has markets to test against", () => {
+    expect(body.markets.length).toBeGreaterThan(0)
+  })
+
+  it("never produces a malformed Candidate from a real payload", () => {
+    for (const raw of body.markets) {
+      const r = toCandidate(raw, wide, 0)
+      if (!r.ok) continue
+      const c = r.candidate
+      expect(Number.isFinite(c.priceYes)).toBe(true)
+      expect(Number.isFinite(c.priceNo)).toBe(true)
+      expect(c.priceYes).toBeGreaterThanOrEqual(PRICE_MIN)
+      expect(c.priceYes).toBeLessThanOrEqual(PRICE_MAX)
+      expect(c.priceNo).toBeGreaterThanOrEqual(PRICE_MIN)
+      expect(c.priceNo).toBeLessThanOrEqual(PRICE_MAX)
+      expect(c.priceYes + c.priceNo).toBeGreaterThanOrEqual(1)
+      expect(c.question.length).toBeGreaterThan(0)
+      expect(c.question.length).toBeLessThanOrEqual(200)
+      expect(c.id.length).toBeGreaterThan(0)
+      expect(c.volume).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it("accepts some markets and rejects others -- the fixture spans outcomes", () => {
+    // A fixture where everything passes, or everything fails, silently stops
+    // testing the filters it was recorded to test.
+    const results = body.markets.map((m) => toCandidate(m, wide, VOLUME_FLOOR))
+    const accepted = results.filter((r) => r.ok).length
+    const reasons = new Set(results.flatMap((r) => (r.ok ? [] : [r.reason])))
+    expect(accepted).toBeGreaterThan(0)
+    expect(reasons.has("multivariate")).toBe(true)
+    expect(reasons.has("volume")).toBe(true)
+    // Not asserting "price-range": the untraded ladder rungs that would carry
+    // it are also untraded, and the volume check runs first.
+    expect(reasons.size).toBeGreaterThanOrEqual(2)
+  })
+
+  it("drops every multivariate combo market in the fixture", () => {
+    const combos = body.markets.filter(
+      (m) => typeof (m as { mve_collection_ticker?: unknown }).mve_collection_ticker === "string",
+    )
+    expect(combos.length).toBeGreaterThan(0)
+    for (const m of combos) {
+      expect(toCandidate(m, wide, 0)).toEqual({ ok: false, reason: "multivariate" })
     }
   })
 })

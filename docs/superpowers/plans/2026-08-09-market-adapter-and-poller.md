@@ -119,8 +119,15 @@ export const KALSHI_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 export const HTTP_TIMEOUT_MS = 20_000
 export const HTTP_RETRIES = 2
 export const HTTP_RETRY_DELAY_MS = 1_000
-/** Hard stop on cursor pagination. One observed window needed 6 pages. */
-export const MAX_PAGES = 12
+/**
+ * Hard stop on cursor pagination.
+ *
+ * A production same-day window (status=open) was measured at 5,748 markets in 6
+ * pages, so this is roughly 6x headroom. It was 12 until a sampling run came
+ * back with exactly 12,000 markets on all seven days — the cap silently
+ * truncating every result. Hitting it is now reported, never swallowed.
+ */
+export const MAX_PAGES = 40
 /** Kalshi caps `limit` at 1000. */
 export const PAGE_LIMIT = 1000
 /** Max tickers per `?tickers=` settlement query. */
@@ -1099,6 +1106,14 @@ export interface ClientOptions {
   /** Injected so retry tests do not actually wait. */
   sleep?: (ms: number) => Promise<void>
   baseUrl?: string
+  /** Overrides MAX_PAGES. The sampling script needs a far larger walk. */
+  maxPages?: number
+  /**
+   * Called when the walk stops at the page cap with a cursor still pending, so
+   * the caller knows its result is incomplete. A truncated candidate set is
+   * survivable — a truncated candidate set nobody knows about is not.
+   */
+  onTruncate?: (pages: number, collected: number) => void
 }
 
 export class KalshiHttpError extends Error {
@@ -1171,8 +1186,9 @@ export async function getAllMarkets(
   opts: ClientOptions = {},
 ): Promise<RawKalshiMarket[]> {
   const out: RawKalshiMarket[] = []
+  const maxPages = opts.maxPages ?? MAX_PAGES
   let cursor = ""
-  for (let page = 0; page < MAX_PAGES; page++) {
+  for (let page = 0; page < maxPages; page++) {
     const query = cursor ? { ...params, cursor } : params
     const body = (await getJson("/markets", query, opts)) as RawKalshiMarketsResponse
     // A page without a markets array is a malformed response, and the only
@@ -1191,9 +1207,12 @@ export async function getAllMarkets(
     const next = typeof body.cursor === "string" ? body.cursor : ""
     // An empty page ends the walk even when a cursor is returned -- Kalshi
     // hands back a cursor on the final page and following it loops.
-    if (next === "" || markets.length === 0) break
+    if (next === "" || markets.length === 0) return out
     cursor = next
   }
+  // Fell out of the loop with a cursor still pending: the result is a prefix of
+  // the real window, not the window.
+  opts.onTruncate?.(maxPages, out.length)
   return out
 }
 ```
@@ -1555,25 +1574,38 @@ In `package.json`, add to `scripts`:
 
 ```ts
 /**
- * Developer tool. Samples real Kalshi same-day markets to derive VOLUME_FLOOR,
- * and records one page of live responses as a test fixture.
- *
- * Sampling is retrospective: for each of the last N ET days it asks for markets
- * that CLOSED inside that day's 09:00-21:00 window. Those are exactly the
- * markets the 08:00 job would have been choosing between.
+ * Developer tool. Samples real Kalshi markets to derive VOLUME_FLOOR, and
+ * records a page of live responses as a test fixture.
  *
  *   npm run sample:kalshi          # 7 days
  *   npm run sample:kalshi -- 14    # 14 days
  *
- * The spec said to set the floor at the median of same-day markets. Do not do
- * that: roughly three quarters of them never trade, so the median is 0.00 and a
- * zero floor admits every untraded strike in every ladder. This reports the
- * median of markets with non-zero volume instead, and prints how many distinct
- * series survive at each candidate floor -- that second number is the one that
- * matters, because the slate takes at most one market per series.
+ * It issues exactly the query the 08:00 job issues -- status=open over a
+ * 09:00-21:00 ET close window -- for each of the next N days. Forward, not
+ * retrospective: a `status=settled` walk over past days returns far more
+ * markets than any sane page cap allows, and the first attempt at this script
+ * came back with exactly MAX_PAGES x 1000 markets on all seven days, which is
+ * a truncation artifact wearing the costume of data. This shape completes.
+ *
+ * It under-counts slightly, because many same-day markets do not open until
+ * the small hours of their own day. That bias is conservative: the real 08:00
+ * pool is at least as large as what this reports.
+ *
+ * On the floor itself: the spec said to use the median of same-day markets.
+ * Do not. Roughly half never trade, so that median sits near zero and admits
+ * every untraded rung of every strike ladder. Use the median of markets that
+ * actually traded, and sanity-check it against the distinct-series count --
+ * that second number is what matters, because the slate takes at most one
+ * market per series.
  */
 import { writeFileSync } from "node:fs"
-import { WINDOW_CLOSE_HOUR, WINDOW_OPEN_HOUR } from "../src/config.js"
+import {
+  PAGE_LIMIT,
+  SLATE_MAX,
+  VOLUME_FLOOR,
+  WINDOW_CLOSE_HOUR,
+  WINDOW_OPEN_HOUR,
+} from "../src/config.js"
 import { etDate, etInstant } from "../src/time.js"
 import { getAllMarkets } from "../src/adapters/kalshi/client.js"
 import { seriesOf, toCandidate } from "../src/adapters/kalshi/parse.js"
@@ -1584,23 +1616,27 @@ const unix = (d: Date) => String(Math.floor(d.getTime() / 1000))
 const quantile = (sorted: number[], q: number) =>
   sorted.length === 0 ? 0 : sorted[Math.min(Math.floor(sorted.length * q), sorted.length - 1)]!
 
-const allVolumes: number[] = []
-let firstPage: RawKalshiMarket[] = []
-const perDay: { date: string; raw: number; byFloor: Map<number, number> }[] = []
 const FLOORS = [0, 100, 250, 500, 1000, 2500, 5000]
 
-for (let back = 1; back <= days; back++) {
-  const date = etDate(new Date(Date.now() - back * 86_400_000))
+const allVolumes: number[] = []
+let fixture: RawKalshiMarket[] = []
+const perDay: { date: string; raw: number; truncated: boolean; byFloor: Map<number, number> }[] = []
+
+for (let ahead = 0; ahead < days; ahead++) {
+  const date = etDate(new Date(Date.now() + ahead * 86_400_000))
   const opensAfter = etInstant(date, WINDOW_OPEN_HOUR)
   const closesBefore = etInstant(date, WINDOW_CLOSE_HOUR)
 
-  const raw = await getAllMarkets({
-    limit: "1000",
-    status: "settled",
-    min_close_ts: unix(opensAfter),
-    max_close_ts: unix(closesBefore),
-  })
-  if (firstPage.length === 0) firstPage = raw.slice(0, 40)
+  let truncated = false
+  const raw = await getAllMarkets(
+    {
+      limit: String(PAGE_LIMIT),
+      status: "open",
+      min_close_ts: unix(opensAfter),
+      max_close_ts: unix(closesBefore),
+    },
+    { onTruncate: () => (truncated = true) },
+  )
 
   const byFloor = new Map<number, number>()
   for (const floor of FLOORS) {
@@ -1611,39 +1647,73 @@ for (let back = 1; back <= days; back++) {
     }
     byFloor.set(floor, series.size)
   }
+
+  // Only count volumes of markets that clear the structural filters; the
+  // untraded combo markets are noise the job never considers anyway.
   for (const m of raw) {
-    const v = Number(m.volume_fp)
-    if (Number.isFinite(v)) allVolumes.push(v)
+    const r = toCandidate(m, { opensAfter, closesBefore }, 0)
+    if (r.ok) allVolumes.push(r.candidate.volume)
   }
-  perDay.push({ date, raw: raw.length, byFloor })
-  console.log(`${date}  ${String(raw.length).padStart(5)} markets`)
+
+  // Build the fixture from a spread across filter outcomes, not the first 40
+  // rows -- those are invariably 40 rungs of one untraded ladder, which
+  // exercises exactly one code path.
+  if (fixture.length === 0 && raw.length > 0) {
+    const buckets = new Map<string, RawKalshiMarket[]>()
+    for (const m of raw) {
+      const r = toCandidate(m, { opensAfter, closesBefore }, VOLUME_FLOOR)
+      const key = r.ok ? "accepted" : r.reason
+      const bucket = buckets.get(key) ?? []
+      if (bucket.length < 6) bucket.push(m)
+      buckets.set(key, bucket)
+    }
+    fixture = [...buckets.keys()].sort().flatMap((k) => buckets.get(k) ?? [])
+    console.log(
+      `  fixture buckets: ${[...buckets.entries()]
+        .sort()
+        .map(([k, v]) => `${k}=${v.length}`)
+        .join(" ")}`,
+    )
+  }
+  perDay.push({ date, raw: raw.length, truncated, byFloor })
+  console.log(`${date}  ${String(raw.length).padStart(6)} markets${truncated ? "  TRUNCATED" : ""}`)
+}
+
+if (perDay.some((d) => d.truncated)) {
+  console.log(`\n!! at least one day hit the page cap; raise MAX_PAGES before trusting this`)
 }
 
 const sorted = [...allVolumes].sort((a, b) => a - b)
 const nonZero = sorted.filter((v) => v > 0)
 
-console.log(`\nsampled ${sorted.length} markets over ${days} days`)
-console.log(`  zero-volume:        ${sorted.length - nonZero.length} (${
-  ((1 - nonZero.length / Math.max(sorted.length, 1)) * 100).toFixed(1)
-}%)`)
+console.log(`\n${sorted.length} markets passed the structural filters over ${days} days`)
+console.log(
+  `  never traded:       ${sorted.length - nonZero.length} (${(
+    (1 - nonZero.length / Math.max(sorted.length, 1)) *
+    100
+  ).toFixed(1)}%)`,
+)
 console.log(`  median (all):       ${quantile(sorted, 0.5).toFixed(2)}   <- the spec's rule`)
-console.log(`  median (non-zero):  ${quantile(nonZero, 0.5).toFixed(2)}   <- use this`)
-console.log(`  p75 (non-zero):     ${quantile(nonZero, 0.75).toFixed(2)}`)
+console.log(`  median (traded):    ${quantile(nonZero, 0.5).toFixed(2)}   <- use this`)
+console.log(`  p75 (traded):       ${quantile(nonZero, 0.75).toFixed(2)}`)
 
 console.log(`\ndistinct series surviving, per day, by floor:`)
 console.log(`  floor  ${perDay.map((d) => d.date.slice(5)).join("  ")}   min`)
 for (const floor of FLOORS) {
   const counts = perDay.map((d) => d.byFloor.get(floor) ?? 0)
-  const cells = counts.map((c) => String(c).padStart(5)).join("  ")
-  console.log(`  ${String(floor).padStart(5)}  ${cells}   ${Math.min(...counts)}`)
+  console.log(
+    `  ${String(floor).padStart(5)}  ${counts.map((c) => String(c).padStart(5)).join("  ")}   ${Math.min(
+      ...counts,
+    )}`,
+  )
 }
-console.log(`\nPick the highest floor whose worst day still clears SLATE_MAX (5) series.`)
+console.log(`\nPick the highest floor whose worst day still clears SLATE_MAX (${SLATE_MAX}) series.`)
 
 writeFileSync(
   new URL("../src/adapters/kalshi/__fixtures__/candidates-page.json", import.meta.url),
-  `${JSON.stringify({ markets: firstPage }, null, 2)}\n`,
+  `${JSON.stringify({ markets: fixture }, null, 2)}\n`,
 )
-console.log(`\nwrote __fixtures__/candidates-page.json (${firstPage.length} markets)`)
+console.log(`\nwrote __fixtures__/candidates-page.json (${fixture.length} markets)`)
 ```
 
 - [ ] **Step 3: Run the sampler against the live API**
