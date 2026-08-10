@@ -683,6 +683,34 @@ signed Slack file URLs never reach the browser.
   rules (one day of doubled income; attacks cost one extra troop today; no wagers
   today), which sidesteps (4) because nothing compounds.
 
+- **Pluggable mechanics.** The market-betting and Slack-submission mechanics
+  become optional modules that a season enables, rather than being woven through
+  the pipeline. Decided in design discussion, not yet specified:
+
+  - **Modules dispatch through hooks at fixed points**, and never reorder the
+    pipeline — that is what keeps `resolve` deterministic and the golden file
+    meaningful. The four hooks mirror what the tick already does:
+    `grant` (steps 1–3: income, IRL soldiers, wager payouts), `spend` (step 5:
+    escrow), `lock` (step 6a: the veto), and `validate` (order rules a module
+    owns). Within a hook, modules run sorted by id.
+  - **Season-one module set:** `markets`, `irl`, and `veto`. The elimination veto
+    becomes its own module rather than living inside `irl`, because it is a core
+    mechanic whose *gate* (`postedToday`) belongs to IRL — with IRL off it would
+    otherwise either fire ungated or vanish silently.
+  - **Module state is module-owned.** `GameState.pending` is markets-shaped data
+    sitting in core state; it moves into `moduleState: Record<ModuleId, unknown>`
+    so core stops knowing about wagers. Costs a golden-file regeneration and a
+    sweep of every state literal in tests.
+  - **One spec covers modules and the rule catalogue above** — they are the same
+    abstraction, differing only in scope: `modules` is season-scoped and stable,
+    `rules` is day-scoped and voted. Both freeze into `tick_context`, both
+    dispatch through the same hooks.
+  - **Conflict rules still open:** `grant`s sum; `lock`s compose (parity stays
+    internal to the veto, union across modules); competing `spend`s against a
+    short reserve need an explicit module priority — which is also the clean
+    place to fix the deploy-inflation exploit, since that bug is exactly an
+    accident of claim ordering.
+
 ## Rejected review findings
 
 Recorded so they are not re-litigated:
