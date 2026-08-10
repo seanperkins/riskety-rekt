@@ -756,11 +756,20 @@ export function seriesOf(ticker: string): string {
   return dash === -1 ? ticker : ticker.slice(0, dash)
 }
 
+/**
+ * Kalshi quotes in deci-cents, so a midpoint is always a multiple of 0.00005
+ * and six decimal places is exact. Rounding is not cosmetic: `(0.47 + 0.62) / 2`
+ * is 0.5449999999999999, which both sinks below a 0.90 band edge it should sit
+ * on and makes a normal book's two mids sum to less than 1 -- 86 in-band
+ * bid/ask combinations would otherwise be dropped as crossed books.
+ */
+const PRICE_PRECISION = 1e6
+
 function midpoint(bid: unknown, ask: unknown): number {
   const b = parseDecimal(bid)
   const a = parseDecimal(ask)
   if (Number.isNaN(b) || Number.isNaN(a)) return Number.NaN
-  return (b + a) / 2
+  return Math.round(((b + a) / 2) * PRICE_PRECISION) / PRICE_PRECISION
 }
 
 function isIsoInstant(v: unknown): v is string {
@@ -820,8 +829,10 @@ export function toCandidate(
   }
 
   // Two independently snapshotted mids summing below 1.0 would make the
-  // both-sides hedge pay more than the intended 10% house bonus.
-  if (priceYes + priceNo < 1) return { ok: false, reason: "crossed-book" }
+  // both-sides hedge pay more than the intended 10% house bonus. The epsilon
+  // keeps float residue from rejecting a book that sums to exactly 1; a real
+  // crossed book is off by cents, never by 1e-9.
+  if (priceYes + priceNo < 1 - 1e-9) return { ok: false, reason: "crossed-book" }
 
   return {
     ok: true,
@@ -3280,15 +3291,23 @@ Corrections this plan makes to `docs/superpowers/specs/2026-08-09-riskety-rekt-d
 
 4. **Wagers must lock at `min(closeTime, settlementObservedAt)`.** Every sampled market carries `can_close_early: true`, so Kalshi may settle a market before its stated close — making the outcome public while the spec would still allow wager edits. This is the same exploit the per-market lock exists to close, arriving by a different door. The store records `settlements.observed_at`; **Plan 4's web app must use it.**
 
-5. **Prices are decimal strings, not cents.** `Number("")` is `0`, so a missing quote parsed loosely becomes a free price of zero — a variant of the `NaN` trap the spec already warns about. All numeric wire fields go through a strict regex parser.
+5. **Midpoints must be rounded before they are compared.** Found during
+   execution, not planning: `(0.47 + 0.62) / 2` is `0.5449999999999999`. That
+   residue both sinks a mid below a band edge it should sit exactly on and makes
+   a normal book's two sides sum to less than 1 — 86 in-band bid/ask
+   combinations would have been dropped as crossed books. Midpoints are rounded
+   to six decimal places (exact for deci-cent quotes) and the crossed-book
+   comparison carries a 1e-9 epsilon.
 
-6. **Pagination is mandatory.** One same-day close window returned 5,748 markets across 6 pages.
+6. **Prices are decimal strings, not cents.** `Number("")` is `0`, so a missing quote parsed loosely becomes a free price of zero — a variant of the `NaN` trap the spec already warns about. All numeric wire fields go through a strict regex parser.
 
-7. **`liquidity_dollars` is unusable.** It reads `"0.0000"` on every market in list responses. `volume_fp` is the only workable liquidity signal.
+7. **Pagination is mandatory.** One same-day close window returned 5,748 markets across 6 pages.
 
-8. **`?status=settled` returns `status: "finalized"`.** Never compare the response status against the query value.
+8. **`liquidity_dollars` is unusable.** It reads `"0.0000"` on every market in list responses. `volume_fp` is the only workable liquidity signal.
 
-9. **`?tickers=` returns rows in arbitrary order.** Results are mapped by ticker; zipping by index would assign one market's outcome to another.
+9. **`?status=settled` returns `status: "finalized"`.** Never compare the response status against the query value.
+
+10. **`?tickers=` returns rows in arbitrary order.** Results are mapped by ticker; zipping by index would assign one market's outcome to another.
 
 ## What this plan does not build
 
