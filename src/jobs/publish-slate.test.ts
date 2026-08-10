@@ -54,6 +54,40 @@ describe("runPublishSlate", () => {
     store.close()
   })
 
+  it("announces the slate it persisted", async () => {
+    const store = fresh()
+    const announced: { day: number; ids: string[] }[] = []
+    await runPublishSlate({
+      store,
+      adapter: stubAdapter([cand("A-1", 900), cand("B-1", 800)]),
+      seasonId: "s1",
+      now: AT_0800_DAY3,
+      announce: async (day, slate) => {
+        announced.push({ day, ids: slate.map((m) => m.id) })
+      },
+    })
+    expect(announced).toEqual([{ day: 3, ids: ["A-1", "B-1"] }])
+    store.close()
+  })
+
+  it("keeps the published slate when the announcement fails", async () => {
+    // Slack being down must not cost the day its slate -- the game is playable
+    // without the announcement, and a retry could only hit already-published.
+    const store = fresh()
+    const out = await runPublishSlate({
+      store,
+      adapter: stubAdapter([cand("A-1", 900)]),
+      seasonId: "s1",
+      now: AT_0800_DAY3,
+      announce: async () => {
+        throw new Error("slack is down")
+      },
+    })
+    expect(out.status).toBe("published")
+    expect(store.slatePublished("s1", 3)).toBe(true)
+    store.close()
+  })
+
   it("asks for a window of 09:00 to 21:00 ET on the slate's own day", async () => {
     const store = fresh()
     const adapter = stubAdapter([])

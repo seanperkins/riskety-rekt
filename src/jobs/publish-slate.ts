@@ -1,6 +1,7 @@
 import { SLATE_MIN, WINDOW_CLOSE_HOUR, WINDOW_OPEN_HOUR } from "../config.js"
 import { etDate, etDaysBetween, etInstant } from "../time.js"
 import { selectSlate } from "../slate/select.js"
+import type { Market } from "../engine/index.js"
 import type { MarketAdapter } from "../adapters/types.js"
 import type { SlateStore } from "../store/types.js"
 
@@ -17,6 +18,12 @@ export interface PublishDeps {
   /** Injected: the job holds no clock of its own, so tests can pin the day. */
   now: Date
   log?: (msg: string) => void
+  /**
+   * Optional so the job's existing tests stay offline and unchanged. Called
+   * only after the slate is persisted: a Slack outage must never cost the day
+   * its slate, and a slate announced but not stored would be a lie.
+   */
+  announce?: (day: number, slate: Market[]) => Promise<void>
 }
 
 /**
@@ -72,5 +79,17 @@ export async function runPublishSlate(deps: PublishDeps): Promise<PublishOutcome
   }
 
   log(`day ${day}: published ${slate.length} market(s): ${slate.map((m) => m.id).join(", ")}`)
+
+  if (deps.announce !== undefined) {
+    try {
+      await deps.announce(day, slate)
+    } catch (err) {
+      // The slate is already persisted and the game is playable. A failed
+      // announcement is worth a loud log, but not a throw: the retry it would
+      // trigger can only hit already-published.
+      log(`day ${day}: slate published but the Slack announcement failed: ${String(err)}`)
+    }
+  }
+
   return { status: "published", day, count: slate.length }
 }
