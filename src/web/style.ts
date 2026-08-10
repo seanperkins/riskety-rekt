@@ -83,19 +83,23 @@ body {
 .wrap {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
-  min-height: 100vh;
+  height: 100vh;
 }
 
 @media (max-width: 860px) {
   .wrap {
     grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+  .stage {
+    min-height: 70vh;
   }
 }
 
 .stage {
   background: var(--sea);
   overflow: hidden;
-  min-height: 60vh;
+  min-height: 0;
 }
 
 .stage svg {
@@ -205,9 +209,17 @@ body {
 }
 
 .label {
-  font-size: 6.4px;
   fill: var(--muted);
   pointer-events: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+.terr.dim { opacity: .42; }
+.label.dim { opacity: .45; }
+
+.rail a { color: inherit; text-decoration: none; border-bottom: 1px solid transparent; }
+.rail a:hover, .rail a:focus-visible { border-bottom-color: var(--accent); color: var(--accent); }
+.t tr.on td { font-weight: 650; }
+.t tr.on a { color: var(--accent); }
+.sub a { color: var(--accent); }
 `

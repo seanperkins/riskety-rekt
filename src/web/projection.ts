@@ -70,6 +70,52 @@ export function regionStats(
   })
 }
 
+export interface Focus {
+  /** The region and everything bordering it, as a standalone map. */
+  map: GameMap
+  /** Territories belonging to the focused region itself. */
+  inFocus: Set<string>
+}
+
+/**
+ * One region plus every territory that borders it.
+ *
+ * The whole-world view cannot do the job it exists for. Europe packs ~75
+ * territories into roughly 15° of latitude by 40° of longitude while Siberia
+ * spreads 6 across 100° of longitude, and equirectangular gives every degree the
+ * same pixels — so Europe collapses into an unreadable blob, which is exactly
+ * where a wrong border is most likely and least visible.
+ *
+ * Neighbours are included rather than the region alone because a region's
+ * borders LEAVE it: showing only its members would hide every edge worth
+ * checking.
+ *
+ * Returns `undefined` for an unknown region rather than an empty map, so the
+ * caller can 404 instead of rendering a blank page.
+ */
+export function focusRegion(map: GameMap, regionId: string): Focus | undefined {
+  const region = map.regions.find((r) => r.id === regionId)
+  if (region === undefined) return undefined
+
+  const members = map.territories.filter((t) => t.region === regionId)
+  const inFocus = new Set(members.map((t) => t.id))
+
+  const keep = new Set(inFocus)
+  for (const t of members) for (const n of t.neighbors) keep.add(n)
+
+  const territories = map.territories
+    .filter((t) => keep.has(t.id))
+    // Copies with neighbours filtered to the kept set, or the sub-map fails the
+    // same symmetry invariant the world has to pass.
+    .map((t) => ({ ...t, neighbors: t.neighbors.filter((n) => keep.has(n)) }))
+
+  const present = new Set(territories.map((t) => t.region))
+  return {
+    map: { regions: map.regions.filter((r) => present.has(r.id)), territories },
+    inFocus,
+  }
+}
+
 /** Every border once, as an unordered pair. */
 export function edges(map: GameMap): [string, string][] {
   const seen = new Set<string>()

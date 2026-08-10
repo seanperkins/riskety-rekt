@@ -18,9 +18,25 @@ export interface WebDeps {
  * database yet — when it does, it must stay on this side of the process, since
  * the store is the one thing a bundler would break.
  */
-const ROUTES: Record<string, () => string> = {
-  "/": () => renderMap(WORLD, COORDS),
-  "/map": () => renderMap(WORLD, COORDS),
+const ROUTES: Record<string, (params: URLSearchParams) => string | undefined> = {
+  "/": (p) => mapPage(p),
+  "/map": (p) => mapPage(p),
+}
+
+/** Known region ids, so `?region=` is checked against a set rather than trusted. */
+const REGION_IDS = new Set(WORLD.regions.map((r) => r.id))
+
+/**
+ * Returns `undefined` for an unknown `?region=`, which the caller turns into a
+ * 404. Rendering the whole world instead would silently ignore a typo and show
+ * something plausible — the worst outcome for a page whose job is catching
+ * mistakes.
+ */
+function mapPage(params: URLSearchParams): string | undefined {
+  const region = params.get("region")
+  if (region === null) return renderMap(WORLD, COORDS)
+  if (!REGION_IDS.has(region)) return undefined
+  return renderMap(WORLD, COORDS, region)
 }
 
 /**
@@ -34,9 +50,10 @@ export function createWebServer(deps: WebDeps): Server {
   const log = deps.log ?? (() => {})
 
   return createServer((req, res) => {
-    // Only the path matters; a query string or a fragment must not turn "/" into
-    // a 404, and the URL constructor needs an absolute base to parse against.
-    const path = new URL(req.url ?? "/", "http://localhost").pathname
+    // The URL constructor needs an absolute base to parse against. The path
+    // selects the route; the query string is the route's own business.
+    const url = new URL(req.url ?? "/", "http://localhost")
+    const path = url.pathname
 
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, { "content-type": "text/plain; charset=utf-8", allow: "GET, HEAD" })
@@ -53,7 +70,19 @@ export function createWebServer(deps: WebDeps): Server {
     }
 
     try {
-      const html = handler()
+      const html = handler(url.searchParams)
+      if (html === undefined) {
+        res.writeHead(404, { "content-type": "text/html; charset=utf-8" })
+        res.end(
+          page(
+            "Not found",
+            `<div class="rail"><h1 class="title">Not found</h1>
+        <p class="sub">No region <code>${esc(url.searchParams.get("region"))}</code>.
+        <a href="/map">Whole world</a>.</p></div>`,
+          ),
+        )
+        return
+      }
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         // The map is derived from committed data, so it is identical until the

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { GameMap } from "../engine/index.js"
 import { COORDS } from "../map/coords.js"
 import { WORLD } from "../map/world.js"
-import { regionStats, edges, project } from "./projection.js"
+import { edges, focusRegion, project, regionStats } from "./projection.js"
 
 const tiny: GameMap = {
   regions: [{ id: "x", name: "X", bonus: 0 }],
@@ -81,3 +81,59 @@ describe("regionStats", () => {
     })
   })
 })
+
+describe("focusRegion", () => {
+  it("includes the region and everything bordering it", () => {
+    const f = focusRegion(WORLD, "balkans")!
+    const ids = new Set(f.map.territories.map((t) => t.id))
+    // Its own eight.
+    for (const id of ["serbia", "croatia", "bosnia", "greece"]) expect(ids.has(id), id).toBe(true)
+    // And the neighbours, which is the point -- a region's borders LEAVE it, so
+    // showing only its members would hide every edge worth checking.
+    for (const id of ["austria", "hungary", "romania", "bulgaria", "veneto", "thrace"]) {
+      expect(ids.has(id), id).toBe(true)
+    }
+    // But nothing further out.
+    expect(ids.has("morocco")).toBe(false)
+  })
+
+  it("marks only the region's own territories as in focus", () => {
+    const f = focusRegion(WORLD, "balkans")!
+    expect(f.inFocus.has("serbia")).toBe(true)
+    expect(f.inFocus.has("hungary")).toBe(false)
+    expect(f.inFocus.size).toBe(WORLD.territories.filter((t) => t.region === "balkans").length)
+  })
+
+  it("produces a structurally valid sub-map", () => {
+    // Neighbour lists must be filtered to the kept set, or the sub-map fails the
+    // same symmetry invariant the world has to pass.
+    for (const r of WORLD.regions) {
+      expect(validateMapForFocus(focusRegion(WORLD, r.id)!.map), r.id).toBe(true)
+    }
+  })
+
+  it("does not mutate the world", () => {
+    const before = JSON.stringify(WORLD)
+    focusRegion(WORLD, "balkans")
+    expect(JSON.stringify(WORLD)).toBe(before)
+  })
+
+  it("returns undefined for an unknown region", () => {
+    // So the caller can 404 rather than render a blank page, which would
+    // silently swallow a typo on a tool whose job is catching mistakes.
+    expect(focusRegion(WORLD, "atlantis")).toBeUndefined()
+  })
+})
+
+/** Symmetry and no dangling references, which is what filtering can break. */
+function validateMapForFocus(map: GameMap): boolean {
+  const ids = new Set(map.territories.map((t) => t.id))
+  const byId = new Map(map.territories.map((t) => [t.id, t]))
+  for (const t of map.territories) {
+    for (const n of t.neighbors) {
+      if (!ids.has(n)) return false
+      if (!byId.get(n)!.neighbors.includes(t.id)) return false
+    }
+  }
+  return true
+}

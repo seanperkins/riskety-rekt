@@ -89,3 +89,36 @@ describe("the web server", () => {
     expect(res.headers["allow"]).toBe("GET, HEAD")
   })
 })
+
+describe("region focus", () => {
+  it("serves a focused region", async () => {
+    const res = await request("/map?region=balkans")
+    expect(res.status).toBe(200)
+    expect(res.body).toContain("Serbia")
+    // Far-away territories are excluded, which is the whole point.
+    expect(res.body).not.toContain("Madagascar")
+  })
+
+  it("404s an unknown region rather than falling back to the world", async () => {
+    // Silently showing something plausible is the worst outcome for a page
+    // whose job is catching mistakes -- a typo'd region would look like a
+    // successful check.
+    const res = await request("/map?region=atlantis")
+    expect(res.status).toBe(404)
+    expect(res.body).not.toContain("Serbia")
+  })
+
+  it("escapes an unknown region into the 404 page", async () => {
+    const res = await request("/map?region=a%26b")
+    expect(res.status).toBe(404)
+    expect(res.body).toContain("a&amp;b")
+  })
+
+  it("lists every region on the focused page, not just the ones on screen", async () => {
+    // The rail is how you get from one region to the next, so it must not
+    // shrink to whatever happens to be visible.
+    const res = await request("/map?region=balkans")
+    expect(res.body).toContain("The Maghreb")
+    expect(res.body).toContain("Oceania")
+  })
+})
