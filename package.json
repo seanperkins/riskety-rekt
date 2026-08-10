@@ -11,6 +11,11 @@
     "publish-slate": "tsx src/jobs/cli.ts publish-slate",
     "poll-settlements": "tsx src/jobs/cli.ts poll-settlements",
     "season:init": "tsx src/jobs/cli.ts season-init",
+    "tick": "tsx src/jobs/cli.ts tick",
+    "tick:rerun": "tsx src/jobs/cli.ts tick-rerun",
+    "recap": "tsx src/jobs/cli.ts recap",
+    "order": "tsx src/jobs/cli.ts order",
+    "wager": "tsx src/jobs/cli.ts wager",
     "roster:add": "tsx src/jobs/cli.ts roster-add",
     "roster:list": "tsx src/jobs/cli.ts roster-list",
     "slack": "tsx src/slack/cli.ts"
