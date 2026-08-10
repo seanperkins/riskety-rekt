@@ -22,13 +22,38 @@ each is testable alone, so they are now three plans plus a prerequisite:
 | Project | Scope | Depends on |
 |---|---|---|
 | **This spec** | orders, `claimTick`, the 21:00 tick, season deal | Plans 1–3 |
-| **Map** | a ~70-territory board: names, continents, adjacency, polygons | nothing |
+| **Map** | a ~105-territory board as ~15 continents of ~7: names, adjacency, polygons | nothing |
 | **Projection & renderer** | public projection, confidentiality tests, SVG board, PNG for the recap | map |
 | **Web app** | Next.js, `/login` magic link, order forms, droplet + Caddy | projection |
 
 This spec is deliberately **map-agnostic**. `createSeason(seasonId, factions,
 territoryIds)` already takes an arbitrary territory list, so nothing here needs
 to know how big the board is.
+
+### Why the board scales with the roster, not with capacity
+
+The economy keys on the *absolute* territory count — `max(5, floor(t/2))` — so
+what has to stay constant across headcounts is **territories per faction at the
+deal**, which the original 42/6 board sets at 7.0. A single board sized for the
+maximum would drift: 105 territories dealt to 8 factions is 13 each, which starts
+every player above the income floor instead of at it, and puts continent bonuses
+in reach on day one.
+
+So the map is specified as **~15 continents of ~7 territories**, and a season uses
+**one continent per faction**, chosen as a connected block. That is a
+generalization of the original board rather than a departure from it: 42
+territories in 6 continents for 6 players is already one continent per player at
+seven territories each.
+
+| Factions | Continents dealt | Territories | Per faction |
+|---|---|---|---|
+| 8 | 8 | ~56 | 7.0 |
+| 12 | 12 | ~84 | 7.0 |
+| 15 | 15 | ~105 | 7.0 |
+
+The income formula, the combat rules and the wager economy are untouched at every
+row of that table. Choosing the connected block is the map spec's problem, not
+this one's — all this spec needs is that the territory list is an argument.
 
 ## Goals
 
@@ -68,14 +93,18 @@ CREATE TABLE orders (
   PRIMARY KEY (season_id, day, faction_id)
 );
 
+-- first_staked_at is set once and never updated. It anchors the correction
+-- window, and a row is kept (with stake 0) rather than deleted when a player
+-- backs out, so an abandoned market stays closed to that faction for the day.
 CREATE TABLE order_wagers (
-  season_id  TEXT NOT NULL,
-  day        INTEGER NOT NULL,
-  faction_id TEXT NOT NULL,
-  market_id  TEXT NOT NULL,
-  side       TEXT NOT NULL CHECK (side IN ('yes','no')),
-  stake      INTEGER NOT NULL,
-  updated_at TEXT NOT NULL,
+  season_id       TEXT NOT NULL,
+  day             INTEGER NOT NULL,
+  faction_id      TEXT NOT NULL,
+  market_id       TEXT NOT NULL,
+  side            TEXT NOT NULL CHECK (side IN ('yes','no')),
+  stake           INTEGER NOT NULL CHECK (stake >= 0),
+  first_staked_at TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
   PRIMARY KEY (season_id, day, faction_id, market_id)
 );
 
@@ -120,10 +149,37 @@ per-market lock exists to close, arriving through a different door. The
 A wager on a market not on the day's slate is rejected outright. The stake price
 is never taken from the caller; the engine reads it from the persisted slate.
 
-Re-staking the same market replaces the row rather than adding one — the primary
-key sees to that. **A stake of `0` deletes the row**, which is how a player backs
-out of a bet before its market closes; after the lock, both the replace and the
-delete are refused.
+### The correction window
+
+A placed wager cannot be freely withdrawn. It may be changed — side, stake, or
+removed entirely with a stake of `0` — only within `WAGER_EDIT_WINDOW_MINUTES`
+(60) of **the first time that faction touched that market on that day**, and only
+while the market itself is still open.
+
+Free withdrawal would make every wager a free option. Stakes are not escrowed
+until 21:00 and the price is frozen at the 08:00 snapshot, so a player could
+stake YES in the morning, watch the market all day, keep the bet when news went
+their way and withdraw it for nothing when it did not. That is the same
+information asymmetry the per-market close lock exists to close, approached from
+the other side: instead of placing a near-certainty late, un-placing a near-loss
+late.
+
+**The window is anchored to first touch, not to the latest edit.** Anchoring it
+per-placement is exploitable: withdraw at 08:59, wait until noon, re-place at
+noon — still at the 08:00 price — and the option is renewed. Rolled forward, a
+sequence of one-hour windows reconstructs the continuous free option the rule was
+meant to prevent. `order_wagers` therefore carries `first_staked_at`, set once and
+never updated, and a market that has been touched and abandoned stays closed to
+that faction for the rest of the day.
+
+An hour bounds the remaining optionality to a single hour of price movement,
+which is the price of letting someone fix a stake they fat-fingered. Zero
+tolerance would be defensible too; this is the cheaper trade.
+
+A withdrawn wager leaves its row behind with `stake = 0`. The row is the record
+that the market was touched, and deleting it would hand back the option by
+letting the faction start a fresh window. The engine ignores zero-stake wagers,
+so nothing downstream needs to know.
 
 ## The tick
 
@@ -226,9 +282,9 @@ the recap.
 
 ## Season length
 
-`SEASON_LENGTH` drops from 21 to 14. With 8–10 players a 21-day season runs long,
-and the closest commercial analogues — Neptune's Pride and Subterfuge — settle
-around a week at that headcount.
+`SEASON_LENGTH` drops from 21 to 14. A 21-day season runs long for a group this
+size, and the closest commercial analogues — Neptune's Pride (up to 8 players)
+and Subterfuge (up to 10) — settle around a week at high player counts.
 
 Measured on 2,000 simulated seasons at six policies, shortening to 14 days moves
 the day-3 leader's conversion from 32.3% to 36.3% and leaves the exploit prober
@@ -269,9 +325,9 @@ re-litigated.
 
 | Original spec | This design | Why |
 |---|---|---|
-| 21-day season | 14 days | 8–10 players, not 4–6. Measured effect on early decision is +4 points, well inside tolerance. |
-| 4–6 factions | 8–10 | The group is larger than the original design assumed. Requires a bigger map, specified separately. |
-| Standard 42-territory Risk map | a ~70-territory board, its own spec | 42 territories at 10 factions is 4.2 each, which pins every player at the income floor all season — the exact failure the spec already rejected once. Sizing to ~7 territories per faction keeps the economy untouched. |
+| 21-day season | 14 days | A larger group over 21 days runs long; the closest commercial analogues settle near a week at high player counts. Measured effect on early decision is +4 points, well inside tolerance. |
+| 4–6 factions | 4–15 | The Slack group is 15. `MAX_FACTIONS` becomes 15; `season-init` still refuses a roster outside the bounds. |
+| Standard 42-territory Risk map | a board of ~15 continents × ~7 territories, dealt one continent per faction, in its own spec | 42 territories at 15 factions is 2.8 each, which pins every player at the income floor all season — the exact failure the original spec already rejected once, in the same words. Dealing one continent per faction holds territories-per-faction at 7.0 for any headcount, which leaves the economy, combat and wager rules untouched. |
 | `Store.saveOrder(…, orderBody)` | split into `saveOrder` and `saveWager` | Deploys and wagers lock on different clocks. One blob forces a merge on every write. |
 | Slack OAuth for the web app | a `/login` slash command that DMs a magic link | The slash command payload already carries a signature-verified `user_id`, so Slack has authenticated the player before the server sees anything. No OAuth callback, no user tokens, and it reuses the roster and signing-secret verification already built. Specified with the web app. |
 
@@ -285,3 +341,27 @@ re-litigated.
   zero-post policy and it is never eliminated.
 - **Re-examining the balance run.** The recorded headline numbers no longer match
   what the committed code produces, and that predates this work.
+
+## Known unvalidated
+
+**Nothing about 15 factions has been simulated.** Every balance number this
+project has — the exploit-prober's 0.1%, the day-3 conversion rate, the spread
+across policies — comes from six policies on the 42-territory board. The
+simulator drives the real engine, so it *can* answer the 15-faction questions,
+but only once a board that size exists to drive it over.
+
+The map spec should therefore ship with a balance run at full headcount, and it
+should expect to find things. Two interactions are predictable enough to name now:
+
+- **Elimination volume.** Fifteen factions means more players eliminated, earlier,
+  each holding a daily veto. On a 105-territory board eight vetoes cover 7.6% of
+  the map — a better ratio than the 42-territory board would give, but the
+  mechanic was tuned when at most a couple of players could be dead at once.
+- **Decisiveness.** Combat is 1:1, so ground is expensive, and a 14-day season on
+  a board 2.5× larger may end with the field bunched. That pushes weight onto the
+  `garrisons + reserves` tiebreak, which the existing handoff already identifies
+  as exactly where banked IRL soldiers land — so a shorter season on a bigger map
+  makes the IRL channel *more* decisive, not less. That interacts directly with the
+  still-open question of whether the IRL grant is too strong.
+
+Neither blocks this spec, which is map-agnostic. Both block dealing a real season.
