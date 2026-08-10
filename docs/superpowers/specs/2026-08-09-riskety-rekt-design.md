@@ -653,6 +653,35 @@ signed Slack file URLs never reach the browser.
   granting soldiers. Revisit after season one produces real balance data.
 - **Bot factions.** The order interface accommodates them.
 - **Respawn on elimination.** Superseded by the daily protection.
+- **Daily rule votes.** A catalogue of optional rules — each with a `name`, a
+  `description`, and a module implementing it — from which the group votes one in
+  each day. Not scoped yet; recorded so the constraints are not rediscovered later.
+
+  Four things this must respect, all of which the current architecture already
+  points at:
+
+  1. **The active rule set is an input, never ambient.** The engine's purity is
+     what makes the simulator and golden-file replay possible. Rule modules must
+     be pure functions selected by id, and the set of ids active on a given tick
+     must cross the boundary as data — the natural shape is a `rules: RuleId[]`
+     field on `DailyContext`, alongside `slate`, `approvals` and `postedToday`.
+  2. **It must be frozen per tick.** A rule voted in on day 5 changes how day 5
+     resolves, so the active set has to be recorded at claim time or a rerun
+     replays the wrong rules. The tick-runner spec's `tick_context` table is the
+     right home; it already records the rest of the day's inputs for this reason.
+  3. **Voting reuses the Slack ingest.** Posting the day's candidate rules and
+     counting reactions is the same machinery as workout approval — `posts`,
+     `reactions`, emoji normalization and the dedupe ledger all already exist.
+     A vote is a post the bot authored and a reaction tally against it.
+  4. **It breaks the balance model.** Every balance number this project has
+     assumes one fixed rule set. A game whose rules change mid-season cannot be
+     summarized by a single simulation run; the simulator would need to model
+     rule sets, or the catalogue must be restricted to rules whose effects are
+     provably bounded. Decide which before the first vote, not after.
+
+  The cheapest first version is a small catalogue of *reversible, single-tick*
+  rules (one day of doubled income; attacks cost one extra troop today; no wagers
+  today), which sidesteps (4) because nothing compounds.
 
 ## Rejected review findings
 
