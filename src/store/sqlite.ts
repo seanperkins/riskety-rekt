@@ -48,16 +48,6 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out
 }
 
-/** Retry budget for SQLITE_BUSY, and the backoff before each retry. */
-const BUSY_BACKOFF_MS = [50, 200, 500]
-
-/**
- * Block the thread without async. `transaction` is synchronous because
- * DatabaseSync is, so there is no event loop to await on.
- */
-const sleepBuf = new Int32Array(new SharedArrayBuffer(4))
-const sleepSync = (ms: number): void => void Atomics.wait(sleepBuf, 0, 0, ms)
-
 export function openStore(
   path: string,
 ): SlateStore & RosterStore & ApprovalStore & OrderStore & StateStore & Transactional {
@@ -65,6 +55,13 @@ export function openStore(
   // WAL lets the web app, the Slack bot and the timer share one file. The
   // likeliest thing to block the 21:00 tick is our own second process.
   db.exec("PRAGMA journal_mode = WAL")
+  // The ONE layer of contention handling. Every transaction here opens with
+  // BEGIN IMMEDIATE, which takes the write lock up front, and busy_timeout
+  // applies to exactly that acquisition. The failure mode people reach for a
+  // manual retry to cover -- SQLITE_BUSY_SNAPSHOT, where a deferred transaction
+  // that has already read tries to upgrade and gets an immediate error that
+  // busy_timeout does NOT cover -- cannot arise, because nothing here opens a
+  // deferred transaction.
   db.exec("PRAGMA busy_timeout = 5000")
   db.exec("PRAGMA foreign_keys = ON")
   migrate(db)
@@ -133,17 +130,25 @@ export function openStore(
     },
 
     publishSlate(seasonId: string, day: number, slate: Market[], publishedAt: Date): boolean {
-      // The publication row is the lock. Inserting it first means a second
-      // caller collides on the primary key before writing a single market.
-      db.exec("BEGIN IMMEDIATE")
-      try {
+      // Goes through `transaction` like every other public writer. It used to
+      // open its own BEGIN IMMEDIATE without touching the nesting flag, which
+      // made the "single owner of BEGIN" rule in types.ts false and left the
+      // nesting guard blind to it: composing it under a transaction raised
+      // SQLite's "cannot start a transaction within a transaction" from
+      // whatever statement happened to run next. Composing it is still an
+      // error -- public writers own their transaction and do not nest -- but it
+      // is now this file's error, raised at the BEGIN, naming the cause.
+      //
+      // Returning false now commits an empty transaction rather than rolling
+      // back. Same outcome: nothing was written on that path.
+      return this.transaction(() => {
+        // The publication row is the lock. Inserting it first means a second
+        // caller collides on the primary key before writing a single market.
         const existing = db
           .prepare("SELECT 1 FROM slate_publications WHERE season_id = ? AND day = ?")
           .get(seasonId, day)
-        if (existing !== undefined) {
-          db.exec("ROLLBACK")
-          return false
-        }
+        if (existing !== undefined) return false
+
         db.prepare(
           `INSERT INTO slate_publications (season_id, day, published_at, market_count)
            VALUES (?, ?, ?, ?)`,
@@ -157,12 +162,8 @@ export function openStore(
         for (const m of slate) {
           insert.run(seasonId, day, m.id, m.question, m.priceYes, m.priceNo, m.closeTime)
         }
-        db.exec("COMMIT")
         return true
-      } catch (err) {
-        db.exec("ROLLBACK")
-        throw err
-      }
+      })
     },
 
     slatePublished(seasonId: string, day: number): boolean {
@@ -361,30 +362,34 @@ export function openStore(
       return rows.map((r) => ({ factionId: r.faction_id, reactedAt: r.reacted_at }))
     },
 
+    /**
+     * The only BEGIN in this file. Every other method is statement-only and
+     * composes inside this one -- that is what makes the nesting guard below
+     * meaningful rather than decorative.
+     *
+     * There is deliberately no retry loop. An earlier one matched
+     * `/SQLITE_BUSY/` against `String(err)`, but node:sqlite renders a lock
+     * collision as `Error: database is locked` with the code on `err.errcode`
+     * (5), so the branch never once fired -- it was 750ms of backoff that could
+     * not be reached, plus a SharedArrayBuffer that existed only to sleep for
+     * it. busy_timeout already waits 5s for the write lock; a collision that
+     * outlives that is a stuck writer, not a transient one.
+     */
     transaction<T>(fn: () => T): T {
       if (inTransaction) throw new Error("transaction: cannot nest transactions")
-      for (let attempt = 0; ; attempt++) {
-        db.exec("BEGIN IMMEDIATE")
-        inTransaction = true
-        try {
-          const out = fn()
-          db.exec("COMMIT")
-          return out
-        } catch (err) {
-          db.exec("ROLLBACK")
-          // Under WAL a writer can lose the lock race even with busy_timeout
-          // set, and the whole day's work is inside this transaction -- so a
-          // transient collision is worth a few retries before it becomes a
-          // missed tick.
-          const busy = /SQLITE_BUSY/.test(String(err))
-          const backoff = BUSY_BACKOFF_MS[attempt]
-          if (!busy || backoff === undefined) throw err
-          sleepSync(backoff)
-        } finally {
-          // Released on every path, or one failed tick would leave the store
-          // permanently unable to open another transaction.
-          inTransaction = false
-        }
+      db.exec("BEGIN IMMEDIATE")
+      inTransaction = true
+      try {
+        const out = fn()
+        db.exec("COMMIT")
+        return out
+      } catch (err) {
+        db.exec("ROLLBACK")
+        throw err
+      } finally {
+        // Released on every path, or one failed tick would leave the store
+        // permanently unable to open another transaction.
+        inTransaction = false
       }
     },
 

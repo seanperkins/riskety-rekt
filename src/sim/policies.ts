@@ -1,4 +1,4 @@
-import { RISK_MAP, territoriesOf } from "../engine/index.js"
+import { RISK_MAP, cmp, territoriesOf } from "../engine/index.js"
 import type { FactionId, GameState, Market, Order, TerritoryId } from "../engine/index.js"
 
 export type Rng = () => number
@@ -24,7 +24,6 @@ export interface Policy {
 }
 
 const byId = new Map(RISK_MAP.territories.map((t) => [t.id, t]))
-const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 const empty = (factionId: FactionId): Order => ({
   factionId,

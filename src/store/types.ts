@@ -116,11 +116,16 @@ export interface ApprovalStore {
  * The single owner of `BEGIN IMMEDIATE`.
  *
  * SQLite has no nested transactions, so exactly one place opens them and every
- * other store method is statement-only. The public writers -- saveOrder,
- * saveWager, the tick, the rerun, season-init -- each wrap themselves in one
- * call. That is load-bearing rather than stylistic: if a writer's gates and its
- * write were separately committed, a tick could commit between them, which is
- * the race the design has no lock table to catch.
+ * other store method is statement-only. The public writers -- publishSlate,
+ * saveOrder, saveWager, the tick, the rerun, season-init -- each wrap
+ * themselves in one call. That is load-bearing rather than stylistic: if a
+ * writer's gates and its write were separately committed, a tick could commit
+ * between them, which is the race the design has no lock table to catch.
+ *
+ * One exemption, and only one: `migrate` in schema.ts. It runs against a
+ * database whose schema predates this interface, before `openStore` has
+ * returned anything to call `transaction` on, and each migration must commit
+ * separately so a later failure does not roll back earlier ones.
  */
 export interface Transactional {
   transaction<T>(fn: () => T): T

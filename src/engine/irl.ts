@@ -1,11 +1,10 @@
+import { cmp } from "./sort.js"
 import type { ApprovedAction, FactionId } from "./types.js"
 
 export interface IrlGrant {
   actions: number
   bonus: number
 }
-
-const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 /**
  * Convert a day's approved actions into per-faction soldier grants.

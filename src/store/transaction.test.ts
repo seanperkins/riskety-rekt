@@ -48,6 +48,23 @@ describe("transaction", () => {
     store.close()
   })
 
+  it("routes publishSlate through the same guard", () => {
+    // publishSlate used to open its own BEGIN IMMEDIATE without touching the
+    // nesting flag, so this composition reached SQLite and failed there with
+    // "cannot start a transaction within a transaction" -- the guard built to
+    // catch it never saw it. Composing public writers is still an error; the
+    // point is that it is now THIS error.
+    const store = openStore(":memory:")
+    store.upsertSeason(SEASON)
+    expect(() => store.transaction(() => store.publishSlate("s1", 1, [], new Date()))).toThrow(
+      /nest/i,
+    )
+    // And the guard released, so the store is still usable.
+    expect(store.publishSlate("s1", 1, [], new Date())).toBe(true)
+    expect(store.publishSlate("s1", 1, [], new Date())).toBe(false)
+    store.close()
+  })
+
   it("migration 3 runs against a fresh database", () => {
     // The new tables exist and the season row carries the seed column.
     const store = openStore(":memory:")

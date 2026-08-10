@@ -1,3 +1,4 @@
+export { cmp } from "./sort.js"
 export { RISK_MAP } from "./map.js"
 export { createSeason, territoriesOf, continentBonusesFor } from "./setup.js"
 export { territoryIncome } from "./income.js"
