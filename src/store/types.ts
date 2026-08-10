@@ -1,4 +1,11 @@
-import type { FactionId, Market, MarketId, Settlement } from "../engine/index.js"
+import type {
+  FactionId,
+  GameState,
+  Market,
+  MarketId,
+  Settlement,
+  TerritoryId,
+} from "../engine/index.js"
 
 export interface SeasonRow {
   seasonId: string
@@ -117,4 +124,66 @@ export interface ApprovalStore {
  */
 export interface Transactional {
   transaction<T>(fn: () => T): T
+}
+
+export interface WagerInput {
+  marketId: MarketId
+  side: "yes" | "no"
+  stake: number
+}
+
+/** Deploys, attacks and protect. `factionId` is deliberately absent — the caller supplies it. */
+export interface OrderBody {
+  deploys: { territory: TerritoryId; count: number }[]
+  attacks: { from: TerritoryId; to: TerritoryId; count: number }[]
+  protect: TerritoryId | null
+}
+
+export type SaveRejection =
+  | "day-out-of-range"
+  | "past-deadline"
+  | "already-resolved"
+  | "market-locked"
+  | "not-on-slate"
+  | "bad-stake"
+
+export type SaveResult = { ok: true } | { ok: false; reason: SaveRejection }
+
+export interface WagerRow {
+  marketId: MarketId
+  side: "yes" | "no"
+  stake: number
+  firstStakedAt: string
+}
+
+/**
+ * The two write paths. Each owns one transaction: their gates and their write
+ * must be atomic, or a tick can commit between the check and the write.
+ *
+ * Rejections are returned rather than thrown — they are expected outcomes on a
+ * normal evening, and the CLI needs to tell them apart from a system failure.
+ */
+export interface OrderStore {
+  saveOrder(
+    seasonId: string,
+    day: number,
+    factionId: FactionId,
+    body: OrderBody,
+    now: Date,
+  ): SaveResult
+  saveWager(
+    seasonId: string,
+    day: number,
+    factionId: FactionId,
+    wager: WagerInput,
+    now: Date,
+  ): SaveResult
+  /** Test and assembly read path. Ordered by first_staked_at, then market_id. */
+  wagersFor(seasonId: string, day: number, factionId: FactionId): WagerRow[]
+}
+
+/** State persistence. `saveState` is an INSERT — inside the tick's transaction it runs once. */
+export interface StateStore {
+  stateExists(seasonId: string, day: number): boolean
+  saveState(state: GameState, engineVersion: string): void
 }

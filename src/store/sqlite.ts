@@ -21,7 +21,13 @@ const { DatabaseSync } = nodeRequire("node:sqlite") as { DatabaseSync: typeof Da
 import { migrate } from "./schema.js"
 import type {
   ApprovalStore,
+  OrderBody,
+  OrderStore,
+  SaveResult,
+  StateStore,
   Transactional,
+  WagerInput,
+  WagerRow,
   ApproverRow,
   PostRow,
   RosterMember,
@@ -29,7 +35,8 @@ import type {
   SeasonRow,
   SlateStore,
 } from "./types.js"
-import type { FactionId } from "../engine/index.js"
+import type { FactionId, GameState } from "../engine/index.js"
+import { tickInstant } from "../season.js"
 import { etDate, slackTsToIso } from "../time.js"
 
 /** SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; stay well under it. */
@@ -53,7 +60,7 @@ const sleepSync = (ms: number): void => void Atomics.wait(sleepBuf, 0, 0, ms)
 
 export function openStore(
   path: string,
-): SlateStore & RosterStore & ApprovalStore & Transactional {
+): SlateStore & RosterStore & ApprovalStore & OrderStore & StateStore & Transactional {
   const db = new DatabaseSync(path)
   // WAL lets the web app, the Slack bot and the timer share one file. The
   // likeliest thing to block the 21:00 tick is our own second process.
@@ -63,6 +70,44 @@ export function openStore(
   migrate(db)
 
   let inTransaction = false
+
+  const stateExistsRow = (seasonId: string, day: number): boolean =>
+    db.prepare("SELECT 1 FROM states WHERE season_id = ? AND day = ?").get(seasonId, day) !==
+    undefined
+
+  const seasonRow = (seasonId: string): SeasonRow => {
+    const row = db
+      .prepare("SELECT season_id, start_date, length_days FROM seasons WHERE season_id = ?")
+      .get(seasonId) as { season_id: string; start_date: string; length_days: number } | undefined
+    if (row === undefined) throw new Error(`unknown season ${seasonId}`)
+    return {
+      seasonId: row.season_id,
+      startDate: row.start_date,
+      lengthDays: Number(row.length_days),
+    }
+  }
+
+  /**
+   * The three gates every order write shares, evaluated inside the caller's
+   * transaction. A local closure, not a store method — nothing outside this
+   * file should be able to check the gates without also doing the write.
+   *
+   * The clock is the deadline and the state row is the race guard: a submit at
+   * 20:59:59.9 is legal by the clock and either commits before the tick's
+   * transaction or waits behind it — and if it waits, it then sees the state row
+   * rather than landing on a day that has already resolved.
+   */
+  const orderGate = (seasonId: string, day: number, now: Date): SaveResult => {
+    const season = seasonRow(seasonId)
+    if (!Number.isSafeInteger(day) || day < 1 || day > season.lengthDays) {
+      return { ok: false, reason: "day-out-of-range" }
+    }
+    if (now.getTime() >= tickInstant(season, day).getTime()) {
+      return { ok: false, reason: "past-deadline" }
+    }
+    if (stateExistsRow(seasonId, day)) return { ok: false, reason: "already-resolved" }
+    return { ok: true }
+  }
 
   return {
     season(seasonId: string): SeasonRow | undefined {
@@ -341,6 +386,118 @@ export function openStore(
           inTransaction = false
         }
       }
+    },
+
+    saveOrder(
+      seasonId: string,
+      day: number,
+      factionId: FactionId,
+      body: OrderBody,
+      now: Date,
+    ): SaveResult {
+      return this.transaction((): SaveResult => {
+        const gate = orderGate(seasonId, day, now)
+        if (!gate.ok) return gate
+        db.prepare(
+          `INSERT INTO orders (season_id, day, faction_id, body, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (season_id, day, faction_id)
+             DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at`,
+        ).run(seasonId, day, factionId, JSON.stringify(body), now.toISOString())
+        return { ok: true }
+      })
+    },
+
+    saveWager(
+      seasonId: string,
+      day: number,
+      factionId: FactionId,
+      wager: WagerInput,
+      now: Date,
+    ): SaveResult {
+      return this.transaction((): SaveResult => {
+        const gate = orderGate(seasonId, day, now)
+        if (!gate.ok) return gate
+        if (!Number.isSafeInteger(wager.stake) || wager.stake <= 0) {
+          return { ok: false, reason: "bad-stake" }
+        }
+
+        const onSlate = db
+          .prepare(
+            `SELECT 1 FROM slate_markets
+              WHERE season_id = ? AND day = ? AND market_id = ?`,
+          )
+          .get(seasonId, day, wager.marketId)
+        if (onSlate === undefined) return { ok: false, reason: "not-on-slate" }
+
+        // COALESCE is load-bearing. An unsettled market has no settlements row,
+        // so observed_at is NULL, and SQLite's min() returns NULL if ANY
+        // argument is NULL -- a bare MIN(close_time, observed_at) > now would
+        // evaluate NULL for the common case and read a closed market as open.
+        const stillOpen = db
+          .prepare(
+            `SELECT 1
+               FROM slate_markets sm
+               LEFT JOIN settlements s ON s.market_id = sm.market_id
+              WHERE sm.season_id = ? AND sm.day = ? AND sm.market_id = ?
+                AND COALESCE(MIN(sm.close_time, s.observed_at), sm.close_time) > ?`,
+          )
+          .get(seasonId, day, wager.marketId, now.toISOString())
+        if (stillOpen === undefined) return { ok: false, reason: "market-locked" }
+
+        // first_staked_at is deliberately absent from the DO UPDATE list: it
+        // anchors the ordering of the sequential-greedy reserve check, and
+        // letting a re-stake move it would hand the player that lever.
+        db.prepare(
+          `INSERT INTO order_wagers
+             (season_id, day, faction_id, market_id, side, stake, first_staked_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (season_id, day, faction_id, market_id)
+             DO UPDATE SET side = excluded.side, stake = excluded.stake`,
+        ).run(
+          seasonId,
+          day,
+          factionId,
+          wager.marketId,
+          wager.side,
+          wager.stake,
+          now.toISOString(),
+        )
+        return { ok: true }
+      })
+    },
+
+    wagersFor(seasonId: string, day: number, factionId: FactionId): WagerRow[] {
+      const rows = db
+        .prepare(
+          `SELECT market_id, side, stake, first_staked_at
+             FROM order_wagers
+            WHERE season_id = ? AND day = ? AND faction_id = ?
+            ORDER BY first_staked_at, market_id`,
+        )
+        .all(seasonId, day, factionId) as {
+        market_id: string
+        side: string
+        stake: number
+        first_staked_at: string
+      }[]
+      return rows.map((r) => ({
+        marketId: r.market_id,
+        side: r.side === "no" ? "no" : "yes",
+        stake: Number(r.stake),
+        firstStakedAt: r.first_staked_at,
+      }))
+    },
+
+    stateExists(seasonId: string, day: number): boolean {
+      return stateExistsRow(seasonId, day)
+    },
+
+    /** INSERT, never upsert: inside the tick's transaction it can run only once. */
+    saveState(state: GameState, engineVersion: string): void {
+      db.prepare(
+        `INSERT INTO states (season_id, day, state, engine_version) VALUES (?, ?, ?, ?)`,
+      ).run(state.seasonId, state.day, JSON.stringify(state), engineVersion)
     },
 
     close(): void {
