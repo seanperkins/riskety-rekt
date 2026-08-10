@@ -2365,8 +2365,26 @@ Expected: FAIL — `Failed to resolve import "./sqlite.js"`
 - [ ] **Step 5: Write `src/store/sqlite.ts`**
 
 ```ts
-import { DatabaseSync } from "node:sqlite"
+import { createRequire } from "node:module"
+import type { DatabaseSync as DatabaseSyncCtor } from "node:sqlite"
 import type { Market, MarketId, Settlement } from "../engine/index.js"
+
+/**
+ * Loaded through createRequire rather than a static import.
+ *
+ * Vite decides a specifier is a Node builtin with
+ * `builtinModules.filter(id => !id.includes(":"))`, and Node lists this module
+ * only as "node:sqlite" -- never bare "sqlite". Something upstream strips the
+ * prefix before the check, so a static `import ... from "node:sqlite"` resolves
+ * to "sqlite", matches nothing, and every test in this file fails to load.
+ * A runtime require is opaque to the bundler and reaches Node unchanged.
+ *
+ * The `import type` above is erased at compile time, so this keeps full typing
+ * without reintroducing the static specifier. Revisit when Vite handles the
+ * prefixed-only builtins.
+ */
+const nodeRequire = createRequire(import.meta.url)
+const { DatabaseSync } = nodeRequire("node:sqlite") as { DatabaseSync: typeof DatabaseSyncCtor }
 import { migrate } from "./schema.js"
 import type { SeasonRow, SlateStore } from "./types.js"
 
@@ -2529,7 +2547,7 @@ Note: `close_time` is compared as an ISO-8601 string. That is a correct chronolo
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `npx vitest run src/store/sqlite.test.ts`
-Expected: PASS, 22 tests. An `ExperimentalWarning: SQLite is an experimental feature` on stderr is expected and harmless.
+Expected: PASS, 23 tests. An `ExperimentalWarning: SQLite is an experimental feature` on stderr is expected and harmless.
 
 - [ ] **Step 7: Typecheck and commit**
 
