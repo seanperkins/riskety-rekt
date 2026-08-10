@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { etDate, etDaysBetween, etInstant } from "./time.js"
+import { etDate, etDateAdd, etDaysBetween, etInstant, slackTsToIso } from "./time.js"
 
 describe("etDate", () => {
   it("returns the ET calendar date, not the UTC one", () => {
@@ -54,5 +54,45 @@ describe("etDaysBetween", () => {
 
   it("goes negative before the start", () => {
     expect(etDaysBetween("2026-08-10", "2026-08-08")).toBe(-2)
+  })
+})
+
+describe("slackTsToIso", () => {
+  it("converts a Slack ts to an ISO instant", () => {
+    // Slack sends seconds with a six-digit suffix, as a string.
+    expect(slackTsToIso("1723237200.000200")).toBe("2024-08-09T21:00:00.000Z")
+  })
+
+  it("keeps millisecond precision", () => {
+    expect(slackTsToIso("1723237200.123456")).toBe("2024-08-09T21:00:00.123Z")
+  })
+
+  it("rejects anything that is not a Slack ts", () => {
+    // Never parse one of these with bare Number(): Number("") is 0, which would
+    // silently place a post at the Unix epoch and hide it from every day query.
+    for (const bad of ["", "abc", "1723237200", "1723237200.", ".000200", "-1.0"]) {
+      expect(() => slackTsToIso(bad)).toThrow(/slackTsToIso/)
+    }
+  })
+})
+
+describe("etDateAdd", () => {
+  it("advances a calendar date", () => {
+    expect(etDateAdd("2026-08-09", 3)).toBe("2026-08-12")
+  })
+
+  it("crosses a month and a year boundary", () => {
+    expect(etDateAdd("2026-08-31", 1)).toBe("2026-09-01")
+    expect(etDateAdd("2026-12-31", 1)).toBe("2027-01-01")
+  })
+
+  it("is unaffected by a DST transition inside the interval", () => {
+    // Counting in calendar dates rather than hours is the whole point.
+    expect(etDateAdd("2026-11-01", 1)).toBe("2026-11-02")
+    expect(etDateAdd("2026-03-08", 1)).toBe("2026-03-09")
+  })
+
+  it("round-trips with etDaysBetween", () => {
+    expect(etDaysBetween("2026-08-09", etDateAdd("2026-08-09", 21))).toBe(21)
   })
 })

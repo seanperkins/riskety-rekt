@@ -62,3 +62,40 @@ export function etDaysBetween(from: string, to: string): number {
   }
   return Math.round((parse(to) - parse(from)) / 86_400_000)
 }
+
+/**
+ * A Slack `ts` / `event_ts` as an ISO instant.
+ *
+ * Slack sends "1723237200.000200": seconds, then a six-digit suffix that is a
+ * per-message counter rather than true microseconds. ISO carries milliseconds,
+ * so the suffix mostly rounds away -- which is fine, because every ordering in
+ * the game breaks ties on the raw ts string afterwards.
+ *
+ * Strict on purpose. Number("") is 0 and Number(null) is 0, so a bare Number()
+ * here would place a malformed post at the Unix epoch, where no day query would
+ * ever find it and no error would ever be raised.
+ */
+export function slackTsToIso(ts: string): string {
+  const m = /^(\d{1,12})\.(\d{1,6})$/.exec(ts)
+  if (!m) throw new Error(`slackTsToIso: not a Slack timestamp: ${JSON.stringify(ts)}`)
+  const ms = Number(m[1]) * 1000 + Math.round(Number(m[2]!.padEnd(6, "0")) / 1000)
+  const at = new Date(ms)
+  if (Number.isNaN(at.getTime())) throw new Error(`slackTsToIso: out of range: ${ts}`)
+  return at.toISOString()
+}
+
+/**
+ * The ET calendar date `days` after another, as "YYYY-MM-DD".
+ *
+ * Reads both ends as UTC midnight, so a DST transition inside the interval
+ * cannot shift the result. The inverse of `etDaysBetween`.
+ */
+export function etDateAdd(date: string, days: number): string {
+  const [y, mo, d] = date.split("-").map(Number)
+  if (y === undefined || mo === undefined || d === undefined) {
+    throw new Error(`etDateAdd: not a YYYY-MM-DD date: ${date}`)
+  }
+  const at = new Date(Date.UTC(y, mo - 1, d) + days * 86_400_000)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${at.getUTCFullYear()}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())}`
+}
