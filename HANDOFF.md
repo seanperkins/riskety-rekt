@@ -1,6 +1,6 @@
 # Riskety Rekt — Handoff
 
-**Last updated:** 2026-08-09 · **Branch:** `feat/slack-ingress-and-recap` · **State:** engine + simulator + market adapter + Slack ingress complete, no tick runner or web UI
+**Last updated:** 2026-08-09 · **Branch:** `main` · **State:** engine + simulator + market adapter + Slack ingress complete, no tick runner or web UI
 
 A Risk-like conquest game for a private group of friends. One tick per day, orders
 resolved simultaneously. Reinforcements come from two places beyond territory income:
