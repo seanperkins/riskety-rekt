@@ -57,3 +57,50 @@ export interface RosterStore {
   factionForSlackUser(slackUserId: string): FactionId | undefined
   slackUserForFaction(factionId: FactionId): string | undefined
 }
+
+export interface PostRow {
+  messageTs: string
+  factionId: FactionId
+  postedAt: string
+  etDate: string
+}
+
+export interface ApproverRow {
+  factionId: FactionId
+  reactedAt: string
+}
+
+/**
+ * Raw Slack ingest. Every write is idempotent, because Slack redelivers.
+ *
+ * Approvals are NOT stored: an approved action is a property of a post plus two
+ * distinct reactors, so it is derived at read time by `dailyApprovals`. Writing
+ * derived rows would make `reaction_removed` a state machine.
+ */
+export interface ApprovalStore {
+  /**
+   * Record an event id. Returns false if it was already recorded, which means
+   * this delivery is a Slack retry and must not be processed again.
+   */
+  markEventSeen(eventId: string, receivedAt: Date): boolean
+
+  /** Idempotent. postedAt and etDate are derived from messageTs, never from a clock. */
+  recordPost(post: { messageTs: string; factionId: FactionId }): void
+
+  /** Hides a post from every query. A no-op if the post was never recorded. */
+  deletePost(messageTs: string): void
+
+  /** Idempotent per (post, approver). The first reaction's timestamp wins. */
+  recordApproval(approval: { messageTs: string; factionId: FactionId; reactedAt: string }): void
+
+  removeApproval(messageTs: string, factionId: FactionId): void
+
+  /** Live posts on an ET calendar date, ordered by post time then message ts. */
+  postsOn(etDate: string): PostRow[]
+
+  /** A post by message ts, including a deleted one. Undefined if never recorded. */
+  postFor(messageTs: string): PostRow | undefined
+
+  /** Distinct approvers of a post, ordered by reaction time then faction id. */
+  approversOf(messageTs: string): ApproverRow[]
+}

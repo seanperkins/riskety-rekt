@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { openStore } from "./sqlite.js"
 import type { Market } from "../engine/index.js"
+import { etDate, slackTsToIso } from "../time.js"
 
 const SEASON = { seasonId: "s1", startDate: "2026-09-01", lengthDays: 21 }
 
@@ -246,6 +247,93 @@ describe("roster", () => {
     expect(() =>
       store.addRosterMember({ slackUserId: "U2", factionId: "f1", displayName: "Alt" }),
     ).toThrow()
+    store.close()
+  })
+})
+
+describe("slack ingest", () => {
+  const seed = () => {
+    const store = openStore(":memory:")
+    store.addRosterMember({ slackUserId: "U1", factionId: "f1", displayName: "Ada" })
+    store.addRosterMember({ slackUserId: "U2", factionId: "f2", displayName: "Bex" })
+    store.addRosterMember({ slackUserId: "U3", factionId: "f3", displayName: "Cy" })
+    return store
+  }
+
+  it("marks an event seen exactly once", () => {
+    // Slack redelivers up to three times when the ack is slow, with the same
+    // event_id. Without this, one retried reaction becomes two approvals.
+    const store = seed()
+    expect(store.markEventSeen("Ev1", new Date("2026-08-09T12:00:00Z"))).toBe(true)
+    expect(store.markEventSeen("Ev1", new Date("2026-08-09T12:00:01Z"))).toBe(false)
+    store.close()
+  })
+
+  it("records a post under the ET date of its Slack ts", () => {
+    const store = seed()
+    // 2026-08-10T01:30:00Z is 21:30 on 2026-08-09 in New York.
+    const ts = `${Date.UTC(2026, 7, 10, 1, 30) / 1000}.000100`
+    store.recordPost({ messageTs: ts, factionId: "f1" })
+    expect(store.postsOn("2026-08-09").map((p) => p.factionId)).toEqual(["f1"])
+    expect(store.postsOn("2026-08-10")).toEqual([])
+    store.close()
+  })
+
+  it("is idempotent on a repeated post", () => {
+    const store = seed()
+    const ts = "1723237200.000200"
+    store.recordPost({ messageTs: ts, factionId: "f1" })
+    store.recordPost({ messageTs: ts, factionId: "f1" })
+    expect(store.postsOn(etDate(new Date(slackTsToIso(ts)))).length).toBe(1)
+    store.close()
+  })
+
+  it("hides a deleted post without losing its reactions", () => {
+    const store = seed()
+    const ts = "1723237200.000200"
+    const day = etDate(new Date(slackTsToIso(ts)))
+    store.recordPost({ messageTs: ts, factionId: "f1" })
+    store.recordApproval({ messageTs: ts, factionId: "f2", reactedAt: "1723237800.000100" })
+    store.deletePost(ts)
+    expect(store.postsOn(day)).toEqual([])
+    // postFor still finds it, so a later reaction on a deleted post is a
+    // recognised no-op rather than an unknown post.
+    expect(store.postFor(ts)?.factionId).toBe("f1")
+    store.close()
+  })
+
+  it("tolerates a deletion for a post it never saw", () => {
+    // Slack sends message_deleted for every message in the channel, including
+    // text chatter the ingest ignored.
+    const store = seed()
+    expect(() => store.deletePost("1723237200.000200")).not.toThrow()
+    store.close()
+  })
+
+  it("counts one approval per distinct approver and keeps the first timestamp", () => {
+    const store = seed()
+    const ts = "1723237200.000200"
+    store.recordPost({ messageTs: ts, factionId: "f1" })
+    store.recordApproval({ messageTs: ts, factionId: "f2", reactedAt: "1723237800.000100" })
+    // 👍 after 👍🏽 from the same player is one reaction, and must not advance
+    // the timestamp -- approvedAt is the SECOND distinct approver's reaction.
+    store.recordApproval({ messageTs: ts, factionId: "f2", reactedAt: "1723239999.000100" })
+    // Stored as an ISO instant, not a raw Slack ts: the cutoff comparison in
+    // dailyApprovals is a string comparison, and comparing "1723237800.000100"
+    // against "2026-08-09T21:00:00.000Z" is wrong in the same direction always.
+    expect(store.approversOf(ts)).toEqual([
+      { factionId: "f2", reactedAt: slackTsToIso("1723237800.000100") },
+    ])
+    store.close()
+  })
+
+  it("removes an approval", () => {
+    const store = seed()
+    const ts = "1723237200.000200"
+    store.recordPost({ messageTs: ts, factionId: "f1" })
+    store.recordApproval({ messageTs: ts, factionId: "f2", reactedAt: "1723237800.000100" })
+    store.removeApproval(ts, "f2")
+    expect(store.approversOf(ts)).toEqual([])
     store.close()
   })
 })

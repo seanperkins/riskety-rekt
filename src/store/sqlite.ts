@@ -19,8 +19,17 @@ import type { Market, MarketId, Settlement } from "../engine/index.js"
 const nodeRequire = createRequire(import.meta.url)
 const { DatabaseSync } = nodeRequire("node:sqlite") as { DatabaseSync: typeof DatabaseSyncCtor }
 import { migrate } from "./schema.js"
-import type { RosterMember, RosterStore, SeasonRow, SlateStore } from "./types.js"
+import type {
+  ApprovalStore,
+  ApproverRow,
+  PostRow,
+  RosterMember,
+  RosterStore,
+  SeasonRow,
+  SlateStore,
+} from "./types.js"
 import type { FactionId } from "../engine/index.js"
+import { etDate, slackTsToIso } from "../time.js"
 
 /** SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; stay well under it. */
 const PARAM_CHUNK = 500
@@ -31,7 +40,7 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out
 }
 
-export function openStore(path: string): SlateStore & RosterStore {
+export function openStore(path: string): SlateStore & RosterStore & ApprovalStore {
   const db = new DatabaseSync(path)
   // WAL lets the web app, the Slack bot and the timer share one file. The
   // likeliest thing to block the 21:00 tick is our own second process.
@@ -200,6 +209,96 @@ export function openStore(path: string): SlateStore & RosterStore {
         .prepare("SELECT slack_user_id FROM roster WHERE faction_id = ?")
         .get(factionId) as { slack_user_id: string } | undefined
       return row?.slack_user_id
+    },
+
+    markEventSeen(eventId: string, receivedAt: Date): boolean {
+      const res = db
+        .prepare("INSERT OR IGNORE INTO slack_events (event_id, received_at) VALUES (?, ?)")
+        .run(eventId, receivedAt.toISOString())
+      return Number(res.changes) > 0
+    },
+
+    recordPost(post: { messageTs: string; factionId: FactionId }): void {
+      // Both derived from the Slack ts, never from the write time: a post at
+      // 20:59:59 delivered at 21:00:01 still belongs to that day.
+      const postedAt = slackTsToIso(post.messageTs)
+      db.prepare(
+        `INSERT INTO posts (message_ts, faction_id, posted_at, et_date, deleted)
+         VALUES (?, ?, ?, ?, 0)
+         ON CONFLICT (message_ts) DO NOTHING`,
+      ).run(post.messageTs, post.factionId, postedAt, etDate(new Date(postedAt)))
+    },
+
+    deletePost(messageTs: string): void {
+      db.prepare("UPDATE posts SET deleted = 1 WHERE message_ts = ?").run(messageTs)
+    },
+
+    recordApproval(a: { messageTs: string; factionId: FactionId; reactedAt: string }): void {
+      // OR IGNORE, not an upsert: the first reaction's timestamp is the one
+      // that counts, because approvedAt is defined as the second distinct
+      // approver's reaction and a re-reaction must not move it later.
+      //
+      // Stored as an ISO instant so it is directly comparable with the 21:00
+      // cutoff. A raw Slack ts and an ISO string compare as strings and would
+      // put every reaction on the wrong side of the cutoff, silently.
+      db.prepare(
+        `INSERT OR IGNORE INTO reactions (message_ts, faction_id, reacted_at) VALUES (?, ?, ?)`,
+      ).run(a.messageTs, a.factionId, slackTsToIso(a.reactedAt))
+    },
+
+    removeApproval(messageTs: string, factionId: FactionId): void {
+      db.prepare("DELETE FROM reactions WHERE message_ts = ? AND faction_id = ?").run(
+        messageTs,
+        factionId,
+      )
+    },
+
+    postsOn(date: string): PostRow[] {
+      const rows = db
+        .prepare(
+          `SELECT message_ts, faction_id, posted_at, et_date
+             FROM posts WHERE et_date = ? AND deleted = 0
+            ORDER BY posted_at, message_ts`,
+        )
+        .all(date) as {
+        message_ts: string
+        faction_id: string
+        posted_at: string
+        et_date: string
+      }[]
+      return rows.map((r) => ({
+        messageTs: r.message_ts,
+        factionId: r.faction_id,
+        postedAt: r.posted_at,
+        etDate: r.et_date,
+      }))
+    },
+
+    postFor(messageTs: string): PostRow | undefined {
+      const r = db
+        .prepare(
+          "SELECT message_ts, faction_id, posted_at, et_date FROM posts WHERE message_ts = ?",
+        )
+        .get(messageTs) as
+        | { message_ts: string; faction_id: string; posted_at: string; et_date: string }
+        | undefined
+      if (r === undefined) return undefined
+      return {
+        messageTs: r.message_ts,
+        factionId: r.faction_id,
+        postedAt: r.posted_at,
+        etDate: r.et_date,
+      }
+    },
+
+    approversOf(messageTs: string): ApproverRow[] {
+      const rows = db
+        .prepare(
+          `SELECT faction_id, reacted_at FROM reactions WHERE message_ts = ?
+            ORDER BY reacted_at, faction_id`,
+        )
+        .all(messageTs) as { faction_id: string; reacted_at: string }[]
+      return rows.map((r) => ({ factionId: r.faction_id, reactedAt: r.reacted_at }))
     },
 
     close(): void {
