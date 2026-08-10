@@ -104,3 +104,17 @@ export interface ApprovalStore {
   /** Distinct approvers of a post, ordered by reaction time then faction id. */
   approversOf(messageTs: string): ApproverRow[]
 }
+
+/**
+ * The single owner of `BEGIN IMMEDIATE`.
+ *
+ * SQLite has no nested transactions, so exactly one place opens them and every
+ * other store method is statement-only. The public writers -- saveOrder,
+ * saveWager, the tick, the rerun, season-init -- each wrap themselves in one
+ * call. That is load-bearing rather than stylistic: if a writer's gates and its
+ * write were separately committed, a tick could commit between them, which is
+ * the race the design has no lock table to catch.
+ */
+export interface Transactional {
+  transaction<T>(fn: () => T): T
+}

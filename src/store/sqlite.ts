@@ -21,6 +21,7 @@ const { DatabaseSync } = nodeRequire("node:sqlite") as { DatabaseSync: typeof Da
 import { migrate } from "./schema.js"
 import type {
   ApprovalStore,
+  Transactional,
   ApproverRow,
   PostRow,
   RosterMember,
@@ -40,7 +41,19 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out
 }
 
-export function openStore(path: string): SlateStore & RosterStore & ApprovalStore {
+/** Retry budget for SQLITE_BUSY, and the backoff before each retry. */
+const BUSY_BACKOFF_MS = [50, 200, 500]
+
+/**
+ * Block the thread without async. `transaction` is synchronous because
+ * DatabaseSync is, so there is no event loop to await on.
+ */
+const sleepBuf = new Int32Array(new SharedArrayBuffer(4))
+const sleepSync = (ms: number): void => void Atomics.wait(sleepBuf, 0, 0, ms)
+
+export function openStore(
+  path: string,
+): SlateStore & RosterStore & ApprovalStore & Transactional {
   const db = new DatabaseSync(path)
   // WAL lets the web app, the Slack bot and the timer share one file. The
   // likeliest thing to block the 21:00 tick is our own second process.
@@ -48,6 +61,8 @@ export function openStore(path: string): SlateStore & RosterStore & ApprovalStor
   db.exec("PRAGMA busy_timeout = 5000")
   db.exec("PRAGMA foreign_keys = ON")
   migrate(db)
+
+  let inTransaction = false
 
   return {
     season(seasonId: string): SeasonRow | undefined {
@@ -299,6 +314,33 @@ export function openStore(path: string): SlateStore & RosterStore & ApprovalStor
         )
         .all(messageTs) as { faction_id: string; reacted_at: string }[]
       return rows.map((r) => ({ factionId: r.faction_id, reactedAt: r.reacted_at }))
+    },
+
+    transaction<T>(fn: () => T): T {
+      if (inTransaction) throw new Error("transaction: cannot nest transactions")
+      for (let attempt = 0; ; attempt++) {
+        db.exec("BEGIN IMMEDIATE")
+        inTransaction = true
+        try {
+          const out = fn()
+          db.exec("COMMIT")
+          return out
+        } catch (err) {
+          db.exec("ROLLBACK")
+          // Under WAL a writer can lose the lock race even with busy_timeout
+          // set, and the whole day's work is inside this transaction -- so a
+          // transient collision is worth a few retries before it becomes a
+          // missed tick.
+          const busy = /SQLITE_BUSY/.test(String(err))
+          const backoff = BUSY_BACKOFF_MS[attempt]
+          if (!busy || backoff === undefined) throw err
+          sleepSync(backoff)
+        } finally {
+          // Released on every path, or one failed tick would leave the store
+          // permanently unable to open another transaction.
+          inTransaction = false
+        }
+      }
     },
 
     close(): void {
