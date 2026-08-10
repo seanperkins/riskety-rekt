@@ -1049,12 +1049,21 @@ describe("getAllMarkets", () => {
     expect(out).toEqual([])
   })
 
-  it("tolerates a page whose markets field is missing or not an array", async () => {
-    const pages = [{ cursor: "c1" }, { markets: "nope", cursor: "c2" }, { markets: [{ ticker: "A" }] }]
-    let i = 0
-    const fetchImpl: FetchLike = async () => jsonResponse(pages[i++])
-    const out = await getAllMarkets({}, { fetchImpl, sleep: noSleep })
-    expect(out.map((m) => m.ticker)).toEqual(["A"])
+  it("throws on a page whose markets field is missing", async () => {
+    // Skipping a malformed page would truncate the candidate set silently, and
+    // the only symptom would be an unexplained thin slate. Better to fail: the
+    // publish job records nothing and the systemd retry gets another chance.
+    const fetchImpl: FetchLike = async () => jsonResponse({ cursor: "c1" })
+    await expect(getAllMarkets({}, { fetchImpl, sleep: noSleep })).rejects.toThrow(
+      /no markets array/,
+    )
+  })
+
+  it("throws on a page whose markets field is not an array", async () => {
+    const fetchImpl: FetchLike = async () => jsonResponse({ markets: "nope", cursor: "c2" })
+    await expect(getAllMarkets({}, { fetchImpl, sleep: noSleep })).rejects.toThrow(
+      /no markets array/,
+    )
   })
 
   it("drops non-object entries inside markets", async () => {
@@ -1166,13 +1175,20 @@ export async function getAllMarkets(
   for (let page = 0; page < MAX_PAGES; page++) {
     const query = cursor ? { ...params, cursor } : params
     const body = (await getJson("/markets", query, opts)) as RawKalshiMarketsResponse
-    const markets = Array.isArray(body?.markets) ? body.markets : []
+    // A page without a markets array is a malformed response, and the only
+    // quiet way to handle it is to truncate the candidate set -- which surfaces
+    // later as an inexplicably thin slate and nothing else. Fail loudly
+    // instead; the publish job records nothing and systemd retries.
+    if (!Array.isArray(body?.markets)) {
+      throw new Error(`Kalshi /markets page ${page} had no markets array`)
+    }
+    const markets = body.markets
     for (const m of markets) {
       if (typeof m === "object" && m !== null && !Array.isArray(m)) {
         out.push(m as RawKalshiMarket)
       }
     }
-    const next = typeof body?.cursor === "string" ? body.cursor : ""
+    const next = typeof body.cursor === "string" ? body.cursor : ""
     // An empty page ends the walk even when a cursor is returned -- Kalshi
     // hands back a cursor on the final page and following it loops.
     if (next === "" || markets.length === 0) break
@@ -1185,7 +1201,7 @@ export async function getAllMarkets(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/adapters/kalshi/client.test.ts`
-Expected: PASS, 13 tests.
+Expected: PASS, 15 tests.
 
 - [ ] **Step 5: Typecheck and commit**
 
