@@ -72,4 +72,4 @@ See [`deploy/README.md`](deploy/README.md) for running the market jobs.
 
 ## License
 
-None yet — this is a personal project, not a product.
+[MIT](LICENSE) © 2026 Sean Perkins
