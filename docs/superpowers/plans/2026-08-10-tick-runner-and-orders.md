@@ -1047,3 +1047,69 @@ git commit -m "feat(deploy): tick timer, enforced no-network tests, and the doc 
 - **The wager economy's stale-price exploit.** Late placement at the frozen 08:00 price is roughly +94% EV; the fix is periodic price snapshots. Its own spec. **This blocks a competitive season**, and the tick runner does not change that.
 - **The map.** A board of ~15 variable-size continents. Its own spec. `season-init` will refuse a 15-member roster on the 42-territory default via `checkDeal`, which is the correct behaviour and also means a full-headcount season cannot be dealt until the map exists.
 - **The web app, the projection and the renderer.** Until they exist, order entry is CLI-only, and **the operator can read every faction's deploys, attacks and protect picks** straight out of SQLite. A competitive season does not start on the CLI path.
+
+---
+
+## Spec deltas
+
+Where reality corrected the design. Each was found by writing the test the plan
+asked for and discovering it could not be written, or by measuring a number the
+plan had asserted.
+
+**1. Two of the plan's tests are unwritable, both for the same reason.** The
+schema already enforces what they were meant to test, so no test seam can create
+the bad row — a seam would hit the same constraint.
+
+- Task 5 called for a `rawInsertWager` seam proving assembly drops a `1.5`
+  stake. Migration 3 puts `CHECK (stake > 0 AND typeof(stake) = 'integer')` on
+  the column. Probed: SQLite rejects `1.5`, `0` and `-2`, and coerces `"5"` to
+  integer `5`. No seam was added; the assembly filter stays as documented
+  defence-in-depth and the test pins the gate that actually holds.
+- Task 6 called for a "day is not an integer" load test. `saveState` writes
+  `state.day` into the day *column*, and SQLite orders every TEXT value above
+  every INTEGER, so `"x" >= 0` passes `CHECK (day >= 0)` and the row lands under
+  day `"x"` — findable only by asking for `"x"`. The `parseState` check stays
+  for a hand-edited blob.
+
+**2. `makeRng` had two defects, and the plan's balance numbers were measured on
+them.** Its first draw was nearly linear in the seed — 2,000 of 2,000 sequential
+seeds produced a first draw in the bottom quarter — and the simulator seeds
+seasons sequentially, so every season's first decision came from the same
+sliver and a seeded Fisher–Yates picked `j = 0` for its first swap regardless of
+seed. Separately, the middle shift was `>>`, which coerces to signed int32, so
+past 2^31 it sign-extended. Fixed (warm-up plus `>>>`); buckets over 2,000 seeds
+went from `[2000,0,0,0]` to `[499,500,500,501]`. Every balance figure was
+re-measured: **20.9% at 21 days and 23.8% at 14**, not the plan's 19.5/22.8. The
+conclusion is unchanged.
+
+**3. The rerun deleted the contexts it was about to replay.** `deleteStatesFrom`
+drops `states` and `tick_context` together — correct for its own purpose — so
+the first implementation of `runRerun` replayed day N from its recorded context
+and then silently fell through to the live-assembly path for every later day.
+Caught by the identical-states-after-mutation test, which is the test the
+pre-`tick_context` design could not have passed. The replay now reads every
+context into memory before the delete and writes each back beside its new state.
+
+**4. `Transactional` was documentary, not structural.** `types.ts` called it
+"the single owner of `BEGIN IMMEDIATE`" and called that load-bearing, while
+`publishSlate` opened its own without touching the nesting flag — so the guard
+built to catch exactly that was blind to it. `publishSlate` now goes through
+`transaction()`, and `migrate` is the one documented exemption.
+
+**5. The `SQLITE_BUSY` retry loop was unreachable, not merely redundant.** It
+branched on `/SQLITE_BUSY/.test(String(err))`; `node:sqlite` renders a lock
+collision as `Error: database is locked` with the code on `err.errcode` (5).
+Probed against two live connections. Deleted, along with the `SharedArrayBuffer`
+that existed only to sleep for it.
+
+**6. The spec's own `season-init` example was broken by the CLI it documented.**
+`season-init <date> --seed 4711` read `Number(process.argv[4])` as the length,
+yielding a season of `NaN` days. Flags are parsed by name now, and an unknown
+flag is rejected rather than ignored — a typo'd `--sed` would otherwise parse as
+"no seed" and silently deal a different board.
+
+**Smaller:** the plan's migration was described as "four tables" while listing
+five, and its `recaps` CHECK would have rejected the `'gap'` kind at runtime;
+the tick's recap is skipped with a log line when `SLACK_BOT_TOKEN` is unset,
+matching `publish-slate`, because otherwise a resolved day commits and then
+exits non-zero on a missing token.
