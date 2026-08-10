@@ -24,6 +24,35 @@ export const MAX_FACTIONS = 15
 export const MIN_TERRITORIES_PER_FACTION = 5
 export const MAX_TERRITORIES_PER_FACTION = 11
 
+/**
+ * Continent size band, enforced by `validateMap`.
+ *
+ * The upper bound is the load-bearing one: a continent of twenty territories is
+ * a bonus nobody ever collects, which removes the continent race rather than
+ * adding to it. Classic Risk keeps five of its six continents inside this band
+ * — Asia at 12 is the exception, and `RISK_MAP` is grandfathered because it is
+ * only the golden fixture and is never selected from.
+ */
+export const CONTINENT_MIN = 4
+export const CONTINENT_MAX = 9
+
+/**
+ * The fewest continents a selected board may have.
+ *
+ * Three is already implied by the size floor — the smallest board is 5 × 4 = 20
+ * territories and the largest continent is 9, so `ceil(20/9) = 3` is
+ * unavoidable — which makes 4 the first value that constrains anything. It is
+ * what makes a continent race exist rather than a scramble for one of two
+ * prizes.
+ */
+export const MIN_CONTINENTS = 4
+
+/**
+ * Restarts allowed when a selection walk strands itself below the size floor
+ * with no adjacent continent that fits under the ceiling.
+ */
+export const MAX_ATTEMPTS = 20
+
 /** Slate size target. Fewer is published if fewer candidates survive filtering. */
 export const SLATE_MIN = 3
 export const SLATE_MAX = 5
