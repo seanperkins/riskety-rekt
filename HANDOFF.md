@@ -174,7 +174,8 @@ runner, and add a policy that attacks more than once per tick.
 
 ## Gotchas
 
-- **No git remote.** Local repo only. Add one before attempting a PR flow.
+- **Remote is `origin` → https://github.com/seanperkins/riskety-rekt** (public). `main`
+  tracks `origin/main`, so a normal branch-and-PR flow works.
 - **Wagers must lock at `min(closeTime, settlement observed_at)`**, not at `closeTime`
   alone. Every Kalshi market sampled carries `can_close_early`, so an outcome can become
   public before the stated close — the same exploit the per-market lock exists to close,
