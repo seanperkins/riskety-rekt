@@ -35,12 +35,42 @@ import type {
   SeasonRow,
   SlateStore,
 } from "./types.js"
-import type { FactionId, GameState } from "../engine/index.js"
+import { cmp } from "../engine/index.js"
+import type { FactionId, GameState, Order } from "../engine/index.js"
 import { tickInstant } from "../season.js"
 import { etDate, slackTsToIso } from "../time.js"
 
 /** SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; stay well under it. */
 const PARAM_CHUNK = 500
+
+/**
+ * The `orders.body` column, back into a typed body.
+ *
+ * The only writer is `saveOrder`, stringifying an `OrderBody`, so a row that
+ * fails this check means the file was edited by hand. It throws rather than
+ * coercing to an empty body: assembly runs inside the tick's transaction, so a
+ * throw rolls the tick back and refuses loudly, where a coercion would resolve
+ * the day having silently dropped a player's deploys and attacks.
+ *
+ * Element shapes are the engine's job -- `validateOrder` checks every count and
+ * territory and publishes a named rejection for each. This only has to
+ * guarantee the three fields are the right kind, so a bad row fails here with
+ * the faction in the message instead of somewhere in the pipeline.
+ */
+function parseBody(json: string, factionId: string): OrderBody {
+  const raw: unknown = JSON.parse(json)
+  const body = raw as OrderBody
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    !Array.isArray(body.deploys) ||
+    !Array.isArray(body.attacks) ||
+    !(body.protect === null || typeof body.protect === "string")
+  ) {
+    throw new Error(`orders row for ${factionId} is not an order body: ${json}`)
+  }
+  return body
+}
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = []
@@ -492,6 +522,68 @@ export function openStore(
         stake: Number(r.stake),
         firstStakedAt: r.first_staked_at,
       }))
+    },
+
+    assembleOrders(seasonId: string, day: number): Order[] {
+      // Two queries merged in TypeScript rather than one FULL OUTER JOIN: SQLite
+      // gained that only in 3.39, and the version here is whatever Node was
+      // built against.
+      const bodies = db
+        .prepare(`SELECT faction_id, body FROM orders WHERE season_id = ? AND day = ?`)
+        .all(seasonId, day) as { faction_id: string; body: string }[]
+
+      // The stake filter repeats the column CHECK from migration 3, so it is
+      // unreachable today -- kept because this is the last gate before a pure
+      // engine whose only response to a bad stake is a public rejection in the
+      // recap, naming the faction and the market.
+      //
+      // ORDER BY first_staked_at, market_id is not cosmetic: the engine's
+      // reserve check drops wagers sequentially, so this decides which bet
+      // survives a short reserve.
+      const wagers = db
+        .prepare(
+          `SELECT faction_id, market_id, side, stake
+             FROM order_wagers
+            WHERE season_id = ? AND day = ?
+              AND stake > 0 AND typeof(stake) = 'integer'
+            ORDER BY first_staked_at, market_id`,
+        )
+        .all(seasonId, day) as {
+        faction_id: string
+        market_id: string
+        side: string
+        stake: number
+      }[]
+
+      const byFaction = new Map<FactionId, Order>()
+      const orderFor = (factionId: FactionId): Order => {
+        let order = byFaction.get(factionId)
+        if (order === undefined) {
+          // Every field present, so a faction that only wagered still produces a
+          // complete Order. The engine iterates deploys, attacks and wagers
+          // unconditionally.
+          order = { factionId, deploys: [], attacks: [], wagers: [], protect: null }
+          byFaction.set(factionId, order)
+        }
+        return order
+      }
+
+      for (const row of bodies) {
+        const body = parseBody(row.body, row.faction_id)
+        const order = orderFor(row.faction_id)
+        order.deploys = body.deploys
+        order.attacks = body.attacks
+        order.protect = body.protect
+      }
+      for (const row of wagers) {
+        orderFor(row.faction_id).wagers.push({
+          marketId: row.market_id,
+          side: row.side === "no" ? "no" : "yes",
+          stake: Number(row.stake),
+        })
+      }
+
+      return [...byFaction.values()].sort((a, b) => cmp(a.factionId, b.factionId))
     },
 
     stateExists(seasonId: string, day: number): boolean {

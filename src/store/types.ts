@@ -3,6 +3,7 @@ import type {
   GameState,
   Market,
   MarketId,
+  Order,
   Settlement,
   TerritoryId,
 } from "../engine/index.js"
@@ -185,6 +186,20 @@ export interface OrderStore {
   ): SaveResult
   /** Test and assembly read path. Ordered by first_staked_at, then market_id. */
   wagersFor(seasonId: string, day: number, factionId: FactionId): WagerRow[]
+
+  /**
+   * The day's two order tables as the engine's `Order[]`, sorted by faction id.
+   *
+   * A faction that wagered but never submitted a body still gets an order: the
+   * two CLI commands are independent, so wagering without deploying is ordinary,
+   * and those wagers must not vanish.
+   *
+   * Callers must still pass the result through `validateOrder` before `escrow` —
+   * `escrow` does an unchecked `byId.get(w.marketId)!` and is safe only because
+   * validation has already filtered to today's slate. `tick:rerun` is a second
+   * caller and must not bypass it.
+   */
+  assembleOrders(seasonId: string, day: number): Order[]
 }
 
 /** State persistence. `saveState` is an INSERT — inside the tick's transaction it runs once. */
