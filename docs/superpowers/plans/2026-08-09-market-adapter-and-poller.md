@@ -1384,13 +1384,14 @@ describe("getSettlements", () => {
     expect(out.T249).toBe("yes")
   })
 
-  it("keeps good batches when one batch fails", async () => {
+  it("keeps good batches when one batch fails every attempt", async () => {
+    // Keyed on the batch contents, not the call count: a single throw is
+    // absorbed by the client's retry budget, so a one-shot failure would not
+    // exercise this path at all.
     const ids = Array.from({ length: 150 }, (_, i) => `T${String(i).padStart(3, "0")}`)
-    let call = 0
     const fetchImpl: FetchLike = async (input) => {
-      call++
-      if (call === 1) throw new TypeError("fetch failed")
       const tickers = new URL(String(input)).searchParams.get("tickers")!.split(",")
+      if (tickers.includes("T000")) throw new TypeError("fetch failed")
       return respond({
         markets: tickers.map((t) => ({ ticker: t, status: "finalized", result: "no" })),
       })
@@ -1398,7 +1399,26 @@ describe("getSettlements", () => {
     const a = createKalshiAdapter({ fetchImpl, sleep: noSleep })
     const out = await a.getSettlements(ids)
     expect(out.T000).toBe("unsettled")
+    expect(out.T099).toBe("unsettled")
     expect(out.T100).toBe("no")
+  })
+
+  it("recovers a batch that fails once, because the client retries", async () => {
+    const ids = ["A", "B"]
+    let calls = 0
+    const fetchImpl: FetchLike = async () => {
+      calls++
+      if (calls === 1) throw new TypeError("fetch failed")
+      return respond({
+        markets: [
+          { ticker: "A", status: "finalized", result: "yes" },
+          { ticker: "B", status: "finalized", result: "no" },
+        ],
+      })
+    }
+    const a = createKalshiAdapter({ fetchImpl, sleep: noSleep })
+    expect(await a.getSettlements(ids)).toEqual({ A: "yes", B: "no" })
+    expect(calls).toBe(2)
   })
 })
 ```
@@ -1496,7 +1516,7 @@ export type { DropReason }
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/adapters/kalshi/index.test.ts`
-Expected: PASS, 10 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Typecheck and commit**
 
