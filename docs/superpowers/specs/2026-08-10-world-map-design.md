@@ -290,6 +290,11 @@ and wrong. No invariant catches it. The world data needs a human review pass
 against a real map, and that pass is part of the work rather than an optional
 extra. Stating it here so it is not discovered in season one.
 
+**This is what the viewer is for.** A bogus border is invisible in a data file
+and obvious as a line jumping across Sudan on a map. See "The viewer" below —
+it is the instrument that makes this review pass possible, not a presentation
+layer bolted on afterwards.
+
 **Whether the boards are fun.** The property tests prove a board is legal, not
 that it plays well — a legal board can still be a chain of continents with one
 path through it. The balance run is the only evidence on that, and it measures
@@ -322,10 +327,42 @@ board — which `tick:rerun` depends on.
 behaviour change, and coordinates stored in every daily state row to be read by
 nothing.
 
+## The viewer
+
+A single self-contained HTML page, generated from the world data, that draws a
+selected sub-map: territories at their real coordinates, borders as edges,
+continents by colour, with controls for roster size and seed.
+
+**Its first job is verification, not presentation.** It is how the geographic
+accuracy pass above actually happens, and how "does this board play well" gets
+looked at before a balance run rather than after. Both are questions the
+property tests are structurally unable to answer.
+
+Requirements, all of them consequences of that job:
+
+- **Real projection.** Equirectangular from `COORDS`, so a wrong border is
+  visibly wrong. A force-directed layout would place Chad next to Egypt because
+  they are adjacent in the data, hiding the exact defect being hunted.
+- **Re-roll in the page.** Roster size 4–15 and an editable seed, with selection
+  running client-side, so many boards can be eyeballed without a rebuild. This
+  requires the selector to be portable to the browser — no Node APIs in
+  `src/map/select.ts`, which it has no reason to use anyway.
+- **The numbers alongside the picture.** Territory and continent counts, each
+  continent's size, entry count and computed bonus, and the `checkDeal` verdict.
+  The bonus formula is the part of this design most likely to be wrong, and
+  seeing its output across many boards is the cheapest way to find that out.
+- **Self-contained.** World data inlined, no network, no dependencies —
+  consistent with the rest of the project, and it means the page can be opened
+  from disk or published without a server.
+
+It is a development instrument, not the web app. It renders a generated board;
+it does not know about seasons, factions, ownership or orders.
+
 ## Out of scope
 
-- **The renderer.** `COORDS` exists so the renderer can project real geography,
-  but drawing the map is the web app's work.
+- **The web app.** Session-derived `factionId`, order entry, the public
+  projection and the live board with ownership on it. The viewer shares no code
+  with it beyond `src/map/`, and deliberately: it draws a map, not a game.
 - **The wager economy's stale-price exploit.** Unrelated and still the more
   urgent blocker on a competitive season.
 - **Pluggable mechanics.** Its own draft spec, and it regenerates the golden
