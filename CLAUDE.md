@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm test                                  # vitest run — 368 tests, none touch the network
+npm test                                  # vitest run — 499 tests, none touch the network
 npm test -- src/engine/combat.test.ts     # a single file
 npm test -- -t "largest surviving force"  # a single test by name
 npm run test:watch
@@ -22,12 +22,22 @@ Jobs and the bot need `RR_DB_PATH` and `RR_SEASON_ID`; the bot adds the four
 
 ```bash
 export RR_DB_PATH=./riskety.db RR_SEASON_ID=season-1
-npm run season:init -- 2026-09-01   # the date is the day-0 deal
-npm run publish-slate               # the 08:00 job
-npm run poll-settlements            # the 30-minute job
-npm run roster:add -- U01ABCDEF f1 "Ada L."
-npm run slack                       # long-running events bot, PORT default 3001
+npm run roster:add -- U01ABCDEF f1 "Ada L."   # do this BEFORE season:init
+npm run season:init -- 2026-09-01 --seed 4711 # deals day 0 from the roster
+npm run publish-slate                         # the 08:00 job
+npm run poll-settlements                      # the 30-minute job
+npm run tick                                  # the 21:00 job
+npm run order -- f1 --file order.json         # or --stdin; never a shell argument
+npm run wager -- f1 --file wager.json
+npm run recap -- 5 --force                    # re-post a recap the ledger suppressed
+npm run tick:rerun -- 5 --confirm             # replay day 5 onward from tick_context
+npm run slack                                 # long-running events bot, PORT default 3001
 ```
+
+**Exit codes are three-valued**: 0 success or a deliberate skip, 1 a system
+failure worth a systemd retry, 2 an operator mistake or a write the rules
+rejected. A tick **refusal exits 0** — its condition never clears with time, so
+a non-zero exit would restart-loop all night under `Restart=on-failure`.
 
 `npm run publish-slate` late in the ET day legitimately publishes nothing. Judge
 it by an 08:00 run.
@@ -56,6 +66,17 @@ season. Keep new work on that side of the line.
 
 **Everything is one function**: `resolve(state, orders, context) → GameState`.
 Seven steps, with order validation deliberately sitting *after* steps 1–3.
+
+**The tick's claim, resolve and save are ONE transaction.** There is no lock
+table, and adding one back would reintroduce the ambiguity it was removed for:
+after a two-phase freeze, "context exists" means either *a previous attempt
+died* or *another process is resolving right now*, and adopting on that signal
+lets two runs both resolve. `store.transaction` is the only thing in the store
+that opens a `BEGIN` — `migrate` is the single documented exemption.
+
+**Every component derives the day from the calendar**, through `currentDay` in
+`src/season.ts`. A second, state-derived clock ("highest saved day + 1") agrees
+only while no tick is ever missed, and shears permanently after one miss.
 
 ## Rules that are load-bearing and counterintuitive
 
@@ -115,13 +136,23 @@ that seems obviously right — it may already have been considered and declined.
 
 ## Not built
 
-The 21:00 tick runner and the web UI. Nothing outside `src/sim/` calls
-`resolve()`, and `runPostRecap` has no caller. Design:
-`docs/superpowers/specs/2026-08-10-tick-runner-and-orders-design.md`.
+**The web app.** Until it exists, order entry is CLI-only — and the operator can
+read every faction's deploys, attacks and `protect` picks straight out of SQLite.
+A competitive season does not start on the CLI path.
 
-The tick runner must call `dailyApprovals(store, seasonId, day)` for **both**
-`context.approvals` and `context.postedToday`, then `runPostRecap` after saving
-state — in that order, so a Slack outage cannot stall a tick.
+Three specs also block a real season, each its own piece of work:
+
+- **The wager economy.** Late placement at the frozen 08:00 price is roughly
+  +94% EV. The fix is periodic price snapshots. This is the one that most
+  clearly blocks competitive play.
+- **The map.** ~105 territories across ~15 variable-size continents.
+  `season-init` correctly refuses a 15-member roster on the 42-territory default
+  via `checkDeal`, so a full-headcount season cannot be dealt until it exists.
+- **Pluggable mechanics.** Draft at
+  `docs/superpowers/specs/2026-08-10-pluggable-mechanics-design.md`. It changes
+  `GameState` (`pending` → `moduleState`), which regenerates the golden file,
+  and reorders spend claims, which changes combat outcomes and needs a fresh
+  balance run.
 
 ## Docs
 
@@ -130,4 +161,5 @@ state — in that order, so a Slack outage cannot stall a tick.
 | `docs/superpowers/specs/2026-08-09-riskety-rekt-design.md` | The spec. Every rule, and why it is that rule. |
 | `HANDOFF.md` | Current state and the full list of rules a newcomer gets wrong |
 | `docs/superpowers/reviews/2026-08-09-balance-run.md` | What 2,000 simulated seasons say about the economy |
+| `docs/superpowers/reviews/2026-08-10-balance-run-14day.md` | The 21-vs-14 day measurement behind `SEASON_LENGTH` |
 | `docs/superpowers/plans/` | Each carries a "Spec deltas" section recording where reality corrected the design |

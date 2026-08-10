@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { RISK_MAP } from "./map.js"
 import { continentBonusesFor, createSeason, territoriesOf } from "./setup.js"
-import type { Faction } from "./types.js"
+import type { Faction, GameMap } from "./types.js"
 
 const factions: Faction[] = [
   { id: "f1", playerName: "Ana", color: "#e11" },
@@ -10,7 +10,37 @@ const factions: Faction[] = [
 ]
 const ids = RISK_MAP.territories.map((t) => t.id)
 
+const TINY: GameMap = {
+  territories: [
+    { id: "a", name: "A", continent: "x", neighbors: ["b"] },
+    { id: "b", name: "B", continent: "x", neighbors: ["a"] },
+  ],
+  continents: [{ id: "x", name: "X", bonus: 1 }],
+}
+
 describe("createSeason", () => {
+  it("stores the map it was given, not RISK_MAP", () => {
+    const s = createSeason("s1", factions.slice(0, 2), ["a", "b"], TINY)
+    expect(s.map.territories.map((t) => t.id).sort()).toEqual(["a", "b"])
+  })
+
+  it("defaults to RISK_MAP", () => {
+    expect(createSeason("s1", factions, ids).map.territories).toHaveLength(42)
+  })
+
+  it("throws when the territory list is not the map's territory set", () => {
+    // A length check is not enough, and this is not a crash-shaped bug. An
+    // undealt territory still appears in state.map, so validateOrder builds
+    // adjacency including it, an attack on it passes validation, and combat
+    // reads garrisons[to] ?? 0 -- a FREE CAPTURE by any 1-troop attack.
+    expect(() => createSeason("s1", factions, ids.slice(0, 41))).toThrow(/territor/i)
+    // Same size, different members: the same bug, so the same throw.
+    expect(() => createSeason("s1", factions.slice(0, 2), ["a", "c"], TINY)).toThrow(/territor/i)
+    // A duplicate shrinks the dealt SET below the map's size, so it is caught
+    // even though the list length matches.
+    expect(() => createSeason("s1", factions.slice(0, 2), ["a", "a"], TINY)).toThrow(/territor/i)
+  })
+
   it("deals every territory exactly once, evenly to within one", () => {
     const s = createSeason("s1", factions, ids)
     expect(Object.keys(s.ownership)).toHaveLength(42)

@@ -155,8 +155,15 @@ clears with time: `latestSavedDay < min(calendarDay − 1, lengthDays)` stays tr
 every subsequent night until an operator acts. Exiting 1 under the existing units'
 `Restart=on-failure` / `RestartSec=300` would restart every five minutes all night,
 reopening the database and writing a stack trace each time, and systemd's default
-start-limit never trips at that rate. The tick logs loudly, posts a generic
-failure note to Slack, and exits 0. See "Deployment".
+start-limit never trips at that rate. The tick logs loudly and exits 0.
+
+**The Slack note is posted once, not nightly.** Row 1's predicate stays true every
+night until an operator acts, so an abandoned or paused season would otherwise post
+a failure note forever and train the group to ignore the one notification that
+matters. It is deduped through the `recaps` ledger with
+`kind = 'gap'` keyed on the first missing day: post once, log every night after.
+This is the plan's only outbound call besides `postRecap`, and the no-network rule
+covers the tick's *inputs*, not its notifications. See "Deployment".
 
 `saveOrder` and `saveWager` take `day` as a parameter, and **every caller derives
 it from `currentDay`**. Both reject `day < 1 || day > season.lengthDays` — a season
@@ -201,7 +208,7 @@ CREATE TABLE order_wagers (
   faction_id      TEXT NOT NULL,
   market_id       TEXT NOT NULL,
   side            TEXT NOT NULL CHECK (side IN ('yes','no')),
-  stake           INTEGER NOT NULL CHECK (stake > 0),
+  stake           INTEGER NOT NULL CHECK (stake > 0 AND typeof(stake) = 'integer'),
   first_staked_at TEXT NOT NULL,   -- toISOString(), millisecond precision
   PRIMARY KEY (season_id, day, faction_id, market_id)
 );
@@ -212,7 +219,7 @@ CREATE TABLE order_wagers (
 -- version boundary.
 CREATE TABLE tick_context (
   season_id      TEXT NOT NULL,
-  day            INTEGER NOT NULL,
+  day            INTEGER NOT NULL CHECK (day >= 0),
   orders         TEXT NOT NULL,   -- the assembled Order[] as JSON
   context        TEXT NOT NULL,   -- the assembled DailyContext as JSON
   engine_version TEXT NOT NULL,
@@ -363,12 +370,22 @@ runTick(deps) :
     return next
   })
 
-  postRecap(next, previous, kind: "original")           -- outside, after commit
+  if outcome.status !== "resolved" -> log and exit 0    -- already-run: NO recap
+  postRecap(outcome.next, previous, kind: "original")   -- outside, after commit
 ```
 
-`season-init` writes day 0, so the first tick resolves day 1. A season with no
-day-0 state is an error rather than a deal — dealing a board is an explicit act,
-not something a timer does at 21:00.
+`store.transaction` returns a **discriminated result**, and the recap is reachable
+only on `status === "resolved"`. An earlier draft called `postRecap(next, …)`
+unconditionally, where `next` exists only on the resolved branch — so the losing
+side of a concurrent double-fire would have posted a recap from an undefined state.
+
+`season-init` writes day 0, so the first tick resolves day 1. **A season with no
+day-0 state is an error, and that check runs before the day-clock table** — because
+`latestSavedDay` is undefined until it passes. Defaulting it to 0 would let a
+season with a `seasons` row and an empty `states` table sail through every guard at
+`calendarDay = 1`, open the transaction, and fail loading `states[0]`: a rollback
+and a stack trace where a named refusal was intended. Dealing a board is an
+explicit act, not something a timer does at 21:00.
 
 The **`now >= 21:00` guard** is separate from the day-clock table and easy to miss:
 without it a manual `npm run tick` at 14:00 resolves the day while its markets are
@@ -400,11 +417,20 @@ What that buys:
   21:00; the clock check plus the `states`-row check do that, and do it without a
   row that outlives the transaction that wrote it.
 
-The price is that orders are no longer frozen *before* `resolve` runs — a crashed
-tick lets a player edit before the retry. That is acceptable because the freeze
-exists to stop editing by players **who know the outcome**, and no outcome is
-public until `postRecap`, which is after the commit. A crashed tick publishes
-nothing.
+The price looks like "orders are no longer frozen before `resolve` runs", but that
+concession is mostly not real: `saveOrder`'s first gate is the **clock**, so after
+21:00 on day N a day-N order is rejected whether or not a state row exists —
+including the next morning when a retry happens. The crashed-tick edit window is
+empty, and the state-row check is belt-and-braces against sub-second skew between
+two processes reading the same clock.
+
+The residual worth naming is narrower: **the freeze now rests entirely on the
+system clock, with no durable marker.** A backwards clock step — an NTP correction,
+a VM restore — after a crashed tick genuinely does reopen the window, where a
+`day_locks` row would not have. That is the trade, and it is the right one for a
+single droplet with NTP, but it is the thing to remember rather than "nothing is
+public until postRecap" (which would remain true even if the window were wide
+open).
 
 ### Why `tick_context` still exists
 
@@ -459,7 +485,7 @@ deliberate trade, since a duplicate is confusing and a miss is recoverable.
 `recap <day> [--kind correction] --force` is the recovery: it inserts a **new
 attempt** and posts. It never deletes a ledger row. This matters because the
 ordinary failure — a Slack 5xx or a timeout on `poster.post`
-(`src/jobs/post-recap.ts:33`) — leaves the row present, so a plain `recap <day>`
+(`src/jobs/post-recap.ts:34`) — leaves the row present, so a plain `recap <day>`
 would see it and silently skip. The `attempt` column is also what lets a *second*
 correction post: re-running a day twice because the first fix was wrong is an
 ordinary event, and a `(season, day, kind)` key would suppress it.
@@ -473,6 +499,25 @@ would block the case it exists for.
 `<day>` must satisfy `Number.isSafeInteger(day) && 1 <= day <= season.lengthDays`.
 Day 0 is refused because it is the deal, not a tick — and a negative day is refused
 because `DELETE FROM states WHERE day >= -1` would take the deal with it.
+
+**The range is `<day> .. min(calendarDay - 1, lengthDays)`, replayed in ascending
+order**, and `--confirm` prints that list before acting. This has to be stated
+because one failure produces a growing number of missing days: a day-5 tick that
+dies leaves `latestSaved = 4`, so day 6 refuses too, and the count grows nightly.
+"Replays each day" would otherwise be ambiguous between one day and all of them.
+
+**The whole rerun — the delete, every replayed state write, and any
+`--assemble-missing` context write — is one `transaction(...)`**, with correction
+recaps posted only after it commits. Separately-committed deletes and replays let
+the nightly tick interleave once the rerun has restored through `calendarDay - 1`,
+producing a mixed live/recorded replay or a primary-key collision.
+
+**`--assemble-missing` additionally requires `day < calendarDay`, or
+`day === calendarDay && now >= etInstant(dayDate, TICK_HOUR)`.** It is a full tick
+— it assembles from live tables — so without this it would resolve a live day hours
+early against open markets, which is the exact thing `runTick`'s 21:00 guard
+exists to prevent. Plain `tick:rerun` against a recorded context needs no such
+guard; that context is already frozen.
 
 **`--assemble-missing` is required to replay a day that was never ticked.** A
 missed day has no `tick_context` row, because that row is only written by a tick
@@ -503,10 +548,26 @@ SQLite has no nested transactions: a `BEGIN IMMEDIATE` inside another raises
 assembly, `resolve` and two inserts — so ownership has to be explicit.
 
 The store gains one `transaction(fn)` helper that owns `BEGIN IMMEDIATE` / `COMMIT`
-/ `ROLLBACK` and throws if called re-entrantly. **Every other store method is
-statement-only** and never opens a transaction of its own. `publishSlate`
+/ `ROLLBACK`, retries `SQLITE_BUSY` with backoff, and throws if called
+re-entrantly.
+
+**The public writers own their own transaction; the statement-only rule applies to
+private helpers.** `saveOrder`, `saveWager` and the tick each call
+`transaction(...)` internally and are the only callable entry points; inside it
+they use private statement-only helpers. This is load-bearing rather than
+stylistic: if the gates and the write were separately-committed public calls, a
+tick could commit between the state check and the order write — recreating exactly
+the post-resolution race that removing `day_locks` was only safe because these
+writers are atomic. `publishSlate`
 (`src/store/sqlite.ts:78`) and `migrate` (`src/store/schema.ts:110`) predate the
 helper and keep their own transactions; neither is called from inside another.
+
+**`migrate` changes from `BEGIN` to `BEGIN IMMEDIATE`.** It reads
+`PRAGMA user_version` and *then* writes DDL inside a deferred transaction. Under
+WAL, a deferred transaction that has already read and then tries to upgrade returns
+`SQLITE_BUSY_SNAPSHOT` **immediately, without invoking the busy handler** — so
+`busy_timeout = 5000` does not help. Migrations 1 and 2 shipped before three
+processes shared the file; migration 3 will not.
 
 ## Season initialization
 
@@ -553,6 +614,12 @@ The upper bound is `ceil(t / f) <= 11` rather than `t / f <= 11` because
 holding is `ceil(t/f)`. The two are equivalent when `f` divides `t` and the ceiling
 form is correct otherwise.
 
+**Why 5 rather than 4?** Five dealt territories is ten troops, enough that losing
+one border does not cascade, and it keeps the smallest realistic continent (4) in
+reach from the deal. Four would still be defensible; two or three are not, which is
+the failure the bound exists for. The upper bound needs no such judgement — 11 is
+exactly where `floor(t/2)` leaves the income floor.
+
 An **empty territory list is rejected** explicitly. It passes every ratio test
 (`0 / 4 = 0`), and would deal a board where every faction holds nothing:
 `territoryIncome` returns 0 (`src/engine/income.ts:13`), so nobody ever earns, and
@@ -569,17 +636,20 @@ where `validateOrder` builds adjacency from the 42-territory map
 unplayable with no throw.
 
 This spec owns the fix because it owns `season-init`: add an optional trailing
-`map: GameMap = RISK_MAP` parameter. All **50** existing 3-argument call sites
-across **11** files keep compiling (a `grep` for `createSeason(` totals 51, but one
-of those is the declaration at `src/engine/setup.ts:20`).
+`map: GameMap = RISK_MAP` parameter. All **51** existing 3-argument call sites across
+**11** files keep compiling. (A line-based `grep` undercounts: 52 occurrences of
+`createSeason(` exist across 12 files, one of which is the declaration at
+`src/engine/setup.ts:20`, and `src/engine/setup.test.ts:47` carries two calls on a
+single line.)
 
 The invariant is **set equality**, not length: `map.territories` and the shuffled
 territory list must contain the same ids. Length equality catches the 42-vs-N
 regression, but if a season deals a subset of a larger map, every undealt territory
 still appears in `state.map.territories` — so `validateOrder` builds adjacency that
 includes it (`src/engine/validate.ts:70`), an attack into it passes validation, and
-combat then reads `garrisons[t]` for a territory that has no entry. A test asserts
-the sets match.
+combat reads `const defense = garrisons[to] ?? 0` (`src/engine/combat.ts:106`) — so
+an undealt territory is not a crash but a **free capture by any 1-troop attack**.
+Silent corruption, not a throw. A test asserts the sets match.
 
 ## Order entry
 
@@ -635,29 +705,55 @@ Subterfuge (up to 10) — settle around a week at high player counts.
 `src/sim/run.ts` imports `SEASON_LENGTH` and `SEASON_DAYS` is deleted;
 `src/sim/run.test.ts` and the `src/config.ts:1` docstring follow.
 
-**The measurement is committed with the change, and the roster is named.** A
-2,000-season run over `Turtle, Blitz, GymRat, Slacker, Gambler, Arbitrageur` — the
-default roster at `src/sim/cli.ts:3-7` — moves the day-3 leader's conversion from
-**32.3% ± 1.0** at 21 days to **36.3% ± 1.0** at 14, with the exploit prober near
-zero throughout.
+**The measurement is committed with the change, and it uses the authoritative
+roster.** `docs/superpowers/reviews/2026-08-09-balance-run.md` labels
+*Blitz, Consolidator, Hunter, Slacker, GymRat, Gambler* "Run 2 — competitive
+roster (**authoritative**)" (`:12`) and keeps the CLI-default roster only as
+"Run 1 — original policy set (**superseded**)" (`:112`). An earlier draft measured
+21-vs-14 on the superseded roster, in which `Turtle` wins 0.0% and `Arbitrageur`
+— a deliberate exploit probe, not a player — wins 0.1%, so two of six policies are
+inert. Re-measured on the authoritative roster, 2,000 seasons, seeds 1..2000:
 
-Those figures do not match the committed `2026-08-09-balance-run.md` (19.5% /
-0.1%), and an earlier draft attributed that to code drift. **That diagnosis was
-wrong: it is a roster difference.** The committed run used *Blitz, Consolidator,
-Hunter, Slacker, GymRat, Gambler*; the CLI default swaps `Consolidator` and
-`Hunter` out for `Turtle` and `Arbitrageur`. `Arbitrageur` wins ~0.1% of seasons,
-so the effective field is nearer five than six and pure chance rises from 16.7%
-toward 20% before any game effect. The two numbers were never comparable.
+| | 21 days | 14 days |
+|---|---|---|
+| day-3 leader converts | **19.5%** | **22.8%** |
+| win-rate spread | 9.1% – 20.8% | 9.8% – 20.4% |
+| mean territories | 6.4 – 7.2 | 6.6 – 7.2 |
 
-The precision is stated because it is easy to over-read: at n = 2000 and p ≈ 0.33,
-SE = √(0.33·0.67/2000) ≈ 1.05 pp, so a 4.0 pp difference is about 2.7σ — a real
-effect, but the true interval is ±1.0 pp, not the ±0.05 pp that one decimal place
-implies.
+The 21-day column reproduces the committed document to the decimal on every
+policy, which also establishes that the engine has **not** drifted since that run.
 
-**+4 points is judged acceptable.** The direction is against the spec's stated goal
-(a shorter season makes the day-3 leader more decisive), so it is a trade rather
-than a free win: 36.3% against a ~20% chance baseline is well short of "the day-3
-leader *usually* wins", which is the threshold the original spec set.
+**+3.3 points is judged acceptable.** The direction is against the spec's stated
+goal — a shorter season makes the day-3 leader more decisive — so it is a trade,
+not a free win. But 22.8% against a 16.7% chance baseline is far short of "the
+day-3 leader *usually* wins", which is the threshold the original spec set, and the
+spread and mean-territory bands barely move, so no policy becomes dominant at 14
+days.
+
+**On the discrepancy with Run 1.** Two different explanations are true of two
+different comparisons, and an earlier draft asserted only the first. Run 2 (19.5%)
+reproduces exactly, so the gap between it and the CLI-default roster's 32.3% is a
+**roster** difference. Run 1 (`:112-124`) reports **87.4%** at that same default
+roster with `Blitz` at 100.0%, where the current code measures 32.3% and 25.4% —
+that gap *is* code drift, from the policy rewrite recorded between the two runs.
+Neither explanation covers both.
+
+The field-size argument an earlier draft offered for the roster gap does not
+survive measurement: dropping `Arbitrageur` entirely moves 32.3% to 31.7%, about
+0.6 pp, where the argument predicted ≈3.3 pp. The real driver is that the
+superseded roster's surviving policies are weak and asymmetric — mean final
+territories span 2.6 to 9.5 against an even split of 7.0, versus 6.4 to 7.2 on the
+authoritative roster.
+
+**Statistics.** At n = 2000 and p ≈ 0.20, the standard error of one proportion is
+√(0.2·0.8/2000) ≈ 0.89 pp — that is **1σ**, so the 95% interval is roughly ±1.8 pp,
+and the figures above should not be read to a tenth of a point. The two runs are
+**paired, not independent**: `runSeason` walks seeds 1..2000 in both, `makeSlate`
+draws on days 1..`SEASON_DAYS − 1` (`src/sim/run.ts:74`) so the RNG streams are
+identical through day 13, and `day3Leader` is fixed at day 3
+(`src/sim/run.ts:106-111`) — the day-3 leader is therefore the *same faction per
+seed* in both runs. A paired test (McNemar on the discordant pairs) is the correct
+one and would be less conservative than treating them as independent.
 
 `lengthDays` is stored per season, so the constant only affects seasons dealt
 afterwards.
@@ -677,8 +773,11 @@ afterwards.
    Two concurrent runs produce exactly one state row, one recap and zero errors —
    the second returns `already-run`. A second run *after* a saved state returns
    `already-run` (the sequential case).
-3. **Order assembly.** Zero-stake rows never reach the engine — assert the recap
-   contains no `bad stake` rejection after one is written directly. A faction with
+3. **Order assembly.** Malformed stakes never reach the engine. A zero stake cannot
+   be inserted (the CHECK rejects it), so the test writes `1.5` — which passes
+   `stake > 0` but fails `isCount` at `src/engine/validate.ts:89` — and asserts the
+   recap contains no `bad stake` rejection, exercising the assembly filter and
+   SQLite's type-affinity gap at once. A faction with
    wagers but no order body gets a synthesized `Order`. Wagers are ordered by
    `first_staked_at`, and two wagers written in the same second still order
    deterministically (millisecond precision).
@@ -700,20 +799,22 @@ afterwards.
 8. **`--assemble-missing`.** A day that was never ticked has no `tick_context`;
    `tick:rerun` without the flag refuses, and with it assembles fresh, replays, and
    writes a `tick_context` so a later rerun is deterministic.
-9. **Recap idempotency.** A second `postRecap` for the same `(day, kind, attempt)`
+9. **Notification flooding.** A season stopped at day 7 posts the gap note once and
+   logs on every subsequent night, rather than posting nightly forever.
+10. **Recap idempotency.** A second `postRecap` for the same `(day, kind, attempt)`
    posts nothing. A post that fails *after* the ledger insert is recoverable with
    `--force`, which inserts a new attempt. A second correction for the same day
    posts.
-10. **Season deal.** Same seed produces the same board. The roster drives the
+11. **Season deal.** Same seed produces the same board. The roster drives the
     faction list. Refuses on: an existing day-0 state; a roster outside
     `[MIN_FACTIONS, MAX_FACTIONS]`; **too few territories per faction — the default
     42-territory map with a 15-member roster, which is the real-world case**; too
     many (`ceil(t/f) > 11`); and an empty territory list. A season dealt on a
     non-default list produces a state whose `map.territories` is the **same set** as
     the list.
-11. **No network.** Enforced, not asserted: a vitest `setupFiles` stubs
+12. **No network.** Enforced, not asserted: a vitest `setupFiles` stubs
     `globalThis.fetch` to throw.
-12. **Ingest hardening.** A Kalshi ticker containing shell metacharacters is
+13. **Ingest hardening.** A Kalshi ticker containing shell metacharacters is
     rejected at parse rather than reaching `slate_markets`.
 
 ## Surfaces this change touches
@@ -722,7 +823,7 @@ Enumerated because a sweep found each of these and none was listed:
 
 | Surface | Change |
 |---|---|
-| `src/store/types.ts:3-7` `SeasonRow` | gains `seed`; `currentDay(season, now)` consumes it |
+| `src/store/types.ts:3-7` `SeasonRow` | gains `seed`, read by `season-init`. (`currentDay` reads `startDate`, not `seed`.) |
 | `src/store/sqlite.ts:53-65` `season()` | must select `seed` |
 | `src/store/sqlite.ts:67-73` `upsertSeason` | 3-column insert; cannot write the seed, and silently overwrites `start_date`/`length_days`. `season-init` gets an insert-only method instead |
 | `src/jobs/cli.ts:58-66` | `season-init` is positional today — `Number(process.argv[4] ?? SEASON_LENGTH)`, so `--seed 4711` lands in `argv[4]` and yields `NaN` for `lengthDays`. Argument parsing is respecified and `NaN` rejected |
@@ -734,7 +835,8 @@ Enumerated because a sweep found each of these and none was listed:
 | `src/adapters/kalshi/parse.ts` | `close_time` normalized to `toISOString()`; `market_id` character-validated |
 | `deploy/README.md:11,16-19` | the new tick unit and its reliance on the system `TZ` |
 | `docs/…/2026-08-09-riskety-rekt-design.md:110-119` | declares `claimTick(seasonId, day): Promise<boolean>`; this design removes `claimTick` entirely, and the real store is synchronous (`DatabaseSync`) |
-| `docs/…/2026-08-09-riskety-rekt-design.md:164,173` | still says "4–6 factions" and "21 days" |
+| `docs/…/2026-08-09-riskety-rekt-design.md:164,168,173,174,177,489` | "4–6 factions", "21 days", "Ticks run 1 through 21", "after the day 21 tick wins", "a day-20 wager unsettled at tick 21", "Day-21 wagers would pay out at a tick that never runs" |
+| `docs/…/2026-08-09-riskety-rekt-design.md:550` | the daily-timeline row describes `claimTick` locking the day and reading orders in one transaction — the mechanism this design deletes |
 
 ## Deployment
 
@@ -742,7 +844,7 @@ A `riskety-tick.timer` and `.service`, at 21:00 America/New_York. **No tick unit
 exists today** — `deploy/` carries only the slate publisher, the settlement poller
 and the Slack bot.
 
-`OnCalendar=*-*-* 21:00:00`, relying on the **system** timezone exactly as the
+`OnCalendar=*-*-* 21:00:30`, relying on the **system** timezone exactly as the
 existing units do. An earlier draft said the timezone was "named explicitly,
 matching the existing units" — it is not: `deploy/riskety-publish-slate.timer`
 names no timezone and depends on `TZ=America/New_York`, documented at
@@ -751,17 +853,45 @@ as `OnCalendar=America/New_York *-*-* 21:00:00` and needs systemd ≥ 252. Not w
 the version floor when the system TZ is already pinned — but `deploy/README.md`
 gains a line for the new unit.)
 
-`Persistent=true` fires one catch-up run after a boot.
+`Persistent=true` fires one catch-up run after a boot. Note that this puts the
+`now >= 21:00` guard on the *routine* path: a daytime reboot triggers a catch-up
+run that passes every day-clock row and is stopped only by that guard. It is
+therefore a **skip at exit 0** with its own reason (`before-cutoff`), alongside
+`before-season` / `after-season` / `already-run` — not a failure, or every reboot
+would mark the unit failed.
 
-**The tick unit sets no `Restart=`.** The publish job justifies its
-`Restart=on-failure` in its own comment — "an early failure still leaves 13 hours
-before the 21:00 lock" — and the tick has no such headroom. More importantly, one
-of its stop conditions is *permanent*: the missed-day refusal's predicate does not
-change with time, so `RestartSec=300` would restart every five minutes all night,
-reopening the database and writing a stack trace each time, and systemd's default
-start-limit never trips at that rate. The refusal exits 0 with a loud log and a
-Slack note instead, and a genuine crash waits for tomorrow's timer — by which point
-the day-clock guard reports the gap.
+**The `:30` offset is deliberate.** `deploy/riskety-poll-settlements.timer:5` is
+`OnCalendar=*:00/30`, which fires at exactly 21:00:00, and `runPollSettlements`
+writes outcomes in a bare loop of independent `recordSettlement` calls
+(`src/jobs/poll-settlements.ts:43-47`), each its own autocommit. A tick whose
+`BEGIN IMMEDIATE` lands between two of them would freeze a **torn** settlement
+snapshot into `tick_context` — permanently authoritative for every later replay.
+The poller's write loop is also wrapped in a single transaction. Thirty seconds is
+not a guarantee (the poller fetches first, with `HTTP_TIMEOUT_MS = 20_000` and
+`HTTP_RETRIES = 2`, `src/config.ts:45-46`), which is why both fixes are applied.
+
+**The tick unit sets `Restart=on-failure`, `RestartSec=60`, `StartLimitBurst=5`,
+`StartLimitIntervalSec=1800`.**
+
+An earlier draft removed `Restart=` entirely, reasoning that the missed-day
+refusal's predicate never clears and would restart every five minutes all night.
+That reasoning was already obsolete: **the refusal exits 0**, and
+`Restart=on-failure` restarts on a non-zero exit, a signal, or a watchdog timeout —
+never on a clean exit. The refusal cannot loop under it. The draft had solved that
+problem twice by mutually exclusive means and kept the mechanism it no longer
+needed.
+
+Removing the retrier was actively harmful, because the single-transaction design's
+central safety property is "a crash leaves nothing behind, so **a retry starts
+clean**" — and with `OnCalendar` firing once a day there would have been no retry
+at all. Any transient failure (a `SQLITE_BUSY` past the 5 s `busy_timeout` at
+`src/store/sqlite.ts:48`, ENOSPC, OOM) would discard the whole day's work, and the
+next event would be tomorrow's timer refusing on the gap.
+
+`StartLimitBurst` bounds a genuinely persistent crash so it fails the unit rather
+than looping until morning. Additionally, `store.transaction` retries
+`SQLITE_BUSY` / `SQLITE_BUSY_SNAPSHOT` up to three times with backoff before
+propagating.
 
 ## Spec deltas
 

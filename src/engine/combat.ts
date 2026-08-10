@@ -1,5 +1,6 @@
 import { allocateCasualties } from "./casualties.js"
 import { territoriesOf } from "./setup.js"
+import { cmp } from "./sort.js"
 import type { FactionId, GameState, Order, TerritoryId, TickEvent } from "./types.js"
 
 interface Movement {
@@ -11,8 +12,6 @@ interface Movement {
   /** Troops still alive after any field battle. Only these reach the target. */
   size: number
 }
-
-const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 /**
  * Step 6 of the pipeline: protections, field battles, then simultaneous attacks.

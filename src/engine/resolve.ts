@@ -1,6 +1,7 @@
 import { resolveCombat } from "./combat.js"
 import { territoryIncome } from "./income.js"
 import { irlGrants } from "./irl.js"
+import { cmp } from "./sort.js"
 import { ENGINE_VERSION } from "./types.js"
 import { validateOrder } from "./validate.js"
 import { escrow, settleAll } from "./wagers.js"
@@ -13,8 +14,6 @@ import type {
   TerritoryId,
   TickEvent,
 } from "./types.js"
-
-const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 /**
  * The seven-step tick.

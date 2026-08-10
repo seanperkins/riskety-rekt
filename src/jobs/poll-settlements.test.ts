@@ -3,7 +3,7 @@ import { runPollSettlements } from "./poll-settlements.js"
 import { openStore } from "../store/sqlite.js"
 import type { MarketAdapter } from "../adapters/types.js"
 import type { Market, MarketId, Settlement } from "../engine/index.js"
-import type { SlateStore } from "../store/types.js"
+import type { SlateStore, Transactional } from "../store/types.js"
 
 const SEASON = { seasonId: "s1", startDate: "2026-09-01", lengthDays: 21 }
 const NOW = new Date("2026-09-04T20:00:00Z")
@@ -31,7 +31,7 @@ function stubAdapter(
   }
 }
 
-function fresh(): SlateStore {
+function fresh(): SlateStore & Transactional {
   const store = openStore(":memory:")
   store.upsertSeason(SEASON)
   return store

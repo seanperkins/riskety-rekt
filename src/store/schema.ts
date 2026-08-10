@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite"
 
 /**
  * Ordered, append-only. Each entry advances `PRAGMA user_version` by one.
- * Never edit a shipped migration -- add a new one. Plans 3 and 4 append theirs.
+ * Never edit a shipped migration -- add a new one.
  */
 export const MIGRATIONS: string[] = [
   `
@@ -100,6 +100,92 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (message_ts, faction_id)
   );
   `,
+
+  `
+  -- Nullable: any season row written before the deal existed has no seed.
+  ALTER TABLE seasons ADD COLUMN seed INTEGER;
+
+  -- One GameState per (season, day), as JSON, because the engine owns that shape
+  -- and the store has no business knowing it. Schema-checked on load, not trusted.
+  --
+  -- There is deliberately no run_at column: nothing reads it. And there is no
+  -- lock table -- the tick's claim, resolve and save are one transaction, so
+  -- there is no intermediate state for a second process to misread.
+  CREATE TABLE states (
+    season_id      TEXT NOT NULL,
+    day            INTEGER NOT NULL CHECK (day >= 0),
+    state          TEXT NOT NULL,
+    engine_version TEXT NOT NULL,
+    PRIMARY KEY (season_id, day)
+  );
+
+  CREATE TABLE orders (
+    season_id  TEXT NOT NULL,
+    day        INTEGER NOT NULL CHECK (day >= 1),
+    faction_id TEXT NOT NULL,
+    body       TEXT NOT NULL,       -- deploys, attacks, protect as JSON
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (season_id, day, faction_id)
+  );
+
+  -- first_staked_at is the stable ordering key for the aggregate reserve check,
+  -- which is sequential-greedy. Ordering by updated_at would hand a player a
+  -- lever over which bet survives a short reserve. Millisecond precision matters:
+  -- at second precision ties are common and the market_id tiebreak -- which the
+  -- player picks -- would decide it.
+  --
+  -- typeof(stake) = 'integer' is not redundant with the > 0 check: INTEGER is a
+  -- type AFFINITY in SQLite, so 1.5 binds and stores as 1.5, and 1.5 > 0 passes.
+  CREATE TABLE order_wagers (
+    season_id       TEXT NOT NULL,
+    day             INTEGER NOT NULL CHECK (day >= 1),
+    faction_id      TEXT NOT NULL,
+    market_id       TEXT NOT NULL,
+    side            TEXT NOT NULL CHECK (side IN ('yes','no')),
+    stake           INTEGER NOT NULL CHECK (stake > 0 AND typeof(stake) = 'integer'),
+    first_staked_at TEXT NOT NULL,
+    PRIMARY KEY (season_id, day, faction_id, market_id)
+  );
+
+  -- The frozen inputs of one tick, written in the SAME transaction as the state
+  -- row. Only a rerun reads it.
+  --
+  -- It exists because the context is not reconstructable after the fact:
+  -- settlements could be filtered by a timestamp, but posts.deleted is an
+  -- untimestamped flag and removeApproval hard-deletes its row, so a player
+  -- deleting an old photo would retroactively change postedToday on replay.
+  CREATE TABLE tick_context (
+    season_id      TEXT NOT NULL,
+    day            INTEGER NOT NULL CHECK (day >= 1),
+    orders         TEXT NOT NULL,   -- the assembled Order[] as JSON
+    context        TEXT NOT NULL,   -- the assembled DailyContext as JSON
+    engine_version TEXT NOT NULL,
+    PRIMARY KEY (season_id, day)
+  );
+
+  -- Outbound-message idempotency. A lost acknowledgement must not post twice.
+  --
+  -- attempt is in the key because a second correction for the same day is an
+  -- ordinary event -- the first fix was wrong -- and must not be suppressed.
+  -- 'gap' is the once-only note for a missed day, whose predicate stays true
+  -- every night thereafter and would otherwise post forever.
+  CREATE TABLE recaps (
+    season_id TEXT NOT NULL,
+    day       INTEGER NOT NULL CHECK (day >= 1),
+    kind      TEXT NOT NULL CHECK (kind IN ('original','correction','gap')),
+    attempt   INTEGER NOT NULL CHECK (attempt >= 1),
+    posted_at TEXT NOT NULL,
+    PRIMARY KEY (season_id, day, kind, attempt)
+  );
+
+  -- close_time was stored verbatim as Kalshi sent it, and the per-market wager
+  -- lock is a STRING comparison -- a date-only value sorts after every same-day
+  -- instant and reads as open forever. Normalize what is already on disk;
+  -- toCandidate normalizes new rows at ingest.
+  UPDATE slate_markets
+     SET close_time = strftime('%Y-%m-%dT%H:%M:%fZ', close_time)
+   WHERE close_time NOT LIKE '____-__-__T__:__:__.___Z';
+  `,
 ]
 
 /** Apply any migrations the database has not seen. Safe to call on every boot. */
@@ -107,7 +193,7 @@ export function migrate(db: DatabaseSync): void {
   const row = db.prepare("PRAGMA user_version").get() as { user_version: number } | undefined
   const current = row?.user_version ?? 0
   for (let v = current; v < MIGRATIONS.length; v++) {
-    db.exec("BEGIN")
+    db.exec("BEGIN IMMEDIATE")
     try {
       db.exec(MIGRATIONS[v]!)
       // user_version does not accept a bound parameter.

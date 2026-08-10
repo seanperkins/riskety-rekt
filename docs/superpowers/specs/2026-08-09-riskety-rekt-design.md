@@ -116,7 +116,11 @@ interface Store {
   recordApproval(action): Promise<void>                            // Slack ingress writes
   loadApprovals(seasonId, day): Promise<ApprovedAction[]>
   recordSettlement(marketId, outcome, at): Promise<void>           // poller writes
-  claimTick(seasonId, day): Promise<boolean>                       // false if already run
+  // SUPERSEDED. There is no claimTick and no lock table -- the tick's claim,
+  // resolve and save are one transaction. See the 2026-08-10 tick-runner spec,
+  // "Why there is no lock table". The idempotency check is `states[day] exists`
+  // inside that transaction.
+  stateExists(seasonId, day): boolean
 }
 ```
 
@@ -165,16 +169,20 @@ Australia 2.
 round-robin so holdings are even to within one territory. Every territory starts with
 2 troops. Every faction starts with 0 reserve.
 
-The dealt board is **day 0**. Ticks run 1 through 21. Tick 1 has empty `pending`, so
+The dealt board is **day 0**. Ticks run 1 through 14. Tick 1 has empty `pending`, so
 step 1 is a no-op.
 
 ### Season
 
-21 days, one tick per day at 21:00 America/New_York. The faction holding the most
-territories after the day 21 tick wins.
+14 days, one tick per day at 21:00 America/New_York. The faction holding the most
+territories after the day 14 tick wins.
+
+*(Was 21. Shortened 2026-08-10; the 21-vs-14 measurement is in
+`docs/superpowers/reviews/2026-08-10-balance-run-14day.md`. `SEASON_LENGTH` in
+`src/config.ts` is the single constant — the simulator imports it.)*
 
 Ties break on **total troops**, defined explicitly as `garrisons + reserves` — escrowed
-`pending` stakes are excluded, because a day-20 wager unsettled at tick 21 would
+`pending` stakes are excluded, because a day-13 wager unsettled at tick 14 would
 otherwise hold soldiers in limbo during the tiebreak. If still tied, most continents
 held. If still tied, the season is a draw; the recap says so.
 
@@ -262,9 +270,13 @@ Deploys, attacks and `protect` are editable until the 21:00 lock. **Wagers lock
 per-market at that market's `closeTime`** — see Wagers for why.
 
 The lock is enforced in SQLite, not in the web app. `saveOrder` rejects writes for a day
-once locked, judged by the **server clock only**. `claimTick` sets the lock and reads the
-orders inside one transaction, so a submit racing the timer either lands before the read
-or is rejected — never lands mid-resolution.
+once locked, judged by the **server clock only**.
+
+*(Superseded in detail: there is no `claimTick` and no lock row. `saveOrder`'s
+gates are the 21:00 clock and the presence of a `states` row, both evaluated
+inside its own transaction — so a submit racing the timer either commits first
+or waits behind the tick and then sees the state row. The property is unchanged;
+the mechanism is one transaction rather than two phases.)*
 
 SQLite runs in WAL mode with a `busy_timeout`. Three processes share the file (web app,
 Slack bot, tick timer), and the likeliest thing to block the tick is not an outside
@@ -486,7 +498,7 @@ is publicly known — before the order lock, so a player edits at 20:55 and stak
 whole reserve on a certainty at the 08:00 price. The web app shows each market's
 remaining window and greys out locked ones.
 
-**No slate on the final day.** Day-21 wagers would pay out at a tick that never runs. The
+**No slate on the final day.** Day-14 wagers would pay out at a tick that never runs. The
 08:00 job checks `day < seasonLength` and publishes nothing on the last day.
 
 ### Market selection
@@ -547,7 +559,7 @@ even when correctly escaped.
 | 08:00 | Fetch candidates, filter, pick 3–5, snapshot both side prices, persist slate, publish to web and Slack (skipped on the final day) |
 | every 30 min | Settlement poller writes resolved outcomes to the DB |
 | all day | Players post workout photos and react; players submit and revise orders. Each market's wagers lock at its own close time. |
-| 21:00 | `claimTick` locks the day and reads orders in one transaction. Read approvals and settlements from local state. Run the pipeline. Save state. Post recap. |
+| 21:00 | One transaction: check `states[day]`, assemble orders, read approvals and settlements from local state, run the pipeline, save state and `tick_context`. Post the recap AFTER the commit. |
 
 The map image is generated server-side by rendering the board to SVG from the public
 projection and rasterizing it to PNG. The same renderer backs the web board, so there is
@@ -577,8 +589,9 @@ Adapter timeouts and errors map to `"unsettled"` so outages are absorbed by this
 *distinct* reactors, honors `reaction_removed` and message deletion, and normalizes emoji
 names — `+1`, `thumbsup` and `+1::skin-tone-3` are distinct strings in the API.
 
-**Ticks are idempotent.** `claimTick` returns false if day N already has a saved state, so
-a double-fired timer, a retry, or an operator rerun cannot double-pay. Recovery from a bad
+**Ticks are idempotent.** The tick's transaction returns `already-run` if day N already
+has a saved state, so a double-fired timer, a retry, or an operator rerun cannot
+double-pay. Recovery from a bad
 tick means correcting the code and re-running from day N−1 — and because orders are frozen
 at lock and append-only, a rerun cannot pick up orders edited by players who now know the
 outcome. Each state row is stamped with `engineVersion` and a run timestamp, and any rerun

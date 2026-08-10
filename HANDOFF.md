@@ -26,15 +26,18 @@ variance, with uncertainty players can actually reason about.
 ## Current state
 
 **Done:** the pure rules engine, the offline season simulator, the Kalshi market
-adapter with its slate publisher and settlement poller, and the Slack ingress with its
-recap and slate renderers. **368 tests passing**, none of which touch the network.
+adapter with its slate publisher and settlement poller, the Slack ingress with its
+recap and slate renderers, and the 21:00 tick runner with `season-init`, `tick:rerun`,
+the recap ledger and CLI order entry. **499 tests passing**, none of which touch the
+network — `test/no-network.ts` replaces `fetch` in every run, so it is enforced.
 
-**Not built:** the tick runner and the web UI. Nothing here calls `resolve()` — wiring
-the 21:00 tick is Plan 4. Plan 3 built `runPostRecap`, but nothing calls it yet.
+**Not built:** the web UI. Order entry is therefore CLI-only, which means the operator
+can read every faction's deploys, attacks and `protect` picks straight out of SQLite —
+a competitive season does not start on that path.
 
 ```bash
 npm install
-npm test          # 271 tests
+npm test          # 499 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom roster

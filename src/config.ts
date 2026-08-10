@@ -1,5 +1,28 @@
-/** Season shape. Mirrors the spec's "21 days, one tick per day". */
-export const SEASON_LENGTH = 21
+/** Season shape. Mirrors the spec's "14 days, one tick per day". */
+export const SEASON_LENGTH = 14
+
+/**
+ * Roster bounds. New constants — no faction bound existed in code before, only
+ * prose in the design spec.
+ */
+export const MIN_FACTIONS = 4
+export const MAX_FACTIONS = 15
+
+/**
+ * Territories per faction at the deal.
+ *
+ * The UPPER bound is not a judgement call: income is `max(5, floor(t/2))`, so
+ * `floor(t/2) > 5` first at t = 12 — 11 is exactly where a deal would start
+ * above the income floor of 5.
+ *
+ * The LOWER bound is. Five dealt territories is ten troops: enough that losing
+ * one border does not cascade, and it keeps the smallest realistic continent (4)
+ * in reach. Two or three is the failure it guards — 42 territories dealt to 15
+ * factions is 2.8 each, six troops, eliminated by one focused attack. Note that
+ * income does NOT distinguish 2.8 from 7.0; both sit at the floor by design.
+ */
+export const MIN_TERRITORIES_PER_FACTION = 5
+export const MAX_TERRITORIES_PER_FACTION = 11
 
 /** Slate size target. Fewer is published if fewer candidates survive filtering. */
 export const SLATE_MIN = 3

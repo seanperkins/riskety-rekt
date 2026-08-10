@@ -1,6 +1,6 @@
 import { RISK_MAP } from "./map.js"
 import { ENGINE_VERSION } from "./types.js"
-import type { Faction, FactionId, GameState, TerritoryId } from "./types.js"
+import type { Faction, FactionId, GameMap, GameState, TerritoryId } from "./types.js"
 
 export function territoriesOf(state: GameState, factionId: FactionId): TerritoryId[] {
   return Object.keys(state.ownership)
@@ -17,11 +17,36 @@ export function continentBonusesFor(state: GameState, factionId: FactionId): num
   return bonus
 }
 
+/**
+ * Deal a board. Still pure: the caller shuffles.
+ *
+ * `map` is an optional trailing parameter so every existing 3-argument call site
+ * keeps compiling. It was hardcoded to RISK_MAP while the territory list was
+ * already an argument, which is a worse failure than it looks: the dealt set and
+ * the adjacency graph came from different places, and a territory in the map but
+ * not in the deal is a FREE CAPTURE, not a crash. It has no owner and no
+ * garrison, `validateOrder` builds adjacency from `state.map` so an attack on it
+ * passes validation, and combat reads `garrisons[to] ?? 0` — so one troop takes
+ * it. Silent, and it corrupts the board rather than stopping the tick.
+ *
+ * Hence the set check rather than a length check: equal sizes with different
+ * members is the same bug.
+ */
 export function createSeason(
   seasonId: string,
   factions: Faction[],
   shuffledTerritoryIds: TerritoryId[],
+  map: GameMap = RISK_MAP,
 ): GameState {
+  const mapIds = new Set(map.territories.map((t) => t.id))
+  const dealt = new Set(shuffledTerritoryIds)
+  if (mapIds.size !== dealt.size || [...dealt].some((id) => !mapIds.has(id))) {
+    throw new Error(
+      `createSeason: the dealt territories must be exactly the map's territory set ` +
+        `(map ${mapIds.size}, dealt ${dealt.size})`,
+    )
+  }
+
   const ownership: Record<TerritoryId, FactionId> = {}
   const garrisons: Record<TerritoryId, number> = {}
   shuffledTerritoryIds.forEach((tid, i) => {
@@ -34,7 +59,7 @@ export function createSeason(
   return {
     seasonId,
     day: 0,
-    map: RISK_MAP,
+    map,
     factions,
     ownership,
     garrisons,

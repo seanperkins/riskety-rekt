@@ -1,0 +1,18 @@
+[Unit]
+Description=Riskety Rekt — 21:00 tick
+
+[Timer]
+# 21:00:30, not 21:00:00. The settlement poller fires at *:00/30, and its write
+# loop would otherwise be able to interleave with the tick's read of the
+# settlements table — which tick_context then makes permanently authoritative
+# for that day. The poller's loop is transactional now, so this offset is the
+# second layer, not the only one.
+#
+# The zone comes from the system TZ, like every other unit here. An inline
+# OnCalendar zone would be a second place for the season's clock to live, and
+# the whole design turns on one.
+OnCalendar=*-*-* 21:00:30
+Persistent=false
+
+[Install]
+WantedBy=timers.target
