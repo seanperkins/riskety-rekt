@@ -5,6 +5,7 @@ import {
   resolve,
   territoriesOf,
 } from "../engine/index.js"
+import { SEASON_LENGTH } from "../config.js"
 import { POLICIES, makeRng, type Rng } from "./policies.js"
 import type {
   ApprovedAction,
@@ -15,7 +16,7 @@ import type {
   Settlement,
 } from "../engine/index.js"
 
-export const SEASON_DAYS = 21
+
 
 export interface SeasonResult {
   days: number
@@ -68,10 +69,10 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
   let state = createSeason(`sim-${seed}`, factions, shuffled(rng))
   let day3Leader = policyNames[0]!
 
-  for (let day = 1; day <= SEASON_DAYS; day++) {
+  for (let day = 1; day <= SEASON_LENGTH; day++) {
     // No slate on the final day: a day-21 stake would pay out at a tick that
     // never runs.
-    const slate = day < SEASON_DAYS ? makeSlate(day, rng) : []
+    const slate = day < SEASON_LENGTH ? makeSlate(day, rng) : []
 
     const approvals: ApprovedAction[] = []
     // Every approved action implies a post, and the sim has no unapproved
@@ -135,7 +136,7 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
   )[0]!
 
   return {
-    days: SEASON_DAYS,
+    days: SEASON_LENGTH,
     winner,
     finalTerritories,
     finalReserves: Object.fromEntries(policyNames.map((n) => [n, state.reserves[n] ?? 0])),

@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest"
+import { SEASON_LENGTH } from "../config.js"
 import { runMany, runSeason } from "./run.js"
 
 const four = ["Turtle", "Blitz", "GymRat", "Slacker"]
 
 describe("runSeason", () => {
-  it("runs 21 ticks and returns a winner from the roster", () => {
+  it("runs a full season and returns a winner from the roster", () => {
     const r = runSeason(four, 1)
-    expect(r.days).toBe(21)
+    expect(r.days).toBe(SEASON_LENGTH)
     expect(four).toContain(r.winner)
   })
 
