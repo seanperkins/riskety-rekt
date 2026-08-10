@@ -41,11 +41,11 @@ describe("renderMap", () => {
 
   it("reports the real totals", () => {
     expect(html).toContain(`<td class="n">${WORLD.territories.length}</td>`)
-    expect(html).toContain(`<td class="n">${WORLD.continents.length}</td>`)
+    expect(html).toContain(`<td class="n">${WORLD.regions.length}</td>`)
   })
 
-  it("names every continent in the legend", () => {
-    for (const c of WORLD.continents) expect(html, c.id).toContain(c.name)
+  it("names every region in the legend", () => {
+    for (const c of WORLD.regions) expect(html, c.id).toContain(c.name)
   })
 
   it("has no NaN in any coordinate", () => {
@@ -59,10 +59,10 @@ describe("renderMap", () => {
     // Kalshi and display names come from Slack. Escaping only "the untrusted
     // ones" is how the one that gets reclassified slips through.
     const hostile: GameMap = {
-      continents: [{ id: "x", name: "<b>C</b>", bonus: 0 }],
+      regions: [{ id: "x", name: "<b>C</b>", bonus: 0 }],
       territories: [
-        { id: "a", name: '"><script>alert(1)</script>', continent: "x", neighbors: ["b"] },
-        { id: "b", name: "B", continent: "x", neighbors: ["a"] },
+        { id: "a", name: '"><script>alert(1)</script>', region: "x", neighbors: ["b"] },
+        { id: "b", name: "B", region: "x", neighbors: ["a"] },
       ],
     }
     const out = renderMap(hostile, { a: { lat: 0, lon: 0 }, b: { lat: 1, lon: 1 } })
@@ -73,8 +73,8 @@ describe("renderMap", () => {
 
   it("renders a map whose territories have no coordinates without crashing", () => {
     const orphan: GameMap = {
-      continents: [{ id: "x", name: "X", bonus: 0 }],
-      territories: [{ id: "a", name: "A", continent: "x", neighbors: [] }],
+      regions: [{ id: "x", name: "X", bonus: 0 }],
+      territories: [{ id: "a", name: "A", region: "x", neighbors: [] }],
     }
     expect(() => renderMap(orphan, {})).not.toThrow()
   })

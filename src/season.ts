@@ -44,7 +44,7 @@ export function tickInstant(season: SeasonRow, day: number): Date {
  * holding is `ceil(t/f)`, which is what the bound is applied to.
  *
  * Lower: 2–3 territories is 4–6 troops, eliminated by one focused attack, with
- * no continent reachable. Income does NOT distinguish 2.8 per faction from 7.0 —
+ * no region reachable. Income does NOT distinguish 2.8 per faction from 7.0 —
  * both sit at the floor, and the design intends the deal to sit there — so the
  * lower bound is about survivability, not economy.
  */

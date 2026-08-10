@@ -96,7 +96,7 @@ describe("runSeasonInit", () => {
     const out = runSeasonInit({
       store,
       ...BASE,
-      map: { territories: [], continents: [] },
+      map: { territories: [], regions: [] },
     })
     expect(out).toMatchObject({ status: "refused" })
     store.close()
@@ -153,16 +153,16 @@ describe("runSeasonInit", () => {
   })
 })
 
-/** A synthetic map with `n` territories in one fully-connected continent. */
+/** A synthetic map with `n` territories in one fully-connected region. */
 function bigMap(n: number): GameMap {
   const ids = Array.from({ length: n }, (_, i) => `t${String(i).padStart(3, "0")}`)
   return {
     territories: ids.map((id) => ({
       id,
       name: id,
-      continent: "c",
+      region: "c",
       neighbors: ids.filter((o) => o !== id),
     })),
-    continents: [{ id: "c", name: "C", bonus: 1 }],
+    regions: [{ id: "c", name: "C", bonus: 1 }],
   }
 }

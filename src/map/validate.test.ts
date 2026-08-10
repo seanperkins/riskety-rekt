@@ -3,21 +3,21 @@ import { RISK_MAP } from "../engine/index.js"
 import type { GameMap } from "../engine/index.js"
 import { validateMap } from "./validate.js"
 
-/** Two continents of four, in a line, fully legal. */
+/** Two regions of four, in a line, fully legal. */
 const good = (): GameMap => ({
-  continents: [
+  regions: [
     { id: "x", name: "X", bonus: 2 },
     { id: "y", name: "Y", bonus: 2 },
   ],
   territories: [
-    { id: "x1", name: "X1", continent: "x", neighbors: ["x2"] },
-    { id: "x2", name: "X2", continent: "x", neighbors: ["x1", "x3"] },
-    { id: "x3", name: "X3", continent: "x", neighbors: ["x2", "x4"] },
-    { id: "x4", name: "X4", continent: "x", neighbors: ["x3", "y1"] },
-    { id: "y1", name: "Y1", continent: "y", neighbors: ["y2", "x4"] },
-    { id: "y2", name: "Y2", continent: "y", neighbors: ["y1", "y3"] },
-    { id: "y3", name: "Y3", continent: "y", neighbors: ["y2", "y4"] },
-    { id: "y4", name: "Y4", continent: "y", neighbors: ["y3"] },
+    { id: "x1", name: "X1", region: "x", neighbors: ["x2"] },
+    { id: "x2", name: "X2", region: "x", neighbors: ["x1", "x3"] },
+    { id: "x3", name: "X3", region: "x", neighbors: ["x2", "x4"] },
+    { id: "x4", name: "X4", region: "x", neighbors: ["x3", "y1"] },
+    { id: "y1", name: "Y1", region: "y", neighbors: ["y2", "x4"] },
+    { id: "y2", name: "Y2", region: "y", neighbors: ["y1", "y3"] },
+    { id: "y3", name: "Y3", region: "y", neighbors: ["y2", "y4"] },
+    { id: "y4", name: "Y4", region: "y", neighbors: ["y3"] },
   ],
 })
 
@@ -30,7 +30,7 @@ describe("validateMap", () => {
     // Classic Risk's Asia is 12 territories, outside the 4-9 band the generated
     // world holds to. RISK_MAP predates that rule and is grandfathered: it is
     // the golden fixture and createSeason's default, and is never selected from.
-    expect(validateMap(RISK_MAP)).toEqual([{ kind: "continent-size", continent: "as", size: 12 }])
+    expect(validateMap(RISK_MAP)).toEqual([{ kind: "region-size", region: "as", size: 12 }])
   })
 
   it("catches an asymmetric border", () => {
@@ -56,35 +56,35 @@ describe("validateMap", () => {
     expect(validateMap(m)).toContainEqual({ kind: "duplicate-territory", id: "x1" })
   })
 
-  it("catches an empty continent and one outside the 4-9 band", () => {
+  it("catches an empty region and one outside the 4-9 band", () => {
     const m = good()
-    m.continents.push({ id: "z", name: "Z", bonus: 1 })
+    m.regions.push({ id: "z", name: "Z", bonus: 1 })
     m.territories = m.territories.filter((t) => t.id !== "y4")
     m.territories.find((t) => t.id === "y3")!.neighbors = ["y2"]
     const out = validateMap(m)
-    expect(out).toContainEqual({ kind: "empty-continent", continent: "z" })
-    expect(out).toContainEqual({ kind: "continent-size", continent: "y", size: 3 })
+    expect(out).toContainEqual({ kind: "empty-region", region: "z" })
+    expect(out).toContainEqual({ kind: "region-size", region: "y", size: 3 })
   })
 
-  it("catches a territory in a continent that does not exist", () => {
+  it("catches a territory in a region that does not exist", () => {
     const m = good()
-    m.territories[0]!.continent = "ghost"
+    m.territories[0]!.region = "ghost"
     expect(validateMap(m)).toContainEqual({
-      kind: "unknown-continent",
+      kind: "unknown-region",
       id: "x1",
-      continent: "ghost",
+      region: "ghost",
     })
   })
 
-  it("catches a continent split into two pieces", () => {
-    // Contiguity is what makes a continent bonus a real objective. A continent
+  it("catches a region split into two pieces", () => {
+    // Contiguity is what makes a region bonus a real objective. A region
     // in two halves is two separate conquests paying one bonus -- and selection
-    // relies on whole continents being internally connected, so a split one
+    // relies on whole regions being internally connected, so a split one
     // would let a selected board fail its own connectivity check.
     const m = good()
     m.territories.find((t) => t.id === "x2")!.neighbors = ["x1"]
     m.territories.find((t) => t.id === "x3")!.neighbors = ["x4"]
-    expect(validateMap(m)).toContainEqual({ kind: "continent-split", continent: "x" })
+    expect(validateMap(m)).toContainEqual({ kind: "region-split", region: "x" })
   })
 
   it("catches a disconnected map", () => {
@@ -99,7 +99,7 @@ describe("validateMap", () => {
     // them one run at a time is miserable.
     const m = good()
     m.territories[0]!.neighbors = ["x2", "nowhere"]
-    m.territories[5]!.continent = "ghost"
+    m.territories[5]!.region = "ghost"
     expect(validateMap(m).length).toBeGreaterThan(1)
   })
 

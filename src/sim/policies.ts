@@ -146,7 +146,7 @@ export const POLICIES: Policy[] = [
   },
 
   {
-    // Fights for continent bonuses: prefers targets in whichever continent it is
+    // Fights for region bonuses: prefers targets in whichever region it is
     // closest to completing. A different strategic axis from Blitz, not a clone.
     name: "Consolidator",
     irlActionsPerDay: 1,
@@ -154,14 +154,14 @@ export const POLICIES: Policy[] = [
       play(s, f, (g) => {
         const mine = new Set(territoriesOf(s, f))
         const progress = new Map<string, number>()
-        for (const c of s.map.continents) {
-          const members = s.map.territories.filter((t) => t.continent === c.id)
+        for (const c of s.map.regions) {
+          const members = s.map.territories.filter((t) => t.region === c.id)
           const held = members.filter((t) => mine.has(t.id)).length
           if (held > 0 && held < members.length) progress.set(c.id, held / members.length)
         }
         const best = viableAttacks(s, f, g).sort((a, b) => {
-          const pa = progress.get(byId.get(a.to)!.continent) ?? 0
-          const pb = progress.get(byId.get(b.to)!.continent) ?? 0
+          const pa = progress.get(byId.get(a.to)!.region) ?? 0
+          const pb = progress.get(byId.get(b.to)!.region) ?? 0
           return pb - pa || b.margin - a.margin || cmp(a.from + a.to, b.from + b.to)
         })[0]
         return {

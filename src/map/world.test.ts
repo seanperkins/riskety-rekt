@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { CONTINENT_MAX, CONTINENT_MIN } from "../config.js"
+import { REGION_MAX, REGION_MIN } from "../config.js"
 import { COORDS } from "./coords.js"
 import { validateMap } from "./validate.js"
 import { WORLD } from "./world.js"
@@ -16,11 +16,11 @@ describe("WORLD", () => {
     expect(validateMap(WORLD)).toEqual([])
   })
 
-  it("keeps every continent inside the size band", () => {
-    for (const c of WORLD.continents) {
-      const size = WORLD.territories.filter((t) => t.continent === c.id).length
-      expect(size, c.id).toBeGreaterThanOrEqual(CONTINENT_MIN)
-      expect(size, c.id).toBeLessThanOrEqual(CONTINENT_MAX)
+  it("keeps every region inside the size band", () => {
+    for (const c of WORLD.regions) {
+      const size = WORLD.territories.filter((t) => t.region === c.id).length
+      expect(size, c.id).toBeGreaterThanOrEqual(REGION_MIN)
+      expect(size, c.id).toBeLessThanOrEqual(REGION_MAX)
     }
   })
 
@@ -28,7 +28,7 @@ describe("WORLD", () => {
     // Bonuses are computed per sub-map by selectSubMap, because defensibility
     // depends on which neighbours were selected. A non-zero value here would be
     // silently overwritten and would mislead anyone reading world.ts.
-    for (const c of WORLD.continents) expect(c.bonus, c.id).toBe(0)
+    for (const c of WORLD.regions) expect(c.bonus, c.id).toBe(0)
   })
 
   it("has a coordinate for every territory and no orphans", () => {

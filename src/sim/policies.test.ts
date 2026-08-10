@@ -87,7 +87,7 @@ describe("attacking policies", () => {
     expect(s.ownership[attack!.to]).toBe("f2")
   })
 
-  it("Consolidator prefers a target in a continent it is closest to completing", () => {
+  it("Consolidator prefers a target in a region it is closest to completing", () => {
     const s = createSeason("s", factions, ids)
     for (const t of RISK_MAP.territories) s.ownership[t.id] = "f2"
     // f1 holds 3 of Australia's 4 plus a bridgehead in Asia.

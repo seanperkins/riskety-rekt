@@ -1,7 +1,7 @@
 import {
   RISK_MAP,
   cmp,
-  continentBonusesFor,
+  regionBonusesFor,
   createSeason,
   resolve,
   territoriesOf,
@@ -126,13 +126,13 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
         (state.reserves[n] ?? 0),
     ]),
   )
-  const continents = Object.fromEntries(policyNames.map((n) => [n, continentBonusesFor(state, n)]))
+  const regions = Object.fromEntries(policyNames.map((n) => [n, regionBonusesFor(state, n)]))
 
   const winner = [...policyNames].sort(
     (a, b) =>
       finalTerritories[b]! - finalTerritories[a]! ||
       totalTroops[b]! - totalTroops[a]! ||
-      continents[b]! - continents[a]! ||
+      regions[b]! - regions[a]! ||
       cmp(a, b),
   )[0]!
 

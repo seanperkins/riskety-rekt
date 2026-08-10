@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest"
 import type { GameMap } from "../engine/index.js"
 import { COORDS } from "../map/coords.js"
 import { WORLD } from "../map/world.js"
-import { continentStats, edges, project } from "./projection.js"
+import { regionStats, edges, project } from "./projection.js"
 
 const tiny: GameMap = {
-  continents: [{ id: "x", name: "X", bonus: 0 }],
+  regions: [{ id: "x", name: "X", bonus: 0 }],
   territories: [
-    { id: "a", name: "A", continent: "x", neighbors: ["b"] },
-    { id: "b", name: "B", continent: "x", neighbors: ["a"] },
+    { id: "a", name: "A", region: "x", neighbors: ["b"] },
+    { id: "b", name: "B", region: "x", neighbors: ["a"] },
   ],
 }
 
@@ -62,17 +62,17 @@ describe("edges", () => {
   })
 })
 
-describe("continentStats", () => {
-  it("counts entry points as territories with a border leaving the continent", () => {
-    const stats = continentStats(WORLD)
+describe("regionStats", () => {
+  it("counts entry points as territories with a border leaving the region", () => {
+    const stats = regionStats(WORLD)
     const cape = stats.find((c) => c.id === "cape")!
     expect(cape.size).toBe(8)
     expect(cape.entries).toBeGreaterThan(0)
     expect(cape.entries).toBeLessThanOrEqual(cape.size)
   })
 
-  it("reports zero entries for a continent that is the whole map", () => {
-    expect(continentStats(tiny)[0]).toEqual({
+  it("reports zero entries for a region that is the whole map", () => {
+    expect(regionStats(tiny)[0]).toEqual({
       id: "x",
       name: "X",
       size: 2,

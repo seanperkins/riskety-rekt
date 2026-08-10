@@ -1,6 +1,6 @@
 export { cmp } from "./sort.js"
 export { RISK_MAP } from "./map.js"
-export { createSeason, territoriesOf, continentBonusesFor } from "./setup.js"
+export { createSeason, territoriesOf, regionBonusesFor } from "./setup.js"
 export { territoryIncome } from "./income.js"
 export { irlGrants, type IrlGrant } from "./irl.js"
 export {

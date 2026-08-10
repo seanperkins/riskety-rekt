@@ -1,5 +1,5 @@
-import { CONTINENT_MAX, CONTINENT_MIN } from "../config.js"
-import type { ContinentId, GameMap, TerritoryId } from "../engine/index.js"
+import { REGION_MAX, REGION_MIN } from "../config.js"
+import type { RegionId, GameMap, TerritoryId } from "../engine/index.js"
 
 export type MapProblem =
   | { kind: "duplicate-territory"; id: TerritoryId }
@@ -7,10 +7,10 @@ export type MapProblem =
   | { kind: "duplicate-neighbor"; id: TerritoryId; neighbor: TerritoryId }
   | { kind: "unknown-neighbor"; id: TerritoryId; neighbor: TerritoryId }
   | { kind: "asymmetric"; id: TerritoryId; neighbor: TerritoryId }
-  | { kind: "unknown-continent"; id: TerritoryId; continent: ContinentId }
-  | { kind: "empty-continent"; continent: ContinentId }
-  | { kind: "continent-size"; continent: ContinentId; size: number }
-  | { kind: "continent-split"; continent: ContinentId }
+  | { kind: "unknown-region"; id: TerritoryId; region: RegionId }
+  | { kind: "empty-region"; region: RegionId }
+  | { kind: "region-size"; region: RegionId; size: number }
+  | { kind: "region-split"; region: RegionId }
   | { kind: "disconnected"; reachable: number; total: number }
 
 /** Everything reachable from `start`, walking only inside `within` when given. */
@@ -50,15 +50,15 @@ function reach(
 export function validateMap(map: GameMap): MapProblem[] {
   const problems: MapProblem[] = []
   const byId = new Map(map.territories.map((t) => [t.id, t]))
-  const continentIds = new Set(map.continents.map((c) => c.id))
+  const regionIds = new Set(map.regions.map((c) => c.id))
 
   const seenIds = new Set<TerritoryId>()
   for (const t of map.territories) {
     if (seenIds.has(t.id)) problems.push({ kind: "duplicate-territory", id: t.id })
     seenIds.add(t.id)
 
-    if (!continentIds.has(t.continent)) {
-      problems.push({ kind: "unknown-continent", id: t.id, continent: t.continent })
+    if (!regionIds.has(t.region)) {
+      problems.push({ kind: "unknown-region", id: t.id, region: t.region })
     }
 
     const seenNeighbors = new Set<TerritoryId>()
@@ -81,18 +81,18 @@ export function validateMap(map: GameMap): MapProblem[] {
     }
   }
 
-  for (const c of map.continents) {
-    const members = map.territories.filter((t) => t.continent === c.id)
+  for (const c of map.regions) {
+    const members = map.territories.filter((t) => t.region === c.id)
     if (members.length === 0) {
-      problems.push({ kind: "empty-continent", continent: c.id })
+      problems.push({ kind: "empty-region", region: c.id })
       continue
     }
-    if (members.length < CONTINENT_MIN || members.length > CONTINENT_MAX) {
-      problems.push({ kind: "continent-size", continent: c.id, size: members.length })
+    if (members.length < REGION_MIN || members.length > REGION_MAX) {
+      problems.push({ kind: "region-size", region: c.id, size: members.length })
     }
     const within = new Set(members.map((t) => t.id))
     if (reach(members[0]!.id, byId, within).size !== members.length) {
-      problems.push({ kind: "continent-split", continent: c.id })
+      problems.push({ kind: "region-split", region: c.id })
     }
   }
 

@@ -1,6 +1,6 @@
 import type { GameMap } from "../engine/index.js"
 import type { LatLon } from "../map/coords.js"
-import { continentStats, edges, project } from "./projection.js"
+import { regionStats, edges, project } from "./projection.js"
 import { STYLE } from "./style.js"
 
 /**
@@ -48,7 +48,7 @@ const H = 900
 const PAD = 52
 
 /**
- * Golden-angle hues, so continents adjacent in the list never share a colour,
+ * Golden-angle hues, so regions adjacent in the list never share a colour,
  * kept at chart saturation so they sit on the ground rather than shout off it.
  */
 const hueFor = (i: number): string => `hsl(${Math.round((i * 137.508) % 360)} 46% 56%)`
@@ -66,7 +66,7 @@ const hueFor = (i: number): string => `hsl(${Math.round((i * 137.508) % 360)} 46
  */
 export function renderMap(map: GameMap, coords: Record<string, LatLon>): string {
   const proj = project(map, coords, W, H, PAD)
-  const color = new Map(map.continents.map((c, i) => [c.id, hueFor(i)]))
+  const color = new Map(map.regions.map((c, i) => [c.id, hueFor(i)]))
   const byId = new Map(map.territories.map((t) => [t.id, t]))
   const border = edges(map)
   const degree =
@@ -88,15 +88,15 @@ export function renderMap(map: GameMap, coords: Record<string, LatLon>): string 
       const borders = t.neighbors.map((n) => byId.get(n)?.name ?? n).join(", ")
       return (
         `<circle class="terr" tabindex="0" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5"` +
-        ` fill="${esc(color.get(t.continent))}">` +
-        `<title>${esc(t.name)} — ${esc(t.continent)}\nborders (${t.neighbors.length}): ${esc(borders)}</title>` +
+        ` fill="${esc(color.get(t.region))}">` +
+        `<title>${esc(t.name)} — ${esc(t.region)}\nborders (${t.neighbors.length}): ${esc(borders)}</title>` +
         `</circle>` +
         `<text class="label" x="${(p.x + 7.5).toFixed(1)}" y="${(p.y + 2.4).toFixed(1)}">${esc(t.name)}</text>`
       )
     })
     .join("")
 
-  const continents = continentStats(map)
+  const regions = regionStats(map)
     .map(
       (c) =>
         `<tr><td><span class="sw" style="background:${esc(color.get(c.id))}"></span>${esc(c.name)}</td>` +
@@ -106,14 +106,14 @@ export function renderMap(map: GameMap, coords: Record<string, LatLon>): string 
 
   const totals = [
     ["territories", String(map.territories.length)],
-    ["continents", String(map.continents.length)],
+    ["regions", String(map.regions.length)],
     ["borders", String(border.length)],
     ["mean degree", degree.toFixed(2)],
   ]
     .map(([k, v]) => `<tr><td>${esc(k)}</td><td class="n">${esc(v)}</td></tr>`)
     .join("")
 
-  const label = `World map: ${map.territories.length} territories in ${map.continents.length} continents`
+  const label = `World map: ${map.territories.length} territories in ${map.regions.length} regions`
 
   return page(
     "Riskety Rekt — world map",
@@ -126,8 +126,8 @@ export function renderMap(map: GameMap, coords: Record<string, LatLon>): string 
   <aside class="rail">
     <h1 class="title">Riskety&nbsp;Rekt</h1>
     <p class="sub">World data. Hover a territory for its borders.</p>
-    <h2 class="h2">Continents</h2>
-    <table class="t"><tbody>${continents}</tbody></table>
+    <h2 class="h2">Regions</h2>
+    <table class="t"><tbody>${regions}</tbody></table>
     <h2 class="h2">Totals</h2>
     <table class="t"><tbody>${totals}</tbody></table>
     <p class="note">Every line is a border in <code>src/map/world.ts</code>. A line that jumps

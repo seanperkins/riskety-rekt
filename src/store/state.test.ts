@@ -72,7 +72,7 @@ describe("saveState / loadState", () => {
     for (const mutate of [
       (s: GameState) => delete (s as Partial<GameState>).ownership,
       (s: GameState) => delete (s as Partial<GameState>).garrisons,
-      (s: GameState) => (s.map = { territories: [], continents: [] }),
+      (s: GameState) => (s.map = { territories: [], regions: [] }),
       (s: GameState) => (s.reserves = { f1: -1, f2: 0 }),
       (s: GameState) => (s.reserves = { f1: 1.5, f2: 0 }),
       // A non-integer `day` is checked by parseState but deliberately not

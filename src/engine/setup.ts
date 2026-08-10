@@ -8,10 +8,10 @@ export function territoriesOf(state: GameState, factionId: FactionId): Territory
     .filter((t) => state.ownership[t] === factionId)
 }
 
-export function continentBonusesFor(state: GameState, factionId: FactionId): number {
+export function regionBonusesFor(state: GameState, factionId: FactionId): number {
   let bonus = 0
-  for (const c of state.map.continents) {
-    const members = state.map.territories.filter((t) => t.continent === c.id)
+  for (const c of state.map.regions) {
+    const members = state.map.territories.filter((t) => t.region === c.id)
     if (members.every((t) => state.ownership[t.id] === factionId)) bonus += c.bonus
   }
   return bonus

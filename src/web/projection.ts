@@ -53,12 +53,12 @@ export function project(
   return { width, height, at }
 }
 
-/** Each continent's size and the number of its territories that border another. */
-export function continentStats(
+/** Each region's size and the number of its territories that border another. */
+export function regionStats(
   map: GameMap,
 ): { id: string; name: string; size: number; entries: number; bonus: number }[] {
-  return map.continents.map((c) => {
-    const members = map.territories.filter((t) => t.continent === c.id)
+  return map.regions.map((c) => {
+    const members = map.territories.filter((t) => t.region === c.id)
     const ids = new Set(members.map((t) => t.id))
     return {
       id: c.id,
