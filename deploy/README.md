@@ -92,6 +92,12 @@ Subscribe to these bot events: `message.channels`, `reaction_added`,
 `reaction_removed`. Point the Request URL at `https://<host>/slack/events` —
 Bolt's default path.
 
+**Event Subscriptions can only be saved once that endpoint is live.** Slack
+POSTs a `url_verification` challenge when the URL is entered and refuses to save
+if nothing answers. Bolt handles the challenge itself, but the service has to be
+running and reachable over public HTTPS first — Tailscale is not enough. Do the
+rest of the app setup ahead of time; this step waits for the droplet and Caddy.
+
 **Invite the bot to the channel.** Slack sends `message.channels` only for
 channels the app is a member of, and there is no error if it is not: approvals
 simply never arrive.

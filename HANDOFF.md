@@ -190,7 +190,10 @@ Plan 4's tick runner needs to call `dailyApprovals(store, seasonId, day)` for **
 `context.approvals` and `context.postedToday`, then `runPostRecap` after saving state —
 in that order, so a Slack outage cannot stall a tick.
 
-**Plan 4 — Web app + renderer + deployment.** Slack OAuth; `factionId` absent from the
+**Plan 4 — Web app + renderer + deployment.** Also carries two Plan 3 loose ends:
+Caddy must route `/slack/events` to port 3001, and Slack's Event Subscriptions cannot
+be registered until that endpoint answers a public HTTPS `url_verification` challenge —
+so the bot is unusable, and its round trip untestable, until this plan ships. Slack OAuth; `factionId` absent from the
 wire format entirely (not merely validated); the public projection with a test asserting
 no other faction's `protect` leaks into `__NEXT_DATA__`; SQLite in WAL mode with
 `claimTick` for idempotency; systemd timers. Deploy to a DigitalOcean droplet — **not**
