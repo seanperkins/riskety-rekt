@@ -13,9 +13,46 @@ export interface Projection {
 }
 
 /**
- * Equirectangular projection of a map's territories onto a fixed viewBox.
+ * Equal Earth (Šavrič, Patterson & Jenny, 2018).
  *
- * Equirectangular rather than a graph layout, and that is the whole point: a
+ * Equal-area, which matters here more than it usually would: territory COUNT is
+ * the win condition, so a projection that inflates the north would make the
+ * board misread — Siberia and Canada look enormous under equirectangular while
+ * holding six territories between them.
+ *
+ * A closed-form polynomial in the parametric latitude, so it needs no
+ * dependency and no iteration. The constants are the paper's.
+ *
+ *   x = 2√3·λ·cosθ / (3·(9A₄θ⁸ + 7A₃θ⁶ + 3A₂θ² + A₁))
+ *   y = A₄θ⁹ + A₃θ⁷ + A₂θ³ + A₁θ
+ *   where sinθ = (√3/2)·sinφ
+ */
+const A1 = 1.340264
+const A2 = -0.081106
+const A3 = 0.000893
+const A4 = 0.003796
+const SQRT3 = Math.sqrt(3)
+
+/** Longitude/latitude in degrees to Equal Earth plane coordinates. */
+export function equalEarth(lat: number, lon: number): { x: number; y: number } {
+  const phi = (lat * Math.PI) / 180
+  const lambda = (lon * Math.PI) / 180
+  // clamp guards a floating-point |sin| a hair over 1 at the poles, which would
+  // make asin return NaN and render an invisible, silent blank.
+  const theta = Math.asin(Math.max(-1, Math.min(1, (SQRT3 / 2) * Math.sin(phi))))
+  const t2 = theta * theta
+  const t6 = t2 * t2 * t2
+  const t8 = t6 * t2
+  return {
+    x: (2 * SQRT3 * lambda * Math.cos(theta)) / (3 * (9 * A4 * t8 + 7 * A3 * t6 + 3 * A2 * t2 + A1)),
+    y: A4 * theta * t8 + A3 * theta * t6 + A2 * theta * t2 + A1 * theta,
+  }
+}
+
+/**
+ * Project a map's territories onto a fixed viewBox.
+ *
+ * A real projection rather than a graph layout, and that is the whole point: a
  * force-directed layout would place Chad beside Egypt BECAUSE they are adjacent
  * in the data, which hides the exact defect this view exists to catch. Real
  * coordinates make a wrong border visibly wrong.
@@ -34,19 +71,37 @@ export function project(
   // A single-territory map, or one where every territory shares a longitude,
   // would divide by zero. Falling back to 1 puts everything on one line rather
   // than producing NaN coordinates, which render as an invisible, silent blank.
-  const lons = points.map((c) => c.lon)
-  const lats = points.map((c) => c.lat)
-  const lon0 = Math.min(...lons)
-  const lat1 = Math.max(...lats)
-  const spanLon = Math.max(...lons) - lon0 || 1
-  const spanLat = lat1 - Math.min(...lats) || 1
+  const planar = points.map((c) => equalEarth(c.lat, c.lon))
+  const xs = planar.map((p) => p.x)
+  const ys = planar.map((p) => p.y)
+  const x0 = Math.min(...xs)
+  const y1 = Math.max(...ys)
+  const spanX = Math.max(...xs) - x0
+  const spanY = y1 - Math.min(...ys)
+
+  // ONE scale for both axes, chosen so the wider span fits. Scaling x and y
+  // independently would stretch the board back to the aspect distortion the
+  // projection exists to remove -- an equal-area projection squashed to fill a
+  // box is no longer equal-area.
+  //
+  // A degenerate axis (every territory on one line, or a single territory) does
+  // NOT constrain the scale. Substituting 1 for a zero span would let a
+  // one-unit-tall imaginary extent decide the scale for both axes.
+  const fitX = spanX > 0 ? (width - 2 * pad) / spanX : Number.POSITIVE_INFINITY
+  const fitY = spanY > 0 ? (height - 2 * pad) / spanY : Number.POSITIVE_INFINITY
+  const scale = Number.isFinite(Math.min(fitX, fitY)) ? Math.min(fitX, fitY) : 1
+  // Centre the leftover on the axis that did not bind.
+  const offsetX = (width - spanX * scale) / 2
+  const offsetY = (height - spanY * scale) / 2
 
   const at = (id: string): Point | undefined => {
     const c = coords[id]
     if (c === undefined) return undefined
+    const p = equalEarth(c.lat, c.lon)
     return {
-      x: pad + ((c.lon - lon0) / spanLon) * (width - 2 * pad),
-      y: pad + ((lat1 - c.lat) / spanLat) * (height - 2 * pad),
+      x: offsetX + (p.x - x0) * scale,
+      // Plane y grows north; SVG y grows down.
+      y: offsetY + (y1 - p.y) * scale,
     }
   }
 
