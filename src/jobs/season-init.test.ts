@@ -3,8 +3,9 @@ import { MAX_FACTIONS, SEASON_LENGTH } from "../config.js"
 import { RISK_MAP } from "../engine/index.js"
 import type { GameMap } from "../engine/index.js"
 import { openStore } from "../store/sqlite.js"
-import { PALETTE, runSeasonInit, shuffle } from "./season-init.js"
-import { makeRng } from "../sim/policies.js"
+import { PALETTE, runSeasonInit } from "./season-init.js"
+import { shuffle } from "../rng.js"
+import { makeRng } from "../rng.js"
 
 const BASE = { seasonId: "s1", startDate: "2026-09-01", lengthDays: SEASON_LENGTH, seed: 4711 }
 
@@ -19,38 +20,6 @@ function withRoster(count: number) {
 
 const init = (store: ReturnType<typeof openStore>, over: Partial<typeof BASE> = {}) =>
   runSeasonInit({ store, ...BASE, ...over })
-
-describe("shuffle", () => {
-  it("is a permutation, and the same seed gives the same one", () => {
-    const items = RISK_MAP.territories.map((t) => t.id)
-    const a = shuffle(items, makeRng(99))
-    const b = shuffle(items, makeRng(99))
-    expect(a).toEqual(b)
-    expect([...a].sort()).toEqual([...items].sort())
-    expect(a).not.toEqual(items) // 42! makes an identity shuffle vanishingly unlikely
-  })
-
-  it("does not mutate its input", () => {
-    const items = ["a", "b", "c", "d"]
-    shuffle(items, makeRng(1))
-    expect(items).toEqual(["a", "b", "c", "d"])
-  })
-
-  it("reaches the last element", () => {
-    // The classic off-by-one: `for (i = n - 1; i > 0; i--)` with `j` drawn from
-    // [0, i] is correct, but drawing from [0, n) or stopping at i >= 0 is not.
-    // Over many seeds every position must see more than one value.
-    const seen = new Map<number, Set<string>>()
-    for (let seed = 1; seed <= 200; seed++) {
-      shuffle(["a", "b", "c", "d"], makeRng(seed)).forEach((v, i) => {
-        const set = seen.get(i) ?? new Set()
-        set.add(v)
-        seen.set(i, set)
-      })
-    }
-    for (const [, values] of seen) expect(values.size).toBe(4)
-  })
-})
 
 describe("runSeasonInit", () => {
   it("deals day 0 and records the seed", () => {

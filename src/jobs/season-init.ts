@@ -2,8 +2,7 @@ import { RISK_MAP, createSeason } from "../engine/index.js"
 import type { Faction, GameMap } from "../engine/index.js"
 import { ENGINE_VERSION } from "../engine/index.js"
 import { checkDeal } from "../season.js"
-import { makeRng } from "../sim/policies.js"
-import type { Rng } from "../sim/policies.js"
+import { makeRng, shuffle } from "../rng.js"
 import type { RosterStore, SeasonStore, StateStore, Transactional } from "../store/types.js"
 
 /**
@@ -44,22 +43,6 @@ export interface SeasonInitDeps {
   map?: GameMap
 }
 
-/**
- * Fisher-Yates, seeded. The engine holds no randomness by design, so the
- * shuffle happens here and the seed goes in `seasons.seed` — that is what makes
- * a deal reproducible after the fact.
- */
-export function shuffle<T>(items: T[], rng: Rng): T[] {
-  const out = [...items]
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1))
-    const a = out[i]!
-    const b = out[j]!
-    out[i] = b
-    out[j] = a
-  }
-  return out
-}
 
 /**
  * Deal day 0.

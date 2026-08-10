@@ -7,7 +7,8 @@ import {
   territoriesOf,
 } from "../engine/index.js"
 import { SEASON_LENGTH } from "../config.js"
-import { POLICIES, makeRng, type Rng } from "./policies.js"
+import { POLICIES } from "./policies.js"
+import { makeRng, type Rng } from "../rng.js"
 import type {
   ApprovedAction,
   DailyContext,
