@@ -1,0 +1,23 @@
+[Unit]
+Description=Riskety Rekt — resolve the day's tick
+# No network dependency, unlike the slate and settlement units. Every input the
+# tick reads is a local table written hours earlier, and postRecap failing is a
+# missed message rather than a stalled season.
+
+[Service]
+Type=oneshot
+User=riskety
+WorkingDirectory=/srv/riskety-rekt
+EnvironmentFile=/etc/riskety-rekt/env
+ExecStart=/usr/bin/npm run tick
+
+# A refusal and a skip both exit 0, so neither restarts. Only a genuine failure
+# — a disk error, a bug in resolve — exits 1 and is worth retrying, and the
+# transaction guarantees a failed attempt left nothing behind to collide with.
+Restart=on-failure
+RestartSec=60
+StartLimitBurst=5
+StartLimitIntervalSec=1800
+
+[Install]
+WantedBy=multi-user.target

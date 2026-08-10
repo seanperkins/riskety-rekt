@@ -103,6 +103,15 @@ async function postRecapFor(
 ): Promise<void> {
   const season = s.season(seasonId)
   if (season === undefined) throw new UsageError(`unknown season ${seasonId}`)
+  // Same concession publish-slate makes: a workspace that is not configured yet
+  // must still be able to run a season. A resolved day is already committed by
+  // the time we get here, so throwing on a missing token would turn a
+  // successful tick into a non-zero exit and a systemd retry that can only ever
+  // return already-run.
+  if (process.env.SLACK_BOT_TOKEN === undefined || process.env.SLACK_BOT_TOKEN === "") {
+    log(`day ${state.day} resolved; SLACK_BOT_TOKEN is not set, so no recap was posted`)
+    return
+  }
   const out = await runPostRecap({
     poster: createPoster(loadSlackEnv()),
     state,

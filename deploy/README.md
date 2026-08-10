@@ -1,6 +1,6 @@
 # Deployment — market jobs and the Slack bot
 
-Two timers and one long-running service, all on a single DigitalOcean droplet
+Three timers and one long-running service, all on a single DigitalOcean droplet
 alongside the SQLite file.
 
 ## Environment
@@ -29,15 +29,60 @@ into the browser bundle; `loadSlackEnv` asserts it at boot and refuses to start.
 ```bash
 sudo cp deploy/*.service deploy/*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now riskety-publish-slate.timer riskety-poll-settlements.timer
+sudo systemctl enable --now riskety-publish-slate.timer riskety-poll-settlements.timer \
+  riskety-tick.timer
 systemctl list-timers 'riskety-*'
 ```
 
 ## Start a season
 
 ```bash
-sudo -u riskety RR_DB_PATH=... RR_SEASON_ID=season-1 npm run season:init -- 2026-09-01
+# The roster comes first -- season:init deals from it and refuses an empty one.
+sudo -u riskety npm run roster:add -- U01ABCDEF f1 "Ada L."
+# ... one per player, then:
+sudo -u riskety npm run season:init -- 2026-09-01 --seed 4711
 ```
+
+`season-init` deals day 0 in one transaction and records the shuffle seed, so the
+board is reproducible from the arguments alone. It **refuses** rather than
+overwriting if the season already exists: `start_date` is what every day in the
+system is derived from, so a second init would shift the calendar under a live
+season and change which day every saved state belongs to.
+
+It also refuses a roster outside `[4, 15]` factions, or a board outside 5-11
+territories per faction. A 15-member roster on the default 42-territory map is
+2.8 each and is correctly refused -- the larger map is not built yet.
+
+## The tick
+
+`riskety-tick.timer` fires at **21:00:30**, not 21:00:00. The settlement poller
+runs at `*:00/30`, and the offset keeps the tick clear of its firing instant --
+the poller's writes are transactional, so this is the second layer rather than
+the only one.
+
+The tick's claim, resolve and save are one transaction. A crash therefore leaves
+nothing behind and the next run starts clean; a concurrent second run blocks,
+then sees the state row and returns `already-run`.
+
+**Refusals and skips both exit 0.** A refusal ("day 7 never ticked") is a
+deliberate stop whose condition does not clear with time -- exiting non-zero
+would restart-loop every 60s all night under `Restart=on-failure`. Watch for
+them in the journal, not in the exit status:
+
+```bash
+journalctl -u riskety-tick.service -n 50
+```
+
+Recovery is `npm run tick:rerun -- <day> --confirm`, which replays every day from
+`<day>` through yesterday against each one's recorded `tick_context` and posts a
+correction recap for each. Without `--confirm` it prints the day list and does
+nothing. A day that never ticked has no recorded context and needs
+`--assemble-missing`, which builds one from the live tables -- accurate for
+orders, approximate for approvals, since a deleted photo cannot be recovered.
+
+If a recap failed to post but the day resolved fine, use
+`npm run recap -- <day> --force`: the ledger suppresses a plain re-run, and
+`--force` records a new attempt.
 
 The date is the **day-0 deal date**. Tick 1 runs the following day, and the
 first slate is published on the morning of day 1.

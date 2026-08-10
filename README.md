@@ -34,13 +34,16 @@ bets that are secretly the same bet.
 ## State
 
 The pure rules engine, the offline season simulator, the Kalshi market adapter and the
-Slack ingress are built and tested. **368 tests, none of which touch the network.**
+Slack ingress, the 21:00 tick runner and the order-entry CLI are built and tested.
+**499 tests, none of which touch the network** — `test/no-network.ts` replaces `fetch`
+in every test run, so that is enforced rather than asserted.
 
-Not built yet: the tick runner and the web UI.
+Not built yet: the web UI. See "Not built" in `CLAUDE.md` for the three specs that
+still block a competitive season.
 
 ```bash
 npm install
-npm test          # 368 tests
+npm test          # 499 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom policy roster
