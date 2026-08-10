@@ -1,0 +1,213 @@
+/**
+ * The stylesheet, as a string.
+ *
+ * There is no bundler and no static-asset pipeline — `tsx` runs TypeScript
+ * directly, which is the property that keeps `node:sqlite` working, since
+ * bundlers strip the `node:` prefix and the module exists under no other name.
+ * So the stylesheet is a module export served from memory rather than a file
+ * read at request time: one less path to get wrong in production, and it cannot
+ * drift from the code that references its class names.
+ */
+export const STYLE = `/*
+ * Palette: a nautical chart. Deep chart blue, brass-sand accent, neutrals
+ * biased blue-green toward the ground rather than a default grey.
+ *
+ * Themed at token level for all three viewer states. The bare :root is the
+ * complete light palette; the media query is guarded with
+ * :not([data-theme="light"]) so an explicit light choice beats a dark OS; the
+ * [data-theme="dark"] block wins the other direction. Nothing below the token
+ * blocks names a colour literal — a colour defined only inside a media query
+ * never applies in the un-stamped default state, which renders one theme's text
+ * on the other theme's ground.
+ */
+:root {
+  --ground: #efeae0;
+  --surface: #ffffff;
+  --ink: #14232b;
+  --muted: #5d7480;
+  --rule: #d3cabb;
+  --accent: #a8641f;
+  --sea: #dfe6e6;
+  --edge: #9fb0b8;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0b1a24;
+    --surface: #132630;
+    --ink: #dfe9ee;
+    --muted: #7c98a6;
+    --rule: #23404e;
+    --accent: #d99a4e;
+    --sea: #0f2029;
+    --edge: #3c5665;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #0b1a24;
+  --surface: #132630;
+  --ink: #dfe9ee;
+  --muted: #7c98a6;
+  --rule: #23404e;
+  --accent: #d99a4e;
+  --sea: #0f2029;
+  --edge: #3c5665;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font:
+    15px/1.55 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  min-height: 100vh;
+}
+
+@media (max-width: 860px) {
+  .wrap {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.stage {
+  background: var(--sea);
+  overflow: hidden;
+  min-height: 60vh;
+}
+
+.stage svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.rail {
+  padding: 28px 24px;
+  background: var(--surface);
+  border-left: 1px solid var(--rule);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+@media (max-width: 860px) {
+  .rail {
+    border-left: 0;
+    border-top: 1px solid var(--rule);
+  }
+}
+
+.title {
+  font-family: "Iowan Old Style", Palatino, Georgia, serif;
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.h2 {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 650;
+  color: var(--muted);
+  margin: 26px 0 8px;
+}
+
+.t {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.t td {
+  padding: 3.5px 0;
+  vertical-align: baseline;
+}
+
+.t td.n {
+  text-align: right;
+  padding-left: 10px;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.sw {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 8px;
+}
+
+.note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 26px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.note code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+.edge {
+  stroke: var(--edge);
+  stroke-width: 1.1;
+}
+
+.terr {
+  stroke: var(--sea);
+  stroke-width: 1.6;
+}
+
+.terr:hover,
+.terr:focus-visible {
+  stroke: var(--ink);
+  stroke-width: 2.2;
+}
+
+.label {
+  font-size: 6.4px;
+  fill: var(--muted);
+  pointer-events: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+`
