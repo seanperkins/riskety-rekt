@@ -22,6 +22,7 @@ const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 export function resolveCombat(
   state: GameState,
   orders: Order[],
+  postedToday: FactionId[],
 ): {
   ownership: Record<TerritoryId, FactionId>
   garrisons: Record<TerritoryId, number>
@@ -32,10 +33,15 @@ export function resolveCombat(
   const events: TickEvent[] = []
   const sorted = [...orders].sort((a, b) => cmp(a.factionId, b.factionId))
 
-  // 6a — parity protections, from eliminated factions only.
+  // 6a — parity protections. Both halves of the condition are load-bearing:
+  // eliminated, so a living faction cannot claim a free veto while holding a
+  // full army; and posted, because the veto is what an eliminated player gets
+  // for showing up. Neither half may move outside the engine — the golden file
+  // only pins what crosses this boundary.
+  const posted = new Set(postedToday)
   const picks: Record<TerritoryId, number> = {}
   for (const o of sorted) {
-    if (o.protect && territoriesOf(state, o.factionId).length === 0) {
+    if (o.protect && posted.has(o.factionId) && territoriesOf(state, o.factionId).length === 0) {
       picks[o.protect] = (picks[o.protect] ?? 0) + 1
     }
   }

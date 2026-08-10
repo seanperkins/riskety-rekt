@@ -88,7 +88,7 @@ export function resolve(state: GameState, orders: Order[], context: DailyContext
   }
 
   // 6 — combat, against the post-deploy garrisons.
-  const combat = resolveCombat({ ...state, garrisons, reserves }, clean)
+  const combat = resolveCombat({ ...state, garrisons, reserves }, clean, context.postedToday)
   log.push(...combat.events)
 
   for (const f of factionIds) {

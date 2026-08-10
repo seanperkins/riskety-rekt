@@ -12,7 +12,7 @@ const factions: Faction[] = ["f1", "f2", "f3", "f4"].map((id) => ({
 }))
 const ids = RISK_MAP.territories.map((t) => t.id)
 const market: Market = { id: "m1", question: "q", priceYes: 0.4, priceNo: 0.6, closeTime: "T18:00" }
-const ctx: DailyContext = { slate: [market], approvals: [], settlements: {} }
+const ctx: DailyContext = { slate: [market], approvals: [], postedToday: [], settlements: {} }
 
 const arbOrder = (factionId: string): fc.Arbitrary<Order> =>
   fc.record({

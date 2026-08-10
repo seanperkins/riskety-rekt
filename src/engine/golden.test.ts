@@ -42,8 +42,11 @@ const market = (day: number, priceYes: number): Market => ({
 /**
  * A scripted 10-day season exercising every branch that matters: deploys,
  * one-sided attacks, a mutual attack (field battle), a coalition attack,
- * wagers that win, lose and roll over, IRL grants with both timing bonuses,
- * and a protect pick.
+ * wagers that win, lose and roll over, and IRL grants with both timing bonuses.
+ *
+ * It does NOT exercise protections: no faction reaches zero territories in ten
+ * days, so no order can legally carry a protect pick. combat.test.ts covers
+ * that path directly.
  */
 function scriptedSeason(): GameState {
   let state = createSeason("golden", factions, DEALT)
@@ -65,6 +68,11 @@ function scriptedSeason(): GameState {
         { eventId: `${day}-b`, playerId: "f2", postedAt: "T09:00", approvedAt: "T20:00" },
         { eventId: `${day}-c`, playerId: "f2", postedAt: "T10:00", approvedAt: "T10:30" },
       ],
+      // Every approved action implies a post. No faction is eliminated in this
+      // season and no order carries a protect pick, so the protection gate is
+      // not exercised here — see combat.test.ts for that. Present so the
+      // context is complete rather than defaulted.
+      postedToday: ["f1", "f2"],
     }
 
     const orders: Order[] = factions.map((f) => {
@@ -125,7 +133,7 @@ describe("golden-file replay", () => {
     expect(s.day).toBe(10)
     // The log only carries the final tick, so re-run the interesting days.
     let mid = createSeason("golden", factions, DEALT)
-    const ctx: DailyContext = { slate: [], approvals: [], settlements: {} }
+    const ctx: DailyContext = { slate: [], approvals: [], postedToday: [], settlements: {} }
     for (let d = 0; d < 3; d++) mid = resolve(mid, [], ctx)
     expect(mid.day).toBe(3)
   })

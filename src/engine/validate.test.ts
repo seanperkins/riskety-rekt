@@ -21,6 +21,7 @@ function fixture() {
   const ctx: DailyContext = {
     slate: [{ id: "m1", question: "q", priceYes: 0.5, priceNo: 0.5, closeTime: "2026-08-09T18:00:00Z" }],
     approvals: [],
+    postedToday: [],
     settlements: {},
   }
   return { s, ctx }

@@ -60,6 +60,19 @@ export interface ApprovedAction {
 export interface DailyContext {
   slate: Market[]
   approvals: ApprovedAction[]
+  /**
+   * Faction ids that POSTED an action today, approved or not.
+   *
+   * Separate from `approvals` because the elimination veto gates on posting
+   * while the +1 soldier gates on peer approval. Gating the veto on approval
+   * would give living factions a reason to withhold the reaction from someone
+   * whose veto they fear, which weaponizes the one mechanic the design insists
+   * stays non-adversarial.
+   *
+   * Post times are deliberately absent: Early Bird keys on `postedAt` of an
+   * approved action, so nothing needs a time here.
+   */
+  postedToday: FactionId[]
   settlements: Record<MarketId, Settlement>
 }
 

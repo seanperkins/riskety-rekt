@@ -6,7 +6,14 @@ import {
   territoriesOf,
 } from "../engine/index.js"
 import { POLICIES, makeRng, type Rng } from "./policies.js"
-import type { ApprovedAction, DailyContext, Faction, Market, Settlement } from "../engine/index.js"
+import type {
+  ApprovedAction,
+  DailyContext,
+  FactionId,
+  Faction,
+  Market,
+  Settlement,
+} from "../engine/index.js"
 
 export const SEASON_DAYS = 21
 
@@ -67,7 +74,12 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
     const slate = day < SEASON_DAYS ? makeSlate(day, rng) : []
 
     const approvals: ApprovedAction[] = []
+    // Every approved action implies a post, and the sim has no unapproved
+    // posts, so this is exactly the policies that acted. Slacker, at zero
+    // actions, therefore loses its veto once eliminated.
+    const postedToday: FactionId[] = []
     policies.forEach((p, i) => {
+      if (p.irlActionsPerDay > 0) postedToday.push(p.name)
       for (let k = 0; k < p.irlActionsPerDay; k++) {
         approvals.push({
           eventId: `${day}-${p.name}-${k}`,
@@ -87,7 +99,7 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
       settlements[w.marketId] = rng() < pYes ? "yes" : "no"
     }
 
-    const context: DailyContext = { slate, approvals, settlements }
+    const context: DailyContext = { slate, approvals, postedToday: postedToday.sort(), settlements }
     const orders = policies.map((p) => p.decide(state, p.name, slate, rng))
     state = resolve(state, orders, context)
 

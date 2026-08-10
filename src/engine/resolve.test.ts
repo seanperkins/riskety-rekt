@@ -11,8 +11,8 @@ const factions: Faction[] = [
 ]
 const ids = RISK_MAP.territories.map((t) => t.id)
 const market: Market = { id: "m1", question: "q", priceYes: 0.5, priceNo: 0.5, closeTime: "T18:00" }
-const emptyCtx: DailyContext = { slate: [], approvals: [], settlements: {} }
-const withSlate: DailyContext = { slate: [market], approvals: [], settlements: {} }
+const emptyCtx: DailyContext = { slate: [], approvals: [], postedToday: [], settlements: {} }
+const withSlate: DailyContext = { slate: [market], approvals: [], postedToday: [], settlements: {} }
 
 const order = (o: Partial<Order> & { factionId: string }): Order => ({
   deploys: [],
@@ -98,6 +98,7 @@ describe("resolve", () => {
       slate: [],
       settlements: {},
       approvals: [{ eventId: "e1", playerId: "f1", postedAt: "T06:00", approvedAt: "T06:30" }],
+      postedToday: ["f1"],
     }
     const base = resolve(s, [], emptyCtx).reserves["f1"]!
     const withIrl = resolve(s, [], ctx).reserves["f1"]!
