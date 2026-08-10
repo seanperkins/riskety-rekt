@@ -10,7 +10,9 @@
     "sample:kalshi": "tsx scripts/sample-kalshi.ts",
     "publish-slate": "tsx src/jobs/cli.ts publish-slate",
     "poll-settlements": "tsx src/jobs/cli.ts poll-settlements",
-    "season:init": "tsx src/jobs/cli.ts season-init"
+    "season:init": "tsx src/jobs/cli.ts season-init",
+    "roster:add": "tsx src/jobs/cli.ts roster-add",
+    "roster:list": "tsx src/jobs/cli.ts roster-list"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

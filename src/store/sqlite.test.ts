@@ -216,3 +216,36 @@ describe("migrations", () => {
     expect(true).toBe(true)
   })
 })
+
+describe("roster", () => {
+  it("maps in both directions and returns members sorted by faction", () => {
+    const store = openStore(":memory:")
+    store.addRosterMember({ slackUserId: "U2", factionId: "f2", displayName: "Bex" })
+    store.addRosterMember({ slackUserId: "U1", factionId: "f1", displayName: "Ada" })
+
+    expect(store.factionForSlackUser("U1")).toBe("f1")
+    expect(store.factionForSlackUser("U404")).toBeUndefined()
+    expect(store.slackUserForFaction("f2")).toBe("U2")
+    expect(store.roster().map((m) => m.factionId)).toEqual(["f1", "f2"])
+    store.close()
+  })
+
+  it("updates the display name on a repeat add rather than failing", () => {
+    const store = openStore(":memory:")
+    store.addRosterMember({ slackUserId: "U1", factionId: "f1", displayName: "Ada" })
+    store.addRosterMember({ slackUserId: "U1", factionId: "f1", displayName: "Ada L." })
+    expect(store.roster()).toEqual([{ slackUserId: "U1", factionId: "f1", displayName: "Ada L." }])
+    store.close()
+  })
+
+  it("refuses to give one faction to two Slack users", () => {
+    // Two accounts on one faction would let a player approve their own post,
+    // which the self-approval check keys on faction id to prevent.
+    const store = openStore(":memory:")
+    store.addRosterMember({ slackUserId: "U1", factionId: "f1", displayName: "Ada" })
+    expect(() =>
+      store.addRosterMember({ slackUserId: "U2", factionId: "f1", displayName: "Alt" }),
+    ).toThrow()
+    store.close()
+  })
+})

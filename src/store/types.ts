@@ -1,4 +1,4 @@
-import type { Market, MarketId, Settlement } from "../engine/index.js"
+import type { FactionId, Market, MarketId, Settlement } from "../engine/index.js"
 
 export interface SeasonRow {
   seasonId: string
@@ -37,4 +37,23 @@ export interface SlateStore {
   marketsAwaitingSettlement(seasonId: string, now: Date, horizonDays: number): MarketId[]
 
   close(): void
+}
+
+export interface RosterMember {
+  slackUserId: string
+  factionId: FactionId
+  displayName: string
+}
+
+/**
+ * The Slack roster. Seeded by `npm run roster:add`, read on every ingested
+ * event so a player can be added mid-season without a service restart.
+ */
+export interface RosterStore {
+  /** Idempotent on slackUserId; updates the display name. Throws if the faction is taken. */
+  addRosterMember(member: RosterMember): void
+  /** Every member, ordered by faction id. */
+  roster(): RosterMember[]
+  factionForSlackUser(slackUserId: string): FactionId | undefined
+  slackUserForFaction(factionId: FactionId): string | undefined
 }

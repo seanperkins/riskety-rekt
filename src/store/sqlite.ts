@@ -19,7 +19,8 @@ import type { Market, MarketId, Settlement } from "../engine/index.js"
 const nodeRequire = createRequire(import.meta.url)
 const { DatabaseSync } = nodeRequire("node:sqlite") as { DatabaseSync: typeof DatabaseSyncCtor }
 import { migrate } from "./schema.js"
-import type { SeasonRow, SlateStore } from "./types.js"
+import type { RosterMember, RosterStore, SeasonRow, SlateStore } from "./types.js"
+import type { FactionId } from "../engine/index.js"
 
 /** SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; stay well under it. */
 const PARAM_CHUNK = 500
@@ -30,7 +31,7 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out
 }
 
-export function openStore(path: string): SlateStore {
+export function openStore(path: string): SlateStore & RosterStore {
   const db = new DatabaseSync(path)
   // WAL lets the web app, the Slack bot and the timer share one file. The
   // likeliest thing to block the 21:00 tick is our own second process.
@@ -166,6 +167,39 @@ export function openStore(path: string): SlateStore {
         )
         .all(seasonId, now.toISOString(), cutoff) as { market_id: string }[]
       return rows.map((r) => r.market_id)
+    },
+
+    addRosterMember(member: RosterMember): void {
+      db.prepare(
+        `INSERT INTO roster (slack_user_id, faction_id, display_name) VALUES (?, ?, ?)
+         ON CONFLICT (slack_user_id) DO UPDATE SET display_name = excluded.display_name,
+                                                   faction_id   = excluded.faction_id`,
+      ).run(member.slackUserId, member.factionId, member.displayName)
+    },
+
+    roster(): RosterMember[] {
+      const rows = db
+        .prepare("SELECT slack_user_id, faction_id, display_name FROM roster ORDER BY faction_id")
+        .all() as { slack_user_id: string; faction_id: string; display_name: string }[]
+      return rows.map((r) => ({
+        slackUserId: r.slack_user_id,
+        factionId: r.faction_id,
+        displayName: r.display_name,
+      }))
+    },
+
+    factionForSlackUser(slackUserId: string): FactionId | undefined {
+      const row = db
+        .prepare("SELECT faction_id FROM roster WHERE slack_user_id = ?")
+        .get(slackUserId) as { faction_id: string } | undefined
+      return row?.faction_id
+    },
+
+    slackUserForFaction(factionId: FactionId): string | undefined {
+      const row = db
+        .prepare("SELECT slack_user_id FROM roster WHERE faction_id = ?")
+        .get(factionId) as { slack_user_id: string } | undefined
+      return row?.slack_user_id
     },
 
     close(): void {

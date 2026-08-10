@@ -60,6 +60,18 @@ try {
     const lengthDays = Number(process.argv[4] ?? SEASON_LENGTH)
     store.upsertSeason({ seasonId, startDate, lengthDays })
     log(`season ${seasonId}: day 0 dealt ${startDate}, ${lengthDays} ticks`)
+  } else if (command === "roster-add") {
+    const [slackUserId, factionId, ...nameParts] = process.argv.slice(3)
+    const displayName = nameParts.join(" ")
+    if (!slackUserId || !factionId || displayName === "") {
+      throw new UsageError("usage: roster-add <slack-user-id> <faction-id> <display name>")
+    }
+    store.addRosterMember({ slackUserId, factionId, displayName })
+    log(`roster: ${slackUserId} -> ${factionId} (${displayName})`)
+  } else if (command === "roster-list") {
+    for (const m of store.roster()) {
+      log(`${m.factionId}\t${m.slackUserId}\t${m.displayName}`)
+    }
   } else if (command === "publish-slate") {
     const out = await runPublishSlate({
       store,
@@ -81,7 +93,8 @@ try {
   } else {
     throw new UsageError(
       `unknown command: ${String(command)}\n` +
-        `expected one of: publish-slate, poll-settlements, season-init`,
+        `expected one of: publish-slate, poll-settlements, season-init, ` +
+          `roster-add, roster-list`,
     )
   }
 } catch (err) {
