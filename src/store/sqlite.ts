@@ -25,6 +25,7 @@ import type {
   OrderStore,
   SaveResult,
   StateStore,
+  TickContextRow,
   Transactional,
   WagerInput,
   WagerRow,
@@ -36,7 +37,7 @@ import type {
   SlateStore,
 } from "./types.js"
 import { cmp } from "../engine/index.js"
-import type { FactionId, GameState, Order } from "../engine/index.js"
+import type { DailyContext, FactionId, GameState, Order } from "../engine/index.js"
 import { tickInstant } from "../season.js"
 import { etDate, slackTsToIso } from "../time.js"
 
@@ -57,6 +58,45 @@ const PARAM_CHUNK = 500
  * guarantee the three fields are the right kind, so a bad row fails here with
  * the faction in the message instead of somewhere in the pipeline.
  */
+const isCount = (n: unknown): boolean => typeof n === "number" && Number.isSafeInteger(n) && n >= 0
+
+/**
+ * The `states.state` column, back into a `GameState`.
+ *
+ * Checks the top level only. `resolve` assumes nothing about its arguments and
+ * re-validates everything it touches, so this exists for the error message: a
+ * truncated or hand-edited row should fail at load naming the season and day,
+ * not as an undefined lookup six steps into the pipeline.
+ *
+ * `reserves` is checked for non-negative integers because a negative one is the
+ * exact thing the engine's closing invariant throws on -- catching it at load
+ * says the row was already bad, rather than blaming the tick that read it.
+ */
+function parseState(json: string, seasonId: string, day: number): GameState {
+  const bad = (why: string): never => {
+    throw new Error(`states row for ${seasonId} day ${day} is not a GameState: ${why}`)
+  }
+  const raw: unknown = JSON.parse(json)
+  if (typeof raw !== "object" || raw === null) return bad("not an object")
+  const s = raw as GameState
+  if (typeof s.seasonId !== "string") return bad("seasonId is not a string")
+  if (!Number.isSafeInteger(s.day)) return bad("day is not an integer")
+  if (!Array.isArray(s.map?.territories) || s.map.territories.length === 0) {
+    return bad("map.territories is empty or absent")
+  }
+  if (!Array.isArray(s.map.continents)) return bad("map.continents is absent")
+  if (!Array.isArray(s.factions)) return bad("factions is absent")
+  for (const key of ["ownership", "garrisons", "reserves"] as const) {
+    if (typeof s[key] !== "object" || s[key] === null) return bad(`${key} is absent`)
+  }
+  if (!Array.isArray(s.pending)) return bad("pending is absent")
+  if (!Array.isArray(s.log)) return bad("log is absent")
+  for (const [faction, reserve] of Object.entries(s.reserves)) {
+    if (!isCount(reserve)) return bad(`reserve for ${faction} is ${String(reserve)}`)
+  }
+  return s
+}
+
 function parseBody(json: string, factionId: string): OrderBody {
   const raw: unknown = JSON.parse(json)
   const body = raw as OrderBody
@@ -590,11 +630,70 @@ export function openStore(
       return stateExistsRow(seasonId, day)
     },
 
-    /** INSERT, never upsert: inside the tick's transaction it can run only once. */
+    /**
+     * INSERT, never upsert: inside the tick's transaction it can run only once,
+     * so a second call means two ticks raced onto one day. The loser must fail
+     * and roll back rather than overwrite a resolved board.
+     */
     saveState(state: GameState, engineVersion: string): void {
       db.prepare(
         `INSERT INTO states (season_id, day, state, engine_version) VALUES (?, ?, ?, ?)`,
       ).run(state.seasonId, state.day, JSON.stringify(state), engineVersion)
+    },
+
+    loadState(seasonId: string, day: number): GameState | undefined {
+      const row = db
+        .prepare("SELECT state FROM states WHERE season_id = ? AND day = ?")
+        .get(seasonId, day) as { state: string } | undefined
+      if (row === undefined) return undefined
+      return parseState(row.state, seasonId, day)
+    },
+
+    latestSavedDay(seasonId: string): number | undefined {
+      // MAX over an empty set is a row holding NULL, not an empty result -- so
+      // the undefined that distinguishes "never dealt" from "day 0 dealt" has to
+      // come from the NULL check, not from a missing row.
+      const row = db
+        .prepare("SELECT MAX(day) AS day FROM states WHERE season_id = ?")
+        .get(seasonId) as { day: number | null } | undefined
+      if (row?.day === null || row?.day === undefined) return undefined
+      return Number(row.day)
+    },
+
+    saveTickContext(
+      seasonId: string,
+      day: number,
+      orders: Order[],
+      context: DailyContext,
+      engineVersion: string,
+    ): void {
+      db.prepare(
+        `INSERT INTO tick_context (season_id, day, orders, context, engine_version)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(seasonId, day, JSON.stringify(orders), JSON.stringify(context), engineVersion)
+    },
+
+    loadTickContext(seasonId: string, day: number): TickContextRow | undefined {
+      const row = db
+        .prepare(
+          "SELECT orders, context, engine_version FROM tick_context WHERE season_id = ? AND day = ?",
+        )
+        .get(seasonId, day) as
+        | { orders: string; context: string; engine_version: string }
+        | undefined
+      if (row === undefined) return undefined
+      return {
+        orders: JSON.parse(row.orders) as Order[],
+        context: JSON.parse(row.context) as DailyContext,
+        engineVersion: row.engine_version,
+      }
+    },
+
+    deleteStatesFrom(seasonId: string, day: number): void {
+      // Both tables, or a rerun of `day` would replay frozen inputs whose state
+      // no longer exists.
+      db.prepare("DELETE FROM states WHERE season_id = ? AND day >= ?").run(seasonId, day)
+      db.prepare("DELETE FROM tick_context WHERE season_id = ? AND day >= ?").run(seasonId, day)
     },
 
     close(): void {

@@ -1,4 +1,5 @@
 import type {
+  DailyContext,
   FactionId,
   GameState,
   Market,
@@ -202,8 +203,50 @@ export interface OrderStore {
   assembleOrders(seasonId: string, day: number): Order[]
 }
 
+/** The frozen inputs of one resolved tick. Only `tick:rerun` reads them. */
+export interface TickContextRow {
+  orders: Order[]
+  context: DailyContext
+  engineVersion: string
+}
+
 /** State persistence. `saveState` is an INSERT — inside the tick's transaction it runs once. */
 export interface StateStore {
   stateExists(seasonId: string, day: number): boolean
   saveState(state: GameState, engineVersion: string): void
+
+  /**
+   * Schema-checked, not trusted. The engine assumes nothing about its arguments
+   * and re-validates, but a corrupt row must fail here naming the season and
+   * day, rather than as an undefined lookup six steps into the pipeline.
+   */
+  loadState(seasonId: string, day: number): GameState | undefined
+
+  /**
+   * The highest day with a saved state, or `undefined` when the season has
+   * none.
+   *
+   * `undefined` rather than 0 is load-bearing: the tick distinguishes "no board
+   * was ever dealt" from "day 0 is dealt and waiting". Defaulting to 0 would let
+   * a season with a `seasons` row and an empty `states` table pass every guard,
+   * open the transaction, and fail loading `states[0]` — a rollback and a stack
+   * trace where a named refusal was intended.
+   */
+  latestSavedDay(seasonId: string): number | undefined
+
+  saveTickContext(
+    seasonId: string,
+    day: number,
+    orders: Order[],
+    context: DailyContext,
+    engineVersion: string,
+  ): void
+  loadTickContext(seasonId: string, day: number): TickContextRow | undefined
+
+  /**
+   * Drop `day` and every day after it, states and frozen contexts together.
+   * `tick:rerun` uses it to unwind a bad tick; a context left behind would
+   * replay inputs whose state is gone.
+   */
+  deleteStatesFrom(seasonId: string, day: number): void
 }
