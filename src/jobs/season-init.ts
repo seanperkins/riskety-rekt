@@ -1,6 +1,9 @@
-import { RISK_MAP, createSeason } from "../engine/index.js"
+import { createSeason } from "../engine/index.js"
 import type { Faction, GameMap } from "../engine/index.js"
 import { ENGINE_VERSION } from "../engine/index.js"
+import { MAX_FACTIONS, MIN_FACTIONS } from "../config.js"
+import { selectSubMap } from "../map/select.js"
+import { WORLD } from "../map/world.js"
 import { checkDeal } from "../season.js"
 import { makeRng, shuffle } from "../rng.js"
 import type { RosterStore, SeasonStore, StateStore, Transactional } from "../store/types.js"
@@ -59,7 +62,11 @@ export interface SeasonInitDeps {
  */
 export function runSeasonInit(deps: SeasonInitDeps): InitOutcome {
   const { store, seasonId, startDate, lengthDays, seed } = deps
-  const map = deps.map ?? RISK_MAP
+
+  // ONE rng, and the order matters: board first, then shuffle. Two instances
+  // seeded from the same number would deal a board and then shuffle it with a
+  // sequence correlated to the one that built it.
+  const rng = makeRng(seed)
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
     return { status: "refused", reason: `start date must be YYYY-MM-DD, got ${startDate}` }
@@ -78,12 +85,24 @@ export function runSeasonInit(deps: SeasonInitDeps): InitOutcome {
   }
 
   const members = store.roster()
-  const problem = checkDeal(members.length, map.territories.length)
-  if (problem !== null) {
-    return { status: "refused", reason: describe(problem, map.territories.length) }
+
+  // The roster bound is checked BEFORE selecting, so an impossible roster is
+  // refused without doing the work -- and selectSubMap would throw rather than
+  // return a named refusal.
+  if (members.length < MIN_FACTIONS || members.length > MAX_FACTIONS) {
+    return { status: "refused", reason: describe({ kind: "roster-size", factions: members.length }, 0) }
   }
   if (members.length > PALETTE.length) {
     return { status: "refused", reason: `only ${PALETTE.length} colors in the palette` }
+  }
+
+  // The board is SELECTED from the world, sized to the roster that actually
+  // joined. `deps.map` overrides it so tests can pin a board.
+  const map = deps.map ?? selectSubMap(WORLD, members.length, rng)
+
+  const problem = checkDeal(members.length, map.territories.length)
+  if (problem !== null) {
+    return { status: "refused", reason: describe(problem, map.territories.length) }
   }
 
   // Sorted, so the same roster always produces the same colors regardless of
@@ -97,7 +116,7 @@ export function runSeasonInit(deps: SeasonInitDeps): InitOutcome {
 
   const territoryIds = shuffle(
     map.territories.map((t) => t.id),
-    makeRng(seed),
+    rng,
   )
   // Outside the transaction on purpose: createSeason throws if the dealt set is
   // not the map's territory set, and a throw before BEGIN leaves nothing to

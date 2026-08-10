@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { MAX_FACTIONS, SEASON_LENGTH } from "../config.js"
 import { RISK_MAP } from "../engine/index.js"
+import { checkDeal } from "../season.js"
 import type { GameMap } from "../engine/index.js"
 import { openStore } from "../store/sqlite.js"
 import { PALETTE, runSeasonInit } from "./season-init.js"
@@ -63,23 +64,45 @@ describe("runSeasonInit", () => {
     store.close()
   })
 
-  it("supports a full 15-faction roster on a board sized for it", () => {
-    // 42 territories fails checkDeal at 15 factions; 105 is the sized board.
+  it("deals a full 15-faction roster, which the 42-territory board could not", () => {
+    // The whole reason the world map exists. checkDeal(15, 42) is 2.8 each, so
+    // this was a hard refusal until the board became something selected from
+    // the world rather than a fixed 42 territories.
     const store = withRoster(MAX_FACTIONS)
-    const big = bigMap(105)
-    expect(init(store, {}).status).toBe("refused")
-    const fresh = withRoster(MAX_FACTIONS)
-    expect(runSeasonInit({ store: fresh, ...BASE, map: big }).status).toBe("dealt")
-    expect(fresh.loadState("s1", 0)?.factions).toHaveLength(15)
+    const out = init(store)
+    expect(out.status).toBe("dealt")
+    const state = store.loadState("s1", 0)!
+    expect(state.factions).toHaveLength(15)
+    expect(checkDeal(15, state.map.territories.length)).toBeNull()
+    expect(state.map.territories.length).not.toBe(42)
     store.close()
-    fresh.close()
   })
 
-  it("refuses every checkDeal problem with a reason naming it", () => {
+  it("sizes the board to the roster", () => {
+    for (const count of [4, 7, 11, 15]) {
+      const store = withRoster(count)
+      expect(init(store).status, `${count} factions`).toBe("dealt")
+      const map = store.loadState("s1", 0)!.map
+      expect(checkDeal(count, map.territories.length), `${count} factions`).toBeNull()
+      store.close()
+    }
+  })
+
+  it("refuses a board whose ratio is wrong, when one is supplied", () => {
+    // Selection cannot produce an illegal board, so this path is only reachable
+    // with an explicit map -- but the guard stays, because it is the last thing
+    // between a bad board and a dealt season.
+    const store = withRoster(6)
+    const out = runSeasonInit({ store, ...BASE, map: bigMap(200) })
+    expect(out).toMatchObject({ status: "refused" })
+    expect(out.status === "refused" && out.reason).toMatch(/above the income floor/)
+    store.close()
+  })
+
+  it("refuses a roster outside the faction bounds, with a reason naming it", () => {
     for (const [count, pattern] of [
       [3, /roster has 3 factions/],
       [MAX_FACTIONS + 1, /roster has 16 factions/],
-      [15, /too few to survive/],
     ] as const) {
       const store = withRoster(count)
       const out = init(store)
