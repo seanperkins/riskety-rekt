@@ -3,7 +3,7 @@
  *
  *   tsx src/jobs/cli.ts publish-slate
  *   tsx src/jobs/cli.ts poll-settlements
- *   tsx src/jobs/cli.ts season-init <start-date> [length]
+ *   tsx src/jobs/cli.ts season-init <start-date> [--length N] [--seed N]
  *
  * Configuration comes from the environment:
  *   RR_DB_PATH    path to the SQLite file  (required)
@@ -16,12 +16,12 @@ import { createKalshiAdapter } from "../adapters/kalshi/index.js"
 import { openStore } from "../store/sqlite.js"
 import { runPublishSlate } from "./publish-slate.js"
 import { runPollSettlements } from "./poll-settlements.js"
+import { runSeasonInit } from "./season-init.js"
+import { UsageError, parseFlags, seedFromDate } from "./flags.js"
 import { renderSlate } from "../slack/announce.js"
 import { createPoster } from "../slack/post.js"
 import { loadSlackEnv } from "../slack/env.js"
 import type { Market } from "../engine/index.js"
-
-class UsageError extends Error {}
 
 function required(name: string): string {
   const v = process.env[name]
@@ -56,14 +56,32 @@ try {
   store = openStore(required("RR_DB_PATH"))
 
   if (command === "season-init") {
+    // Flags are parsed by name, not by position. The previous version read
+    // `Number(process.argv[4] ?? SEASON_LENGTH)`, so `season-init <date> --seed
+    // 4711` put "--seed" in argv[4] and dealt a season of NaN days.
     const startDate = process.argv[3]
-    if (startDate === undefined || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-      throw new UsageError("usage: season-init <YYYY-MM-DD> [length]")
+    if (startDate === undefined || startDate.startsWith("--")) {
+      throw new UsageError("usage: season-init <YYYY-MM-DD> [--length N] [--seed N]")
     }
-    const seasonId = required("RR_SEASON_ID")
-    const lengthDays = Number(process.argv[4] ?? SEASON_LENGTH)
-    store.upsertSeason({ seasonId, startDate, lengthDays })
-    log(`season ${seasonId}: day 0 dealt ${startDate}, ${lengthDays} ticks`)
+    const flags = parseFlags(process.argv.slice(4), ["length", "seed"])
+    const lengthDays = flags.length === undefined ? SEASON_LENGTH : Number(flags.length)
+    // A seed is optional, but an ABSENT one still has to be recorded, so the
+    // deal stays reproducible. Derived from the date rather than a clock, so
+    // re-running the same command is the same board.
+    const seed = flags.seed === undefined ? seedFromDate(startDate) : Number(flags.seed)
+
+    const out = runSeasonInit({
+      store,
+      seasonId: required("RR_SEASON_ID"),
+      startDate,
+      lengthDays,
+      seed,
+    })
+    if (out.status === "refused") throw new UsageError(`season-init refused: ${out.reason}`)
+    log(
+      `season ${required("RR_SEASON_ID")}: day 0 dealt ${startDate}, ${lengthDays} ticks, ` +
+        `${out.factions} factions on ${out.territories} territories, seed ${out.seed}`,
+    )
   } else if (command === "roster-add") {
     const [slackUserId, factionId, ...nameParts] = process.argv.slice(3)
     const displayName = nameParts.join(" ")

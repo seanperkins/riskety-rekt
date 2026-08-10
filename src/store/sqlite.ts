@@ -34,6 +34,7 @@ import type {
   RosterMember,
   RosterStore,
   SeasonRow,
+  SeasonStore,
   SlateStore,
 } from "./types.js"
 import { cmp } from "../engine/index.js"
@@ -120,7 +121,13 @@ function chunk<T>(items: T[], size: number): T[][] {
 
 export function openStore(
   path: string,
-): SlateStore & RosterStore & ApprovalStore & OrderStore & StateStore & Transactional {
+): SeasonStore &
+  SlateStore &
+  RosterStore &
+  ApprovalStore &
+  OrderStore &
+  StateStore &
+  Transactional {
   const db = new DatabaseSync(path)
   // WAL lets the web app, the Slack bot and the timer share one file. The
   // likeliest thing to block the 21:00 tick is our own second process.
@@ -189,6 +196,14 @@ export function openStore(
         startDate: row.start_date,
         lengthDays: Number(row.length_days),
       }
+    },
+
+    insertSeason(season: SeasonRow, seed: number): void {
+      // No ON CONFLICT clause. A second call must fail, not rewrite start_date
+      // under a season whose every saved day is derived from it.
+      db.prepare(
+        `INSERT INTO seasons (season_id, start_date, length_days, seed) VALUES (?, ?, ?, ?)`,
+      ).run(season.seasonId, season.startDate, season.lengthDays, seed)
     },
 
     upsertSeason(season: SeasonRow): void {

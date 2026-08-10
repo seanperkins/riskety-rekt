@@ -19,6 +19,20 @@ export interface SeasonRow {
  * The slice of the spec's `Store` that Plan 2 needs. Plan 4 adds loadState /
  * saveState / loadOrders / saveOrder / claimTick against the same database.
  */
+/**
+ * Season rows. Split from `SlateStore` because `insertSeason` is a different
+ * kind of operation: `upsertSeason` silently rewrites `start_date` and
+ * `length_days` on conflict, and every day in this system is derived from
+ * `start_date`, so an accidental second call would shift the calendar under a
+ * live season and retroactively change which day every saved state belongs to.
+ */
+export interface SeasonStore {
+  season(seasonId: string): SeasonRow | undefined
+  upsertSeason(season: SeasonRow): void
+  /** Insert-only, and records the shuffle seed. Throws if the season exists. */
+  insertSeason(season: SeasonRow, seed: number): void
+}
+
 export interface SlateStore {
   season(seasonId: string): SeasonRow | undefined
   upsertSeason(season: SeasonRow): void
