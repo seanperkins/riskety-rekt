@@ -10,6 +10,7 @@ export type DropReason =
   | "volume"
   | "price-range"
   | "crossed-book"
+  | "bad-ticker"
 
 export type CandidateResult =
   | { ok: true; candidate: Candidate }
@@ -17,6 +18,14 @@ export type CandidateResult =
 
 /** Only plain decimals. Deliberately narrower than Number(). */
 const DECIMAL = /^-?\d+(\.\d+)?$/
+
+/**
+ * Kalshi tickers are uppercase alphanumerics with dashes in every sample taken.
+ * Validated because the id is third-party text that reaches slate_markets, the
+ * Slack slate, and an operator's shell -- the same treatment QUESTION_MAX_CHARS
+ * already gives the question.
+ */
+const TICKER = /^[A-Za-z0-9._-]{1,64}$/
 
 /**
  * Strict numeric parse of untrusted wire data.
@@ -101,6 +110,7 @@ export function toCandidate(
   const id = typeof m.ticker === "string" ? m.ticker.trim() : ""
   const question = capQuestion(m.title)
   if (id.length === 0 || question === null) return { ok: false, reason: "malformed" }
+  if (!TICKER.test(id)) return { ok: false, reason: "bad-ticker" }
   if (!isIsoInstant(m.close_time)) return { ok: false, reason: "malformed" }
 
   const volume = parseDecimal(m.volume_fp)
@@ -135,7 +145,12 @@ export function toCandidate(
       question,
       priceYes,
       priceNo,
-      closeTime: m.close_time,
+      // Normalized, not verbatim: the per-market wager lock compares this as a
+      // STRING against now.toISOString(). An offset form sorts wrong and a
+      // date-only value sorts after every same-day instant, reading as open
+      // forever -- in the player's favour, which is what the lock exists to
+      // prevent.
+      closeTime: new Date(m.close_time).toISOString(),
       volume,
       series: seriesOf(id),
     },

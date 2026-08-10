@@ -25,6 +25,37 @@ const GOOD = {
   no_ask_dollars: "0.6200",
 }
 
+describe("close_time normalization and ticker validation", () => {
+  it("normalizes close_time to a millisecond ISO instant", () => {
+    // The per-market wager lock is a STRING comparison. An offset form sorts
+    // wrong against now.toISOString(), and a date-only value sorts after every
+    // same-day instant -- reading as open forever.
+    const r = toCandidate({ ...GOOD, close_time: "2026-08-10T17:30:00-04:00" }, WINDOW, 1000)
+    expect(r.ok && r.candidate.closeTime).toBe("2026-08-10T21:30:00.000Z")
+  })
+
+  it("leaves an already-normal close_time alone", () => {
+    const r = toCandidate(GOOD, WINDOW, 1000)
+    expect(r.ok && r.candidate.closeTime).toBe("2026-08-10T21:30:00.000Z")
+  })
+
+  it("rejects a ticker with shell metacharacters", () => {
+    // The ticker reaches slate_markets, the Slack slate, and an operator's
+    // clipboard. Its own drop reason, so a systematic rejection is visible
+    // rather than hidden inside "malformed".
+    for (const bad of ["KX;rm -rf /", "KX`id`", "KX$(id)", "KX&&ls", "KX A", "KX'x"]) {
+      expect(toCandidate({ ...GOOD, ticker: bad }, WINDOW, 1000)).toEqual({
+        ok: false,
+        reason: "bad-ticker",
+      })
+    }
+  })
+
+  it("accepts a real Kalshi ticker", () => {
+    expect(toCandidate(GOOD, WINDOW, 1000).ok).toBe(true)
+  })
+})
+
 describe("parseDecimal", () => {
   it("parses a decimal string", () => {
     expect(parseDecimal("0.3800")).toBe(0.38)
@@ -120,7 +151,7 @@ describe("toCandidate", () => {
       question: "Montevideo City vs Penarol Winner?",
       priceYes: 0.455, // (0.38 + 0.53) / 2
       priceNo: 0.545, // (0.47 + 0.62) / 2, rounded
-      closeTime: "2026-08-10T21:30:00Z",
+      closeTime: "2026-08-10T21:30:00.000Z", // normalized at ingest
       volume: 38457.31,
       series: "KXURYPDGAME",
     })
