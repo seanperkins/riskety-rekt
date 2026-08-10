@@ -12,7 +12,8 @@
     "poll-settlements": "tsx src/jobs/cli.ts poll-settlements",
     "season:init": "tsx src/jobs/cli.ts season-init",
     "roster:add": "tsx src/jobs/cli.ts roster-add",
-    "roster:list": "tsx src/jobs/cli.ts roster-list"
+    "roster:list": "tsx src/jobs/cli.ts roster-list",
+    "slack": "tsx src/slack/cli.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

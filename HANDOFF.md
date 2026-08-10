@@ -1,6 +1,6 @@
 # Riskety Rekt — Handoff
 
-**Last updated:** 2026-08-09 · **Branch:** `main` · **State:** engine + simulator + market adapter complete, no server yet
+**Last updated:** 2026-08-09 · **Branch:** `feat/slack-ingress-and-recap` · **State:** engine + simulator + market adapter + Slack ingress complete, no tick runner or web UI
 
 A Risk-like conquest game for a private group of friends. One tick per day, orders
 resolved simultaneously. Reinforcements come from two places beyond territory income:
@@ -21,15 +21,16 @@ variance, with uncertainty players can actually reason about.
 | `docs/superpowers/reviews/2026-08-09-round1/` | Seven reviewer reports that reshaped the design |
 | `docs/superpowers/plans/2026-08-09-engine-and-sim.md` | Plan 1 — the engine and simulator |
 | `docs/superpowers/plans/2026-08-09-market-adapter-and-poller.md` | Plan 2 — the market adapter. Its **Spec deltas** section lists what live API data corrected |
+| `docs/superpowers/plans/2026-08-09-slack-ingress-and-recap.md` | Plan 3 — Slack ingress and the recap. Its **Spec deltas** section explains why approvals are derived, not stored |
 
 ## Current state
 
-**Done:** the pure rules engine, the offline season simulator, and the Kalshi market
-adapter with its slate publisher and settlement poller. ~2,400 lines of source, ~3,200
-lines of tests, **271 tests passing**, none of which touch the network.
+**Done:** the pure rules engine, the offline season simulator, the Kalshi market
+adapter with its slate publisher and settlement poller, and the Slack ingress with its
+recap and slate renderers. **368 tests passing**, none of which touch the network.
 
-**Not built:** the tick runner, Slack, and the web UI. Nothing here calls `resolve()` —
-wiring the 21:00 tick is Plan 4.
+**Not built:** the tick runner and the web UI. Nothing here calls `resolve()` — wiring
+the 21:00 tick is Plan 4. Plan 3 built `runPostRecap`, but nothing calls it yet.
 
 ```bash
 npm install
@@ -44,6 +45,11 @@ npm run season:init -- 2026-09-01   # date is the day-0 deal
 npm run publish-slate               # the 08:00 job
 npm run poll-settlements            # the 30-minute job
 npm run sample:kalshi               # re-derive VOLUME_FLOOR from live data
+
+# slack — see deploy/README.md
+npm run roster:add -- U01ABCDEF f1 "Ada L."
+npm run roster:list
+npm run slack                       # the events bot, a long-running service
 ```
 
 ## Architecture
@@ -53,8 +59,9 @@ src/engine/    pure, zero dependencies, no I/O, no clock, no randomness
 src/sim/       drives thousands of synthetic seasons through the engine
 src/adapters/  the only code that speaks HTTP; parsing split from networking
 src/slate/     pure slate selection
-src/store/     SQLite (node:sqlite, WAL) — slates and settlements
-src/jobs/      the 08:00 publish and 30-minute poll, plus their CLI
+src/store/     SQLite (node:sqlite, WAL) — slates, settlements, Slack ingest
+src/slack/     Bolt ingress, approval derivation, and Block Kit rendering
+src/jobs/      the 08:00 publish, the 30-minute poll, the recap, and their CLI
 ```
 
 The tick never touches the network. Both external systems are cached to SQLite ahead of
@@ -110,6 +117,19 @@ territory-less faction 5/day forever.
 *input* state. The field is on every order; a living faction claiming a veto while
 holding a full army is close to season-breaking.
 
+**The elimination veto needs a *post*, not an approval.** `DailyContext` carries
+`postedToday` alongside `approvals` because the two mechanics gate differently: the +1
+soldier needs two distinct other players to react, the veto needs only that the player
+showed up. Gating the veto on approval would give living factions a concrete reason to
+withhold the 👍 from someone whose veto they fear. Both halves of the condition live in
+`combat.ts` on purpose — the golden file only pins what crosses the engine boundary, so
+filtering `protect` in the tick runner would let a regression replay green forever.
+
+**An approved action is derived, never stored.** The store holds raw posts and
+reactions; `dailyApprovals` computes `ApprovedAction` at read time. Storing approvals
+would make `reaction_removed` a state machine — it has to retract an approval that may
+or may not have existed. Deriving makes removal one `DELETE`.
+
 **Payout uses `round`, not `floor`.** Under `floor` the intended +10% only existed for
 stakes above `10p`; below that it was negative-EV, worst case ≈ −45% just above p=0.55.
 
@@ -158,10 +178,17 @@ corrected against live API data, most importantly that the volume floor cannot b
 median (two thirds of same-day markets never trade) and that slate selection must take
 at most one market per series or it publishes five rungs of one crypto ladder.
 
-**Plan 3 — Slack ingress + recap.** Bolt with signature verification that **fails the
-boot** if the signing secret is missing, a 5-minute replay window, scope checks on
-`team_id` and channel, reaction dedupe on event id, `reaction_removed` handling, emoji
-name normalization (`+1`, `thumbsup`, `+1::skin-tone-3` are distinct strings).
+**Plan 3 — Slack ingress + recap. Done.** Bolt events app, roster, idempotent post and
+reaction persistence, approval derivation, and pure Block Kit renderers for the recap
+and the 08:00 slate. Every listed hazard is handled and tested: fail-boot on a missing
+*or empty* signing secret, Bolt's five-minute replay window (verified against
+`requestTimestampMaxDeltaMin` in its source), `team_id` and channel scope checks,
+dedupe on `event_id` including for dropped events, `reaction_removed`, message
+deletion, and emoji normalization.
+
+Plan 4's tick runner needs to call `dailyApprovals(store, seasonId, day)` for **both**
+`context.approvals` and `context.postedToday`, then `runPostRecap` after saving state —
+in that order, so a Slack outage cannot stall a tick.
 
 **Plan 4 — Web app + renderer + deployment.** Slack OAuth; `factionId` absent from the
 wire format entirely (not merely validated); the public projection with a test asserting
@@ -201,6 +228,22 @@ runner, and add a policy that attacks more than once per tick.
   regression test for unrelated reasons. Keep it that way.
 - **`noUncheckedIndexedAccess` is on.** Deliberate — territory and faction lookups are
   exactly where the bugs were. Expect `!` and `?? 0` at lookup sites.
+- **The project has runtime dependencies now.** `@slack/bolt` and `@slack/web-api`,
+  added in Plan 3 because the spec names Bolt. Only `src/slack/app.ts` imports Bolt and
+  only `src/slack/post.ts` imports the Web API client; everything else in `src/slack/`
+  is pure, which is what keeps the suite offline.
+- **Bolt's `App` is always built with `deferInitialization: true`.** Without it the
+  constructor calls `auth.test`, and every test that builds an app becomes a network
+  test. `src/slack/cli.ts` calls `await app.init()` itself.
+- **The golden file does not exercise protections.** No faction reaches zero territories
+  in the scripted ten-day season, so no order in it can legally carry a `protect` pick.
+  Its doc comment claimed otherwise until Plan 3 corrected it. `combat.test.ts` covers
+  that path directly.
+- **The sim cannot observe the post gate either.** `Slacker` is the only policy with
+  `irlActionsPerDay: 0`, and it ends eliminated in 0 of 2,000 seasons. A `Ghost` policy
+  that posts nothing *and* plays weakly would give the gate real coverage.
+- **`exactOptionalPropertyTypes` is on.** Passing `correction: undefined` is not the same
+  as omitting the key — spread a conditional object instead.
 - **The design spec has a "Rejected review findings" section.** Check it before acting
   on a suggestion that seems obviously right; it may already have been considered and
   declined for a stated reason.

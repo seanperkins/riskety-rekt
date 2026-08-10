@@ -33,17 +33,22 @@ bets that are secretly the same bet.
 
 ## State
 
-The pure rules engine, the offline season simulator, and the Kalshi market adapter are
-built and tested. **271 tests, none of which touch the network.**
+The pure rules engine, the offline season simulator, the Kalshi market adapter and the
+Slack ingress are built and tested. **368 tests, none of which touch the network.**
 
-Not built yet: the tick runner, the Slack app, and the web UI.
+Not built yet: the tick runner and the web UI.
 
 ```bash
 npm install
-npm test          # 271 tests
+npm test          # 368 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom policy roster
+
+# slack — see deploy/README.md
+npm run roster:add -- U01ABCDEF f1 "Ada L."
+npm run roster:list
+npm run slack                          # the events bot, a long-running service
 ```
 
 ## Architecture
@@ -53,8 +58,9 @@ src/engine/    pure — zero dependencies, no I/O, no clock, no randomness
 src/sim/       drives thousands of synthetic seasons through the engine
 src/adapters/  the only code that speaks HTTP; parsing split from networking
 src/slate/     pure slate selection
-src/store/     SQLite (node:sqlite, WAL) — slates and settlements
-src/jobs/      the 08:00 publish and 30-minute poll, plus their CLI
+src/store/     SQLite (node:sqlite, WAL) — slates, settlements, Slack ingest
+src/slack/     Bolt ingress, approval derivation, and Block Kit rendering
+src/jobs/      the 08:00 publish, the 30-minute poll, the recap, and their CLI
 ```
 
 The engine is one function — `resolve(state, orders, context) → GameState` — and it
@@ -68,7 +74,7 @@ knows the economy isn't broken.
 and market settlements are written by a poller, both landing in SQLite well before
 21:00. A Kalshi outage at 20:59 cannot stall the season.
 
-See [`deploy/README.md`](deploy/README.md) for running the market jobs.
+See [`deploy/README.md`](deploy/README.md) for running the market jobs and the Slack bot.
 
 ## License
 

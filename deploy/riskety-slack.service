@@ -1,0 +1,27 @@
+[Unit]
+Description=Riskety Rekt — Slack events bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=riskety
+WorkingDirectory=/srv/riskety-rekt
+# Mode 0600, outside the repo tree. Holds SLACK_SIGNING_SECRET and
+# SLACK_BOT_TOKEN, and must not contain any NEXT_PUBLIC_ variable — Next.js
+# inlines those into the browser bundle, and the process asserts that at boot.
+EnvironmentFile=/etc/riskety-rekt/env
+Environment=PORT=3001
+ExecStart=/usr/bin/npm run slack
+
+# Unlike the timers, this one always restarts: a dropped webhook is silently
+# missed approvals, and Slack does not backfill beyond its three retries.
+#
+# A missing secret exits 1 immediately, so RestartSec keeps a misconfigured
+# service from spinning. Check `journalctl -u riskety-slack` for the one-line
+# reason rather than raising the limit.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

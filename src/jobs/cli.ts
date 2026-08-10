@@ -16,6 +16,10 @@ import { createKalshiAdapter } from "../adapters/kalshi/index.js"
 import { openStore } from "../store/sqlite.js"
 import { runPublishSlate } from "./publish-slate.js"
 import { runPollSettlements } from "./poll-settlements.js"
+import { renderSlate } from "../slack/announce.js"
+import { createPoster } from "../slack/post.js"
+import { loadSlackEnv } from "../slack/env.js"
+import type { Market } from "../engine/index.js"
 
 class UsageError extends Error {}
 
@@ -73,12 +77,22 @@ try {
       log(`${m.factionId}\t${m.slackUserId}\t${m.displayName}`)
     }
   } else if (command === "publish-slate") {
+    // Optional: a workspace that is not configured yet should still be able to
+    // publish a slate to the database and the web app.
+    const announce =
+      process.env.SLACK_BOT_TOKEN === undefined || process.env.SLACK_BOT_TOKEN === ""
+        ? undefined
+        : async (day: number, slate: Market[]) => {
+            await createPoster(loadSlackEnv()).post(renderSlate(day, slate))
+          }
+
     const out = await runPublishSlate({
       store,
       adapter: createKalshiAdapter({ onTruncate }),
       seasonId: required("RR_SEASON_ID"),
       now: new Date(),
       log,
+      ...(announce === undefined ? {} : { announce }),
     })
     if (out.status === "skipped") log(`skipped day ${out.day}: ${out.reason}`)
   } else if (command === "poll-settlements") {
