@@ -516,6 +516,20 @@ const SEA_LINKS: [string, string][] = [
   ["hispaniola", "puerto_rico"], // the Mona Passage
   ["puerto_rico", "lesser_antilles"], // the Anegada Passage
   ["lesser_antilles", "venezuela"], // the Gulf of Paria -- the Caribbean to South America
+
+  // Access links. The four above this comment join landmasses; these four exist
+  // because a region reachable from only one other region almost never lands on
+  // a board -- appearance rate tracks adjacency closely, and Korea and Japan at
+  // one neighbour appeared on 10.2% of boards against Central Europe's 49.8% at
+  // six. Each is still a real crossing; none of them is invented to patch a
+  // number. Measured effect: Guinea Coast 8.1% -> 20.8%, Korea and Japan
+  // 10.2% -> 17.9%, at no cost in board span.
+  ["kyushu", "shandong"], // the Yellow Sea -- Japan to China
+  ["hokkaido", "kamchatka"], // the Kuril chain -- Japan to Siberia
+  ["western_australia", "java"], // the Timor Sea -- a second door into Australia
+  ["nordeste", "senegal"], // the South Atlantic narrows, the shortest ocean
+  //                          crossing there is, mirroring classic Risk's
+  //                          brazil <-> north_africa
 ]
 
 /** Applies the sea links symmetrically and freezes the result into a GameMap. */

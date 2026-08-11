@@ -48,6 +48,29 @@ describe("WORLD", () => {
     expect(degree).toBeLessThan(4.7)
   })
 
+  it("gives every region at least one way in, and the isolated ones a real one", () => {
+    // Appearance rate tracks adjacency closely: at one neighbour a region lands
+    // on ~10% of boards, at six on ~50%. Korea and Japan and the Guinea Coast
+    // were the two worst and were given real crossings -- the Yellow Sea, the
+    // Kurils, the South Atlantic narrows -- which moved them to 17.9% and
+    // 20.8%. This pins that they keep those doors.
+    const owner = new Map(WORLD.territories.map((t) => [t.id, t.region]))
+    const degree = new Map<string, Set<string>>()
+    for (const r of WORLD.regions) degree.set(r.id, new Set())
+    for (const t of WORLD.territories) {
+      for (const n of t.neighbors) {
+        const other = owner.get(n)
+        if (other !== undefined && other !== t.region) degree.get(t.region)!.add(other)
+      }
+    }
+    for (const r of WORLD.regions) {
+      expect(degree.get(r.id)!.size, `${r.id} is unreachable`).toBeGreaterThanOrEqual(1)
+    }
+    expect(degree.get("korea_japan")!.size, "korea_japan").toBeGreaterThanOrEqual(3)
+    expect(degree.get("guinea_coast")!.size, "guinea_coast").toBeGreaterThanOrEqual(3)
+    expect(degree.get("australia")!.size, "australia").toBeGreaterThanOrEqual(2)
+  })
+
   it("keeps every region inside the size band", () => {
     for (const c of WORLD.regions) {
       const size = WORLD.territories.filter((t) => t.region === c.id).length
