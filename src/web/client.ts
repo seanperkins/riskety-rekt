@@ -208,26 +208,44 @@ function paintCounts() {
 // Zoomed out, a two-digit number over a country a few pixels across covers the
 // thing it describes and collides with its neighbours' numbers, which is worse
 // than showing nothing -- the tooltip still has it, and zooming in brings it
-// back. Measured against the rendered path rather than a zoom threshold,
-// because territories differ by orders of magnitude in size: at the zoom where
+// back. Measured per territory rather than by a zoom threshold, because
+// territories differ by orders of magnitude in size: at the zoom where
 // Luxembourg's number would fit, Russia has been off screen for a while.
+//
+// The size comes from PROJECTING the territory's own lat/lon bounds, not from
+// reading the DOM. getBoundingClientRect forces a synchronous layout, and doing
+// that for seventy paths on every frame of a zoom made trackpad zooming stutter
+// -- the one moment the map has to stay smooth. latLngToLayerPoint is
+// arithmetic and touches nothing.
+const bboxOf = {}
+for (const t of P.territories) {
+  let n = 90, s2 = -90, e = -180, w = 180, any = false
+  for (const ring of (P.shapes[t.id] || [])) {
+    for (const [lon, lat] of ring) {
+      if (lat < n) n = lat
+      if (lat > s2) s2 = lat
+      if (lon > e) e = lon
+      if (lon < w) w = lon
+      any = true
+    }
+  }
+  if (any) bboxOf[t.id] = { n: n, s: s2, e: e, w: w }
+}
+
 function fitCounts() {
   for (const t of P.territories) {
     const m = countMarkers[t.id]
-    const l = layers[t.id]
-    if (!m || !l || !l._path) continue
+    const bb = bboxOf[t.id]
+    if (!m || !bb) continue
     const el = m.getElement()
     if (!el) continue
-    const box = l._path.getBoundingClientRect()
+    const a = map.latLngToLayerPoint([bb.s, bb.w])
+    const b = map.latLngToLayerPoint([bb.n, bb.e])
+    const wPx = Math.abs(b.x - a.x)
+    const hPx = Math.abs(b.y - a.y)
     // Roughly what the glyphs occupy: ~7px per digit plus breathing room.
     const digits = String(P.garrisons[t.id] ?? 0).length
-    const needW = 7 * digits + 5
-    const needH = 13
-    // A zero-size box means Leaflet has clipped the path out of the current
-    // view. Leave those alone -- they are not visible either way, and moveend
-    // re-runs this when they come back.
-    const clipped = box.width === 0 && box.height === 0
-    el.classList.toggle("hide", !clipped && (box.width < needW || box.height < needH))
+    el.classList.toggle("hide", wPx < 7 * digits + 5 || hPx < 13)
   }
 }
 
@@ -430,19 +448,10 @@ function paint() {
 // off screen and there was no way to tell where you sat relative to anyone
 // else. The world is the opposite problem — most of it is grey backdrop
 // nobody can act on. The board is the thing being played.
-// Coalesced into a single frame. fitCounts measures 70 paths with
-// getBoundingClientRect, which forces a synchronous layout each time; running
-// it straight off zoomend and moveend meant doing that repeatedly during a
-// continuous trackpad zoom, which is exactly when the map must stay smooth.
-let fitQueued = false
-function queueFitCounts() {
-  if (fitQueued) return
-  fitQueued = true
-  requestAnimationFrame(() => { fitQueued = false; fitCounts() })
-}
-map.on("zoomend", queueFitCounts)
-map.on("moveend", queueFitCounts)
-map.on("zoom", queueFitCounts)
+// zoomend only. A territory's pixel size depends on the SCALE, so panning
+// cannot change it, and refitting on every frame of the zoom animation was
+// pure cost.
+map.on("zoomend", fitCounts)
 
 const played = P.territories.map((t) => layers[t.id]).filter(Boolean)
 if (played.length) map.fitBounds(L.featureGroup(played).getBounds(), { padding: [24, 24] })
