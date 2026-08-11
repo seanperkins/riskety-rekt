@@ -250,7 +250,9 @@ configuration:
 - `chat:write`, which the recap already needs.
 
 The reply is ephemeral, so only the person who ran it sees the link. Links last
-ten minutes and work once; running `/login` again invalidates the previous one.
+ten minutes and work once, and a player may hold five at a time — running
+`/login` again does **not** strand a link they were about to click. The sixth
+evicts the oldest.
 
 Somebody who is not on the roster gets a reply carrying the exact
 `roster:add` command with their Slack id already filled in — self-service
