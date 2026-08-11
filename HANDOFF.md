@@ -28,16 +28,20 @@ variance, with uncertainty players can actually reason about.
 **Done:** the pure rules engine, the offline season simulator, the Kalshi market
 adapter with its slate publisher and settlement poller, the Slack ingress with its
 recap and slate renderers, and the 21:00 tick runner with `season-init`, `tick:rerun`,
-the recap ledger and CLI order entry. **499 tests passing**, none of which touch the
+the recap ledger and CLI order entry. **646 tests passing**, none of which touch the
 network — `test/no-network.ts` replaces `fetch` in every run, so it is enforced.
 
-**Not built:** the web UI. Order entry is therefore CLI-only, which means the operator
-can read every faction's deploys, attacks and `protect` picks straight out of SQLite —
-a competitive season does not start on that path.
+**Also done:** the world map (264 territories from Natural Earth), board selection sized
+to the roster, session auth via a `/login` slash command, and the player web app —
+a Leaflet board you act on, autosaving orders, a wagers page and a nightly replay.
+
+**Not built:** the wager economy's stale-price fix. Late placement at the frozen 08:00
+price is roughly +94% EV, and it is the one thing that still clearly blocks a
+competitive season.
 
 ```bash
 npm install
-npm test          # 499 tests
+npm test          # 646 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom roster
