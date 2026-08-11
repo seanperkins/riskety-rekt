@@ -1,0 +1,71 @@
+# Caddy config for Riskety Rekt.
+#
+# Install to /etc/caddy/Caddyfile. Caddy obtains and renews the certificate
+# itself over ACME, which needs port 80 reachable and the A record already
+# pointing here -- so this file is inert until DNS resolves to the droplet.
+#
+# DNS is at DigitalOcean. riskety.com is registered at Namecheap but its
+# nameservers are delegated to ns{1,2,3}.digitalocean.com, so the A records live
+# in the DO zone and `doctl compute domain records` is the way to change them.
+# The registrar holds the delegation and nothing else.
+#
+# TLS is not a nicety here. Session cookies are Secure, so over plain HTTP the
+# browser silently discards the cookie and every player bounces back to the
+# sign-in page with no error to read.
+
+# www redirects rather than serving. Two live origins would mean two cookie
+# jars, and a player who signed in on one and opened a link to the other would
+# be told to sign in again with no way to tell why.
+www.riskety.com {
+	redir https://riskety.com{uri} permanent
+}
+
+riskety.com {
+	encode zstd gzip
+
+	# The Slack events endpoint. Bolt's default path, and the URL Slack holds
+	# in the app's Event Subscriptions -- changing it here means changing it
+	# there too, and Slack re-verifies with a live challenge when you do.
+	handle /slack/events* {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	# The /login slash command posts here as well. Same port, same Bolt
+	# receiver; it is a command rather than an event, but not a separate route.
+	handle /slack/commands* {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	# Everything else is the player app.
+	handle {
+		reverse_proxy 127.0.0.1:3002
+	}
+
+	# A raw token appears in the path of /login/:token. Logging it would put a
+	# live credential in a file that outlives the ten-minute TTL and gets read
+	# by anyone debugging the box -- the one place the design says it must
+	# never land. Drop the URI for that route only; everything else logs.
+	log {
+		output file /var/log/caddy/riskety.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+		format filter {
+			wrap console
+			fields {
+				uri query {
+					replace REDACTED
+				}
+			}
+		}
+	}
+
+	header {
+		# The board is per-viewer and secret. No shared cache may hold it.
+		Cache-Control "no-store"
+		Referrer-Policy "same-origin"
+		X-Content-Type-Options "nosniff"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

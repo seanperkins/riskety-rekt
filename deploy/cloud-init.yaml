@@ -1,0 +1,98 @@
+#cloud-config
+# Droplet bootstrap for Riskety Rekt.
+#
+# Everything here is hostname-independent on purpose: the box comes up complete
+# except for the Caddyfile and the app checkout, both of which need decisions
+# (the public origin, the season id) that outlive a droplet rebuild. Rebuilding
+# from this file plus deploy/bootstrap.sh should give an identical machine.
+
+hostname: riskety-rekt
+timezone: America/New_York
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - git
+  - curl
+  - ca-certificates
+  - gnupg
+  - ufw
+  - sqlite3
+  - debian-keyring
+  - debian-archive-keyring
+  - apt-transport-https
+
+users:
+  # The service account. No password, no shell login, no sudo: every unit in
+  # deploy/ runs as this user, and it never needs to be logged into directly.
+  - name: riskety
+    shell: /usr/sbin/nologin
+    system: true
+    lock_passwd: true
+
+write_files:
+  # 1 GB of RAM with two long-running Node services and four timers that each
+  # spawn another. Swap is what keeps a 21:00 tick from being the process the
+  # OOM killer picks -- the one moment in the day where a kill costs a season.
+  - path: /etc/sysctl.d/60-riskety-swap.conf
+    content: |
+      # Swap exists as a safety net, not as working memory. Keep the kernel
+      # reluctant to use it so the steady state stays in RAM.
+      vm.swappiness=10
+      vm.vfs_cache_pressure=50
+
+  # The environment file the units read. Created empty-but-structured at 0600
+  # so a half-configured boot fails loudly on a missing variable rather than
+  # silently running with signature verification off -- loadSlackEnv treats ""
+  # and unset identically for exactly this reason.
+  - path: /etc/riskety-rekt/env
+    permissions: "0600"
+    owner: root:root
+    content: |
+      TZ=America/New_York
+      RR_DB_PATH=/srv/riskety-rekt/data/riskety.db
+      RR_SEASON_ID=season-1
+      # RR_WEB_URL has NO trailing slash -- the bot builds /login links from it.
+      RR_WEB_URL=
+      SLACK_SIGNING_SECRET=
+      SLACK_BOT_TOKEN=
+      SLACK_TEAM_ID=
+      SLACK_CHANNEL_ID=
+
+runcmd:
+  # ---- swap -----------------------------------------------------------------
+  - [ sh, -c, "test -f /swapfile || (fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile)" ]
+  - [ sh, -c, "swapon --show | grep -q /swapfile || swapon /swapfile" ]
+  - [ sh, -c, "grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab" ]
+  - [ sysctl, --system ]
+
+  # ---- Node 24 --------------------------------------------------------------
+  # From NodeSource, not the Ubuntu archive: node:sqlite does not exist before
+  # Node 22 and is only usable here on 24. The whole store layer is built on it.
+  - [ sh, -c, "curl -fsSL https://deb.nodesource.com/setup_24.x | bash -" ]
+  - [ apt-get, install, -y, nodejs ]
+
+  # ---- Caddy ----------------------------------------------------------------
+  - [ sh, -c, "curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg" ]
+  - [ sh, -c, "curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt | tee /etc/apt/sources.list.d/caddy-stable.list" ]
+  - [ apt-get, update ]
+  - [ apt-get, install, -y, caddy ]
+
+  # ---- filesystem -----------------------------------------------------------
+  # The database lives outside the repo tree so a redeploy cannot touch it.
+  - [ mkdir, -p, /srv/riskety-rekt, /srv/riskety-rekt/data, /var/backups/riskety ]
+  - [ chown, -R, "riskety:riskety", /srv/riskety-rekt, /var/backups/riskety ]
+
+  # ---- firewall -------------------------------------------------------------
+  # 3001 (Slack bot) and 3002 (web) are NEVER exposed. Caddy reaches them over
+  # loopback; anything that reaches them directly has bypassed TLS, and the
+  # session cookie is Secure precisely so that cannot happen quietly.
+  - [ ufw, default, deny, incoming ]
+  - [ ufw, default, allow, outgoing ]
+  - [ ufw, allow, OpenSSH ]
+  - [ ufw, allow, "80/tcp" ]
+  - [ ufw, allow, "443/tcp" ]
+  - [ sh, -c, "ufw --force enable" ]
+
+  - [ sh, -c, "echo 'cloud-init done; run deploy/bootstrap.sh next' > /var/log/riskety-cloud-init.done" ]
