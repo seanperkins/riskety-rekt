@@ -219,7 +219,6 @@ function paintCounts() {
     // sliding off its territory and bunching with its neighbours.
     el.classList.toggle("own", mine(t.id))
   }
-  fitCounts()
 }
 
 // Hide a count that is bigger than the territory it belongs to.
@@ -251,7 +250,7 @@ for (const t of P.territories) {
   if (any) bboxOf[t.id] = { n: n, s: s2, e: e, w: w }
 }
 
-function fitCounts() {
+function updateCountVisibility() {
   for (const t of P.territories) {
     const m = countMarkers[t.id]
     const bb = bboxOf[t.id]
@@ -467,15 +466,19 @@ function paint() {
 // off screen and there was no way to tell where you sat relative to anyone
 // else. The world is the opposite problem — most of it is grey backdrop
 // nobody can act on. The board is the thing being played.
-// zoomend only. A territory's pixel size depends on the SCALE, so panning
-// cannot change it, and refitting on every frame of the zoom animation was
-// pure cost.
-map.on("zoomend", fitCounts)
+// zoomend ONLY, and this is the map's only listener.
+//
+// A territory's pixel size depends on the SCALE alone, so nothing but a zoom
+// can change which counts fit: not panning, not hovering, not selecting. The
+// two calls that move the map -- fitBounds on load and flyToBounds when you
+// click a player -- are the only ones in the file.
+map.on("zoomend", updateCountVisibility)
 
 const played = P.territories.map((t) => layers[t.id]).filter(Boolean)
 if (played.length) map.fitBounds(L.featureGroup(played).getBounds(), { padding: [24, 24] })
 else map.setView([20, 0], 2)
 paint()
+updateCountVisibility()
 
 // ---- acting ----------------------------------------------------------------
 function onTap(id) {
