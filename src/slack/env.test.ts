@@ -6,6 +6,7 @@ const complete = {
   SLACK_BOT_TOKEN: "xoxb-token",
   SLACK_TEAM_ID: "T01ABCDEF",
   SLACK_CHANNEL_ID: "C01ABCDEF",
+  RR_WEB_URL: "https://rr.example.com",
 }
 
 describe("loadSlackEnv", () => {
@@ -15,6 +16,7 @@ describe("loadSlackEnv", () => {
       botToken: "xoxb-token",
       teamId: "T01ABCDEF",
       channelId: "C01ABCDEF",
+      webUrl: "https://rr.example.com",
     })
   })
 
@@ -32,7 +34,7 @@ describe("loadSlackEnv", () => {
   })
 
   it("throws for each other missing variable", () => {
-    for (const key of ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID", "SLACK_CHANNEL_ID"]) {
+    for (const key of ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID", "SLACK_CHANNEL_ID", "RR_WEB_URL"]) {
       const partial = { ...complete, [key]: undefined }
       expect(() => loadSlackEnv(partial)).toThrow(new RegExp(key))
     }

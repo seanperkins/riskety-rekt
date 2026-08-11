@@ -7,6 +7,7 @@ const env = {
   botToken: "xoxb-token",
   teamId: "T1",
   channelId: "C1",
+      webUrl: "https://rr.test",
 }
 
 describe("createSlackApp", () => {

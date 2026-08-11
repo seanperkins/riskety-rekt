@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { createPoster } from "./post.js"
 
-const env = { signingSecret: "s", botToken: "xoxb-t", teamId: "T1", channelId: "C1" }
+const env = { signingSecret: "s", botToken: "xoxb-t", teamId: "T1", channelId: "C1", webUrl: "https://rr.test" }
 
 describe("createPoster", () => {
   it("posts to the configured channel with a fallback text", async () => {
