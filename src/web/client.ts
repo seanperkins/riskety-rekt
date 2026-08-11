@@ -38,7 +38,17 @@ const spent = () =>
   P.wagers.reduce((n, w) => n + w.stake, 0)
 
 // ---- map -------------------------------------------------------------------
-const map = L.map("map", { zoomControl: true, attributionControl: false, worldCopyJump: false })
+// zoomSnap 0 lets fitBounds land on a fractional zoom. Leaflet's default snaps
+// to whole levels, so an ideal fit of 4.7 floors to 4 and shows nearly twice
+// the area needed -- the board filled barely half the container with grey
+// backdrop around it. Fractional zoom is only a problem for raster tiles, which
+// have a native resolution to be blurred away from; this map is vector.
+const map = L.map("map", {
+  zoomControl: true,
+  attributionControl: false,
+  worldCopyJump: false,
+  zoomSnap: 0,
+})
 const layers = {}
 
 // The rest of the world, drawn first so every playable territory sits on top of
