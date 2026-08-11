@@ -19,8 +19,17 @@ export const PRICE_CEIL = 0.9
  * stakes above 10p, making small hedge bets negative-EV — worst case about
  * -45% of stake just above p = 0.55.
  *
- * The clamp matches the slate's own price filter, so it can only fire on a
- * filter bug, and caps the damage at 11x rather than something unbounded.
+ * The clamp matches the slate's own price FILTER, which bounds what may be
+ * published — but not what a price may become during the day. That leaves a
+ * residual edge now that wagers are priced at placement: a market that has
+ * moved to 0.95 is paid at 0.9, so a near-certain late wager returns about +16%
+ * instead of the intended +10%.
+ *
+ * Measured, that is the remainder of a +422% exploit, and it is bounded and
+ * symmetric (a market below 0.1 is paid at 0.1, against the player). Widening
+ * the clamp is not obviously right: it would also uncap the payout on a
+ * genuinely long shot. Left as is, and stated so nobody rediscovers it as a
+ * surprise.
  */
 export function payout(stake: number, price: number): number {
   const p = Math.min(PRICE_CEIL, Math.max(PRICE_FLOOR, price))

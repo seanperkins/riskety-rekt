@@ -105,7 +105,9 @@ exploitable. Full list with reasoning in `HANDOFF.md`; the ones most likely to b
   prices live in `market_prices`, refreshed every 30 minutes; `order_wagers`
   records the price at save time and `escrow` prefers it. Re-staking re-prices,
   or a player could take the morning's odds and switch sides once the outcome
-  was clear.
+  was clear. A residual remains: `payout` clamps price to [0.1, 0.9], so a
+  market that moved to 0.95 pays at 0.9 and a near-certain late wager returns
+  about +16% rather than +10%. Bounded, symmetric, and down from +422%.
 - **Settlement is credit-only.** The stake left the reserve at escrow; "credit or
   debit" charges losers twice. Payout uses `round`, not `floor`.
 - **`protect` is filtered inside the engine**, on both `postedToday` and zero
