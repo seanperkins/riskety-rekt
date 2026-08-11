@@ -148,25 +148,65 @@ function paintCounts() {
 const regionOf = {}
 for (const t of P.territories) (regionOf[t.region] = regionOf[t.region] || []).push(t.id)
 
+// The board's centre, so each badge can be pushed AWAY from it.
+let bLat = 0, bLon = 0, bN = 0
+for (const t of P.territories) {
+  const c = P.centres[t.id]
+  if (c) { bLat += c.lat; bLon += c.lon; bN++ }
+}
+const boardCentre = bN ? { lat: bLat / bN, lon: bLon / bN } : { lat: 0, lon: 0 }
+
 for (const r of P.regions) {
   const ids = regionOf[r.id] || []
   if (!ids.length) continue
-  let lat = 0, lon = 0, n = 0
+
+  // Bounds over the real POLYGONS, not the centre points. A region's badge has
+  // to clear the land it names, and a centre-of-centres box sits well inside
+  // the coastline of anything larger than a few territories.
+  let n0 = 90, s0 = -90, e0 = -180, w0 = 180, any = false
+  let cLat = 0, cLon = 0, cN = 0
   for (const id of ids) {
+    for (const ring of (P.shapes[id] || [])) {
+      for (const [lon, lat] of ring) {
+        if (lat < n0) n0 = lat
+        if (lat > s0) s0 = lat
+        if (lon > e0) e0 = lon
+        if (lon < w0) w0 = lon
+        any = true
+      }
+    }
     const c = P.centres[id]
-    if (!c) continue
-    lat += c.lat; lon += c.lon; n++
+    if (c) { cLat += c.lat; cLon += c.lon; cN++ }
   }
-  if (!n) continue
+  if (!any || !cN) continue
+  const mid = { lat: cLat / cN, lon: cLon / cN }
+
+  // One of four sides, chosen by whichever way the region already sits relative
+  // to the board's middle -- so badges radiate outward and the ones on the rim
+  // land in open water. The dominant axis decides, so a region north-east of
+  // centre goes north if it is more north than east.
+  const dLat = mid.lat - boardCentre.lat
+  const dLon = (mid.lon - boardCentre.lon) * Math.cos((mid.lat * Math.PI) / 180)
+  let side, at
+  if (Math.abs(dLat) >= Math.abs(dLon)) {
+    side = dLat >= 0 ? "n" : "s"
+    at = [dLat >= 0 ? s0 : n0, mid.lon]
+  } else {
+    side = dLon >= 0 ? "e" : "w"
+    at = [mid.lat, dLon >= 0 ? e0 : w0]
+  }
+
   // Whoever holds every territory in the region owns the bonus; the badge says
   // so by taking their colour.
   const holders = new Set(ids.map((id) => owner(id)))
   const sole = holders.size === 1 ? [...holders][0] : null
-  L.marker([lat / n, lon / n], {
+  L.marker(at, {
     interactive: false,
     keyboard: false,
+    // The final gap is a CSS translate rather than a degree offset, so it stays
+    // the same number of pixels at every zoom instead of growing as you zoom in.
     icon: L.divIcon({
-      className: "rbadge",
+      className: "rbadge rb-" + side,
       html: '<span class="rb-n"' + (sole ? ' style="background:' + colorOf(sole) + '"' : "") +
         '>+' + r.bonus + '</span><span class="rb-name">' + esc(r.name) + '</span>',
       iconSize: [0, 0],

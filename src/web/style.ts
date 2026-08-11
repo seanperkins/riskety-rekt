@@ -296,8 +296,22 @@ body {
   align-items: center;
   gap: 5px;
   white-space: nowrap;
-  transform: translate(-50%, -50%);
+  width: max-content;
 }
+
+/*
+ * The badge is anchored ON the region's bounding box and then pushed clear of
+ * it from here, in PIXELS -- a degree offset would grow as you zoom in until
+ * the badge floated away from what it names.
+ *
+ * Which side was chosen in the client, by whichever way the region sits
+ * relative to the board's middle, so labels radiate outward and rim regions
+ * put theirs in open water.
+ */
+.rbadge.rb-n { transform: translate(-50%, calc(-100% - 6px)); }
+.rbadge.rb-s { transform: translate(-50%, 6px); }
+.rbadge.rb-e { transform: translate(6px, -50%); }
+.rbadge.rb-w { transform: translate(calc(-100% - 6px), -50%); }
 
 .rb-n {
   display: inline-grid;
@@ -319,6 +333,74 @@ body {
   color: rgba(242, 226, 184, 0.85);
   paint-order: stroke fill;
   -webkit-text-stroke: 3px rgba(6, 14, 20, 0.8);
+}
+
+/* ---- standings ---------------------------------------------------------- */
+
+.players { margin: 4px 0 2px; }
+
+.players > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  padding: 2px 0;
+}
+.players > summary::-webkit-details-marker { display: none; }
+
+/* A disclosure caret drawn from a border, so it needs no font or asset and
+   rotates with the open state. */
+.players > summary .h2::before {
+  content: "";
+  display: inline-block;
+  width: 0; height: 0;
+  margin-right: 7px;
+  vertical-align: middle;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 120ms ease;
+}
+.players[open] > summary .h2::before { transform: rotate(90deg); }
+.players > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.standings th {
+  font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  padding-bottom: 4px;
+}
+.standings th.n { text-align: right; }
+
+/* The swatch is the ONLY link between a rail row and a colour on the map, so
+   it has to survive a small screen -- hence a fixed square rather than a
+   coloured row that a background would wash out. */
+.standings .swatch i {
+  display: inline-block;
+  width: 9px; height: 9px;
+  margin-right: 7px;
+  border-radius: 2px;
+  vertical-align: baseline;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+
+.standings .you { color: var(--ink); font-weight: 600; }
+.standings .tag {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.standings .inc { color: var(--accent); white-space: nowrap; }
+.standings .rb {
+  display: block;
+  font-size: 9px;
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .leaflet-interactive:focus { outline: none; }

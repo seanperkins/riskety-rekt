@@ -242,6 +242,75 @@ export function renderMap(view: MapView, coords: Record<string, LatLon>): string
  * plan is in it** — no other faction's deploys, attacks or protect pick is
  * present, not hidden with CSS but absent from the bytes. A test asserts it.
  */
+/**
+ * The standings, with what each faction earns from the board tonight.
+ *
+ * Every number here is derived from `ownership` and the per-board region
+ * bonuses, both of which are already public — `territoryIncome` is
+ * `max(5, floor(territories / 2)) + regionBonuses` and reads nothing else. So
+ * this leaks nothing, and it replaces the counting-territories-by-eye that the
+ * map otherwise demands.
+ *
+ * It deliberately EXCLUDES the two income sources that are not board state:
+ * approved workouts, which land at the tick, and wager payouts, which are
+ * secret per faction. Showing a total that included either would be a number
+ * the viewer cannot verify and, for wagers, a leak.
+ */
+function standings(p: Projection): string {
+  const held = new Map<string, number>()
+  for (const f of p.factions) held.set(f.id, 0)
+  for (const owner of Object.values(p.ownership)) {
+    held.set(owner, (held.get(owner) ?? 0) + 1)
+  }
+
+  // Region bonus only when a faction holds EVERY territory in the region —
+  // the same rule regionBonusesFor applies.
+  const members = new Map<string, string[]>()
+  for (const t of p.territories) {
+    members.set(t.region, [...(members.get(t.region) ?? []), t.id])
+  }
+  const bonus = new Map<string, number>()
+  for (const r of p.regions) {
+    const ids = members.get(r.id) ?? []
+    if (ids.length === 0) continue
+    const owners = new Set(ids.map((id) => p.ownership[id]))
+    if (owners.size !== 1) continue
+    const sole = [...owners][0]!
+    bonus.set(sole, (bonus.get(sole) ?? 0) + r.bonus)
+  }
+
+  const rows = [...p.factions]
+    .map((f) => {
+      const count = held.get(f.id) ?? 0
+      const regions = bonus.get(f.id) ?? 0
+      // Eliminated factions earn nothing: the floor would otherwise pay a
+      // faction with no territories forever.
+      const income = count === 0 ? 0 : Math.max(5, Math.floor(count / 2)) + regions
+      return { f, count, regions, income }
+    })
+    .sort((a, b) => b.count - a.count || (a.f.id < b.f.id ? -1 : 1))
+    .map(({ f, count, regions, income }) => {
+      const you = f.id === p.factionId
+      return `<tr class="${you ? "you" : ""}">
+        <td class="swatch"><i style="background:${esc(f.color)}"></i>${esc(f.name)}${
+          you ? ' <span class="tag">you</span>' : ""
+        }</td>
+        <td class="n">${esc(count)}</td>
+        <td class="n inc">+${esc(income)}${regions > 0 ? `<span class="rb">incl +${esc(regions)}</span>` : ""}</td>
+      </tr>`
+    })
+    .join("")
+
+  return `<details class="players" open>
+      <summary><span class="h2">Players</span><span class="hint">soldiers tonight</span></summary>
+      <table class="t standings"><thead>
+        <tr><th>faction</th><th class="n">terr</th><th class="n">income</th></tr>
+      </thead><tbody>${rows}</tbody></table>
+      <p class="note">From the board only — territories and whole regions.
+        Approved workouts and settled wagers arrive at the tick.</p>
+    </details>`
+}
+
 export function renderBoard(p: Projection): string {
   const me = p.factions.find((f) => f.id === p.factionId)
   return page(
@@ -261,6 +330,8 @@ export function renderBoard(p: Projection): string {
       <button id="btn-protect" class="chip">Protect</button>
     </div>
     <p class="hint" id="flash"></p>
+
+    ${standings(p)}
 
     <h2 class="h2">Your orders <span id="save" class="save ok">saved</span></h2>
     <div id="plan"></div>
