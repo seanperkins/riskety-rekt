@@ -1,7 +1,48 @@
 # Deployment — market jobs and the Slack bot
 
-Four timers and two long-running services, all on a single DigitalOcean droplet
+Five timers and two long-running services, all on a single DigitalOcean droplet
 alongside the SQLite file.
+
+## The live droplet
+
+| | |
+|---|---|
+| Host | `riskety.com` (`www` 301s to the apex) |
+| Droplet | `riskety-rekt`, nyc3, s-1vcpu-1gb, `45.55.240.159` |
+| DNS | Registered at Namecheap, **nameservers delegated to DigitalOcean** — records live in the DO zone, so `doctl compute domain records` changes them and the registrar holds only the delegation |
+| TLS | Let's Encrypt via Caddy, auto-renewing |
+| Access | `ssh root@45.55.240.159` with FounderKey or the DO `Ubuntu` key |
+
+Provisioned from `cloud-init.yaml` (the machine) and `bootstrap.sh` (the
+deployment). **`bootstrap.sh` is also the upgrade path** — rerunning it pulls
+`origin/main`, reinstalls, reloads units and restarts services, and never
+touches the database or `/etc/riskety-rekt/env`:
+
+```bash
+ssh root@45.55.240.159 'bash -s' < deploy/bootstrap.sh
+```
+
+`s-1vcpu-1gb` is 1 GB, so cloud-init provisions 2 GB of swap. The process that
+must never be OOM-killed is the 21:00 tick.
+
+**Ports 3001 and 3002 are not reachable from outside.** ufw allows 22, 80 and
+443 only; Caddy proxies to the services over loopback. This is load-bearing
+rather than tidy: session cookies are `Secure`, and a service answering on plain
+HTTP would be a way to reach the app with the cookie silently dropped.
+
+### Still to do before a season
+
+1. **Fill in `SLACK_*` in `/etc/riskety-rekt/env`** (mode 0600). `bootstrap.sh`
+   deliberately leaves `riskety-slack` stopped while they are blank rather than
+   letting it restart-loop, and re-running it starts the service once they are
+   set.
+2. **Point the Slack app at `https://riskety.com/slack/events`** and re-verify.
+   Slack sends a live challenge and will not save the URL until the endpoint
+   answers — which it now does.
+3. **Seed the roster, then `season:init`.** In that order; `season:init` deals
+   from the roster and refuses an empty one.
+
+DNS TTL is 300 while the address settles. Raise it once the droplet is stable.
 
 ## Environment
 
