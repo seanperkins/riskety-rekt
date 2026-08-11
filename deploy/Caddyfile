@@ -41,10 +41,13 @@ riskety.com {
 		reverse_proxy 127.0.0.1:3002
 	}
 
-	# A raw token appears in the path of /login/:token. Logging it would put a
-	# live credential in a file that outlives the ten-minute TTL and gets read
-	# by anyone debugging the box -- the one place the design says it must
-	# never land. Drop the URI for that route only; everything else logs.
+	# A raw token appears in the PATH of /login/:token -- not the query string.
+	# Logging it would put a live credential in a file that outlives its
+	# ten-minute TTL and gets read by anyone debugging the box, which is the one
+	# place the design says a raw token must never land.
+	#
+	# `regexp` rather than deleting the field: every other route stays legible,
+	# and only the token itself is replaced.
 	log {
 		output file /var/log/caddy/riskety.log {
 			roll_size 10mb
@@ -53,9 +56,7 @@ riskety.com {
 		format filter {
 			wrap console
 			fields {
-				uri query {
-					replace REDACTED
-				}
+				request>uri regexp "/login/[^/?]+" "/login/REDACTED"
 			}
 		}
 	}
