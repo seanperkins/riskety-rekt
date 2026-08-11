@@ -121,17 +121,38 @@ systemctl enable --now \
 
 # The long-running services need the env file filled in first. Starting them
 # with SLACK_* blank would exit 1 in a restart loop, so check before enabling.
+#
+# `restart`, not `enable --now`: on a service that is ALREADY running, --now is
+# a no-op. This script is the upgrade path, so that silently left the old code
+# serving after a successful-looking deploy -- the pull worked, the units
+# reloaded, and nothing picked up the new code.
+start_or_restart() {
+  systemctl enable "$1" >/dev/null 2>&1
+  systemctl restart "$1"
+}
+
 if grep -q '^SLACK_SIGNING_SECRET=.\+' /etc/riskety-rekt/env; then
-  systemctl enable --now riskety-slack.service
+  start_or_restart riskety-slack.service
 else
   say "SLACK_* not set in /etc/riskety-rekt/env — leaving riskety-slack stopped"
 fi
 
 if grep -q '^RR_WEB_URL=.\+' /etc/riskety-rekt/env; then
-  systemctl enable --now riskety-web.service
+  start_or_restart riskety-web.service
 else
   say "RR_WEB_URL not set in /etc/riskety-rekt/env — leaving riskety-web stopped"
 fi
+
+# Fail loudly rather than reporting a green deploy that is not serving.
+sleep 3
+for unit in riskety-web riskety-slack; do
+  if systemctl is-enabled "$unit" >/dev/null 2>&1 && ! systemctl is-active --quiet "$unit"; then
+    echo "ERROR: $unit is enabled but not active after deploy" >&2
+    journalctl -u "$unit" -n 15 --no-pager >&2
+    exit 1
+  fi
+done
+say "deployed $(git -C "$APP" rev-parse --short HEAD)"
 
 say "done"
 systemctl list-timers 'riskety-*' --no-pager || true
