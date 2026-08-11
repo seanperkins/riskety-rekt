@@ -100,8 +100,12 @@ function fakeLeaflet(): Record<string, unknown> {
   }
 }
 
-function element(): Record<string, unknown> {
+/** Records the events bound to it, so wiring can be asserted, not just survival. */
+function element(tag = ""): Record<string, unknown> {
+  const events: string[] = []
   const el: Record<string, unknown> = {
+    __tag: tag,
+    __events: events,
     style: {},
     className: "",
     textContent: "",
@@ -109,7 +113,9 @@ function element(): Record<string, unknown> {
     dataset: {},
     disabled: false,
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
-    addEventListener() {},
+    addEventListener(type: string) {
+      events.push(type)
+    },
     setAttribute() {},
     getAttribute: () => "f1",
     closest: () => null,
@@ -127,10 +133,12 @@ describe("the client script", () => {
   })
 
   it("runs to completion against a real projection", () => {
+    const mapEl = element("map")
+    const factionRow = element("row")
     const doc = {
-      getElementById: () => element(),
+      getElementById: (id: string) => (id === "map" ? mapEl : element()),
       querySelector: () => element(),
-      querySelectorAll: () => [element()],
+      querySelectorAll: (sel: string) => (sel.includes("data-faction") ? [factionRow] : [element()]),
       createElement: () => element(),
       body: element(),
     }
@@ -172,5 +180,18 @@ describe("the client script", () => {
     ]
     const run = new Function(...names, CLIENT)
     expect(() => run(...values)).not.toThrow()
+
+    // Survival is not enough. Rewriting a neighbouring block once deleted the
+    // hover delegation, the player-row wiring and click-to-zoom outright --
+    // nothing threw, the suite stayed green, and four features were simply
+    // gone. So the wiring itself is asserted.
+    expect(mapEl["__events"], "region hover is delegated from the map container").toContain(
+      "mouseover",
+    )
+    expect(mapEl["__events"]).toContain("mouseout")
+    const rowEvents = factionRow["__events"] as string[]
+    expect(rowEvents, "player rows highlight on hover").toContain("mouseenter")
+    expect(rowEvents, "player rows fly to the faction on click").toContain("click")
+    expect(rowEvents, "and are reachable by keyboard").toContain("keydown")
   })
 })

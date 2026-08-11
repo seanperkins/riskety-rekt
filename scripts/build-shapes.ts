@@ -746,6 +746,52 @@ for (const id of ids) {
   }
 }
 
+// ------------------------------------------------------- region outlines --
+
+/**
+ * The OUTER boundary of each region, with internal borders dissolved away.
+ *
+ * Highlighting a region by stroking each of its territories draws every
+ * internal border too, so the region reads as a bundle of shapes rather than
+ * one area. What is wanted is the outline alone.
+ *
+ * Built from the SIMPLIFIED coarse rings rather than the raw ones, so the
+ * outline traces exactly the edges that get drawn -- an outline derived from
+ * different geometry would sit a fraction off the coastline it is meant to
+ * follow.
+ *
+ * Region membership comes from the world and never varies with the board:
+ * selectSubMap takes whole regions, so a region on a board has its whole
+ * outline.
+ */
+const regionOutlines: Record<string, Ring[]> = {}
+{
+  const members = new Map<string, string[]>()
+  for (const t of WORLD.territories) {
+    members.set(t.region, [...(members.get(t.region) ?? []), t.id])
+  }
+  for (const [regionId, ids] of members) {
+    const present = ids.filter((id) => (shapes[id] ?? []).length > 0)
+    if (present.length === 0) continue
+    const topo = buildTopology({
+      r: {
+        type: "GeometryCollection",
+        geometries: present.map((id) => ({
+          type: "MultiPolygon",
+          coordinates: (shapes[id] ?? []).map((ring) => [ring]),
+        })),
+      },
+    })
+    const merged = merge(topo, topo.objects.r.geometries)
+    const polys = (
+      merged.type === "Polygon" ? [merged.coordinates] : merged.coordinates
+    ) as unknown as number[][][][]
+    regionOutlines[regionId] = polys
+      .map((poly) => poly[0] as Ring)
+      .filter((r) => r !== undefined && r.length >= 3)
+  }
+}
+
 // ------------------------------------------------------------------ output --
 
 const points = Object.values(shapes).reduce((n, rs) => n + rs.reduce((m, r) => m + r.length, 0), 0)
@@ -817,6 +863,15 @@ export const SHAPES_FINE: Record<TerritoryId, [number, number][][]> = ${JSON.str
  * number passed the fit test and then sat in the sea.
  */
 export const LABEL_BOXES: Record<TerritoryId, [number, number, number, number]> = ${JSON.stringify(boxes)}
+
+/**
+ * Each region's OUTER boundary, internal borders dissolved.
+ *
+ * Hovering a region should outline the region, not draw every border inside
+ * it. Built from the simplified coarse rings, so the outline traces exactly
+ * the edges that are drawn.
+ */
+export const REGION_OUTLINES: Record<string, [number, number][][]> = ${JSON.stringify(regionOutlines)}
 `
 
 writeFileSync(new URL("../src/map/shapes.ts", import.meta.url), body)

@@ -405,12 +405,34 @@ for (const r of P.regions) {
 }
 }
 
+// ---- hover highlight --------------------------------------------------------
+// One reusable layer, restyled and re-pathed as the hover moves. A region shows
+// its OUTER boundary only -- stroking each of its territories draws every
+// internal border too, and the region then reads as a bundle of shapes rather
+// than one area.
+const outline = L.polygon([[[0, 0], [0, 0], [0, 0]]], {
+  pane: "bridges",
+  fill: false,
+  color: "#ffd479",
+  weight: 3,
+  interactive: false,
+})
+let outlineOn = false
+
+function showOutline(rings) {
+  if (!rings || !rings.length) return hideOutline()
+  outline.setLatLngs(rings.map((r) => [r.map(([lon, lat]) => [lat, lon])]))
+  if (!outlineOn) { outline.addTo(map); outlineOn = true }
+  if (outline.bringToFront) outline.bringToFront()
+}
+
+function hideOutline() {
+  if (outlineOn) { map.removeLayer(outline); outlineOn = false }
+}
+
 // Is this territory lit by the current hover -- a region badge or a player row?
 const lit = (id) =>
-  highlight !== null &&
-  (highlight.kind === "region"
-    ? byId[id] && byId[id].region === highlight.id
-    : owner(id) === highlight.id)
+  highlight !== null && highlight.kind === "faction" && owner(id) === highlight.id
 
 function paint() {
   const front = []
@@ -434,6 +456,12 @@ function paint() {
   // Same reason the selection comes forward: SVG has no z-index, so a
   // neighbour drawn later would paint over the highlighted edge.
   for (const l of front) if (l.bringToFront) l.bringToFront()
+
+  if (highlight !== null && highlight.kind === "region") {
+    showOutline((P.regionOutlines || {})[highlight.id])
+  } else {
+    hideOutline()
+  }
   // The selected outline traces the real border, so it has to be drawn LAST.
   // SVG has no z-index: a neighbour added after it paints its own edge over the
   // shared boundary, and the highlight comes out broken along exactly the sides
@@ -507,6 +535,72 @@ paint()
 updateCountVisibility()
 updateDetail()
 placeRegionBadges()
+
+// ---- hover wiring -----------------------------------------------------------
+
+function setHighlight(kind, id) {
+  const next = kind === null ? null : { kind: kind, id: id }
+  const same =
+    (next === null && highlight === null) ||
+    (next !== null && highlight !== null && next.kind === highlight.kind && next.id === highlight.id)
+  if (same) return
+  highlight = next
+  paint()
+  syncRailHighlight()
+}
+
+// Mirror the map highlight back into the rail, so hovering a badge also shows
+// WHO holds it -- the two panels answer the same question from opposite ends.
+function syncRailHighlight() {
+  for (const row of document.querySelectorAll("[data-faction]")) {
+    const on =
+      highlight !== null &&
+      highlight.kind === "faction" &&
+      row.getAttribute("data-faction") === highlight.id
+    row.classList.toggle("lit", on)
+  }
+}
+
+// Region hover by DELEGATION on the map container rather than a listener per
+// badge. Leaflet owns those icon elements and may recreate them; mouseover and
+// mouseout bubble, so one pair of listeners on a node we own cannot go stale.
+const mapEl = document.getElementById("map")
+if (mapEl) {
+  mapEl.addEventListener("mouseover", (e) => {
+    const el = e.target && e.target.closest && e.target.closest("[data-region]")
+    if (el) setHighlight("region", el.getAttribute("data-region"))
+  })
+  mapEl.addEventListener("mouseout", (e) => {
+    const el = e.target && e.target.closest && e.target.closest("[data-region]")
+    if (el) setHighlight(null)
+  })
+}
+
+// Clicking a player flies to their ground, padded well past it: a faction's
+// territories are the question, but the answer is usually who is next to them.
+function zoomToFaction(id) {
+  const theirs = P.territories
+    .filter((t) => owner(t.id) === id)
+    .map((t) => layers[t.id])
+    .filter(Boolean)
+  if (!theirs.length) return
+  map.flyToBounds(L.featureGroup(theirs).getBounds(), { padding: [70, 70], duration: 0.5 })
+}
+
+for (const row of document.querySelectorAll("[data-faction]")) {
+  const id = row.getAttribute("data-faction")
+  row.addEventListener("mouseenter", () => setHighlight("faction", id))
+  row.addEventListener("mouseleave", () => setHighlight(null))
+  row.addEventListener("click", () => zoomToFaction(id))
+  // Keyboard reaches the same states; the rows are focusable for this.
+  row.setAttribute("tabindex", "0")
+  row.setAttribute("role", "button")
+  row.addEventListener("focus", () => setHighlight("faction", id))
+  row.addEventListener("blur", () => setHighlight(null))
+  row.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); zoomToFaction(id) }
+  })
+}
 
 // ---- acting ----------------------------------------------------------------
 function onTap(id) {

@@ -1,5 +1,5 @@
 import { COORDS } from "../map/coords.js"
-import { LABELS, LABEL_BOXES, SHAPES, SHAPES_FINE } from "../map/shapes.js"
+import { LABELS, LABEL_BOXES, REGION_OUTLINES, SHAPES, SHAPES_FINE } from "../map/shapes.js"
 import { SEA_LINKS } from "../map/world.js"
 import type { GameState } from "../engine/index.js"
 import type { FactionId } from "../engine/index.js"
@@ -49,6 +49,14 @@ export interface Projection {
    * kilometres wide, so the number passed the fit test and sat in the sea.
    */
   labelBoxes: Record<string, [number, number, number, number]>
+  /**
+   * Each region's OUTER boundary, internal borders dissolved.
+   *
+   * Hovering a region outlines the region. Stroking each of its territories
+   * instead draws every border inside it too, so the region reads as a bundle
+   * of shapes rather than one area.
+   */
+  regionOutlines: Record<string, [number, number][][]>
   /**
    * Every territory NOT on this board, drawn as inert grey background.
    *
@@ -139,6 +147,11 @@ export function projectionFor(args: {
       state.map.territories
         .filter((t) => LABEL_BOXES[t.id] !== undefined)
         .map((t) => [t.id, LABEL_BOXES[t.id]!]),
+    ),
+    regionOutlines: Object.fromEntries(
+      state.map.regions
+        .filter((r) => (REGION_OUTLINES[r.id] ?? []).length > 0)
+        .map((r) => [r.id, REGION_OUTLINES[r.id]!]),
     ),
     seaLinks: SEA_LINKS.filter(([a, b]) => onBoard.has(a) && onBoard.has(b)).map(
       ([a, b]) => [a, b] as [string, string],
