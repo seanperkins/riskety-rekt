@@ -280,3 +280,133 @@ export function renderBoard(p: Projection): string {
 <script>${CLIENT}</script>`,
   )
 }
+
+/**
+ * Today's slate.
+ *
+ * A market locks at `min(closeTime, settlement observed_at)` — `can_close_early`
+ * means an outcome can be public hours before the stated close. A locked market
+ * renders locked, with the reason, rather than taking a stake the server will
+ * refuse.
+ */
+export function renderWagers(p: Projection, now: Date): string {
+  const staked = new Map(p.wagers.map((w) => [w.marketId, w]))
+  const rows = p.slate
+    .map((m) => {
+      const mine = staked.get(m.id)
+      const closed = new Date(m.closeTime).getTime() <= now.getTime()
+      const state = closed
+        ? `<span class="save bad">closed</span>`
+        : `<span class="n">${esc(new Date(m.closeTime).toUTCString().slice(17, 22))} UTC</span>`
+      return `<tr><td>${esc(m.question)}<br>
+        <span class="hint">yes ${esc(m.priceYes)} · no ${esc(m.priceNo)}${
+          mine === undefined ? "" : ` · <b>you: ${esc(mine.stake)} on ${esc(mine.side)}</b>`
+        }</span></td><td class="n">${state}</td></tr>`
+    })
+    .join("")
+
+  return page(
+    "Riskety Rekt — wagers",
+    `<div class="wrap"><div class="stage" style="display:grid;place-items:center">
+      <p class="hint">Stakes leave your reserve when the tick runs.</p></div>
+    <aside class="rail">
+      <h1 class="title">Wagers</h1>
+      <p class="sub">Day ${esc(p.day)} · one wager per market</p>
+      <h2 class="h2">Today's slate</h2>
+      <table class="t"><tbody>${
+        rows === "" ? `<tr><td class="hint">No slate published yet.</td></tr>` : rows
+      }</tbody></table>
+      <p class="note">A market locks at its close time, or as soon as its
+        outcome is public — whichever comes first.
+        <a href="/">Board</a></p>
+    </aside></div>`,
+  )
+}
+
+/**
+ * The night replayed.
+ *
+ * Recomputes NOTHING. The log is animated against two known states — day N-1
+ * and day N, both already persisted — because replaying events forward would be
+ * a second implementation of the engine's bookkeeping, and it would drift until
+ * the picture and the game disagreed.
+ *
+ * Income, IRL grants and settled wagers collapse into one opening summary:
+ * every source of soldiers arriving in the bank, so the game reads as one
+ * system rather than two.
+ */
+export function renderDay(args: {
+  day: number
+  before: GameStateLike
+  after: GameStateLike
+  factionName: (id: string) => string
+  territoryName: (id: string) => string
+}): string {
+  const { after, factionName: fname, territoryName: tname } = args
+
+  const bank = new Map<string, string[]>()
+  const push = (f: string, s: string) => bank.set(f, [...(bank.get(f) ?? []), s])
+  const steps: string[] = []
+
+  for (const e of after.log) {
+    switch (e.t) {
+      case "income":
+        push(e.faction, `+${e.amount} income`)
+        break
+      case "irl":
+        push(e.faction, `+${e.actions + e.bonus} workout`)
+        break
+      case "wagerSettle":
+        if (e.payout > 0) push("—", `+${e.payout} from a market`)
+        break
+      case "deploy":
+        steps.push(`${esc(fname(e.faction))} deploys ${e.count} to ${esc(tname(e.territory))}`)
+        break
+      case "fieldBattle":
+        steps.push(
+          `Field battle between ${esc(tname(e.a))} and ${esc(tname(e.b))} — ${e.aContinues} and ${e.bContinues} continue`,
+        )
+        break
+      case "protected":
+        steps.push(`${esc(tname(e.territory))} is protected by ${e.byCount}`)
+        break
+      case "attack":
+        steps.push(
+          `${esc(fname(e.attacker))} attacks ${esc(tname(e.to))} from ${esc(tname(e.from))} with ${e.committed} — ${
+            e.captured ? `<b>captured</b>, ${e.survivors} hold it` : `repulsed`
+          }`,
+        )
+        break
+      case "rejected":
+        steps.push(`<span class="save bad">rejected</span> ${esc(fname(e.faction))}: ${esc(e.reason)}`)
+        break
+    }
+  }
+
+  const reinforcements = [...bank.entries()]
+    .map(([f, parts]) => `<tr><td>${esc(f === "—" ? "markets" : fname(f))}</td><td class="n">${esc(parts.join(", "))}</td></tr>`)
+    .join("")
+
+  return page(
+    `Riskety Rekt — day ${args.day}`,
+    `<div class="wrap"><div class="stage" style="overflow-y:auto;padding:26px">
+      <h2 class="h2">The night, step by step</h2>
+      <ol id="steps">${steps.map((s) => `<li class="prow"><span>${s}</span></li>`).join("")}</ol>
+    </div>
+    <aside class="rail">
+      <h1 class="title">Day ${esc(args.day)}</h1>
+      <p class="sub">${esc(steps.length)} things happened.</p>
+      <h2 class="h2">Soldiers arriving</h2>
+      <table class="t"><tbody>${
+        reinforcements === "" ? `<tr><td class="hint">Nobody earned.</td></tr>` : reinforcements
+      }</tbody></table>
+      <p class="note">Income, workouts and settled wagers are all the same
+        thing: soldiers in the bank. <a href="/">Board</a></p>
+    </aside></div>`,
+  )
+}
+
+interface GameStateLike {
+  log: import("../engine/index.js").TickEvent[]
+  ownership: Record<string, string>
+}

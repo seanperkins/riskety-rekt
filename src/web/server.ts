@@ -1,7 +1,6 @@
 import { createServer } from "node:http"
 import type { Server } from "node:http"
 import { hashToken, newToken } from "../auth/token.js"
-import { tickInstant } from "../season.js"
 import { serializeSessionCookie } from "./session.js"
 import type {
   AuthStore,
@@ -17,9 +16,9 @@ import { makeRng } from "../rng.js"
 import { WORLD } from "../map/world.js"
 import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
-import { currentDay } from "../season.js"
+import { currentDay, tickInstant } from "../season.js"
 import { projectionFor } from "./projection-data.js"
-import { esc, page, renderBoard, renderMap } from "./render.js"
+import { esc, page, renderBoard, renderDay, renderMap, renderWagers } from "./render.js"
 import { sessionFactionFor } from "./session.js"
 import { parseOrderBody } from "../jobs/order-entry.js"
 
@@ -76,8 +75,16 @@ const ROUTES: Record<string, (params: URLSearchParams) => string | undefined> = 
 function boardPage(deps: WebDeps, faction: string, now: Date): string | undefined {
   const season = deps.store.season(deps.seasonId)
   if (season === undefined) return undefined
+
+  // Orders target the CALENDAR day, exactly as the tick does -- a state-derived
+  // clock would shear the moment a tick was missed. But the board shown is the
+  // latest state that actually resolved, which is not always day - 1: after a
+  // missed tick there is a gap, and assuming day - 1 exists 503s the whole app
+  // on the one evening someone most needs to see it.
   const day = Math.max(1, currentDay(season, now))
-  const state = deps.store.loadState(deps.seasonId, day - 1)
+  const latest = deps.store.latestSavedDay(deps.seasonId)
+  if (latest === undefined) return undefined
+  const state = deps.store.loadState(deps.seasonId, latest)
   if (state === undefined) return undefined
 
   const orderRow = deps.store.orderFor(deps.seasonId, day, faction)
@@ -262,6 +269,73 @@ export function createWebServer(deps: WebDeps): Server {
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
       res.end(req.method === "HEAD" ? undefined : html)
+      return
+    }
+
+    if (path === "/wagers") {
+      if (faction === undefined) {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
+        res.end(req.method === "HEAD" ? undefined : signInPage())
+        return
+      }
+      const season = deps.store.season(deps.seasonId)
+      const day = season === undefined ? 1 : Math.max(1, currentDay(season, now))
+      const state = deps.store.loadState(deps.seasonId, day - 1)
+      if (season === undefined || state === undefined) {
+        res.writeHead(503, { "content-type": "text/html; charset=utf-8" })
+        res.end(page("Not dealt", `<div class="rail"><h1 class="title">No board yet</h1></div>`))
+        return
+      }
+      const html = renderWagers(
+        projectionFor({
+          state,
+          day,
+          factionId: faction,
+          plan: deps.store.orderFor(deps.seasonId, day, faction) ?? {
+            deploys: [],
+            attacks: [],
+            protect: null,
+          },
+          wagers: deps.store.wagersFor(deps.seasonId, day, faction),
+          slate: deps.store.loadSlate(deps.seasonId, day),
+          tickAt: tickInstant(season, day),
+          now,
+        }),
+        now,
+      )
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+      res.end(req.method === "HEAD" ? undefined : html)
+      return
+    }
+
+    if (path.startsWith("/day/")) {
+      const day = Number(path.slice("/day/".length))
+      const after = Number.isSafeInteger(day) && day >= 1
+        ? deps.store.loadState(deps.seasonId, day)
+        : undefined
+      const before = after === undefined ? undefined : deps.store.loadState(deps.seasonId, day - 1)
+      if (after === undefined || before === undefined) {
+        res.writeHead(404, { "content-type": "text/html; charset=utf-8" })
+        res.end(
+          page("No such day", `<div class="rail"><h1 class="title">Nothing happened that day</h1>
+            <p class="sub">Day ${esc(path.slice("/day/".length))} has not resolved.</p></div>`),
+        )
+        return
+      }
+      const fname = new Map(after.factions.map((f) => [f.id, f.playerName]))
+      const tname = new Map(after.map.territories.map((t) => [t.id, t.name]))
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+      res.end(
+        req.method === "HEAD"
+          ? undefined
+          : renderDay({
+              day,
+              before,
+              after,
+              factionName: (id) => fname.get(id) ?? id,
+              territoryName: (id) => tname.get(id) ?? id,
+            }),
+      )
       return
     }
 
