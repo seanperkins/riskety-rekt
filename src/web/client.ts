@@ -410,8 +410,17 @@ for (const r of P.regions) {
 // its OUTER boundary only -- stroking each of its territories draws every
 // internal border too, and the region then reads as a bundle of shapes rather
 // than one area.
+// Its own pane ABOVE the territories. It was sharing the bridges pane at
+// z-index 350, below the overlay pane at 400, so every territory painted over
+// it -- most visibly the heavier stroke on the ones you own, which swallowed
+// the outline exactly where it mattered. 450 clears the territories and stays
+// under the marker pane at 600, so garrison counts and badges still sit on top.
+map.createPane("highlight")
+map.getPane("highlight").style.zIndex = 450
+map.getPane("highlight").style.pointerEvents = "none"
+
 const outline = L.polygon([[[0, 0], [0, 0], [0, 0]]], {
-  pane: "bridges",
+  pane: "highlight",
   fill: false,
   color: "#ffd479",
   weight: 3,
@@ -423,7 +432,6 @@ function showOutline(rings) {
   if (!rings || !rings.length) return hideOutline()
   outline.setLatLngs(rings.map((r) => [r.map(([lon, lat]) => [lat, lon])]))
   if (!outlineOn) { outline.addTo(map); outlineOn = true }
-  if (outline.bringToFront) outline.bringToFront()
 }
 
 function hideOutline() {
