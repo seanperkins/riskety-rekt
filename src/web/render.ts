@@ -53,6 +53,21 @@ const PAD = 52
  */
 const hueFor = (i: number): string => `hsl(${Math.round((i * 137.508) % 360)} 46% 56%)`
 
+function subtitle(
+  board: { factions: number; seed: number } | undefined,
+  focusName: string | undefined,
+  query: (over: Record<string, string | undefined>) => string,
+): string {
+  const where =
+    focusName === undefined
+      ? ""
+      : ` Showing ${esc(focusName)} and everything bordering it — <a href="${esc(query({ region: undefined }))}">all of it</a>.`
+  if (board === undefined) {
+    return `World data. Pick a region to check its borders.${where}`
+  }
+  return `The board a ${board.factions}-faction season would be dealt on.${where}`
+}
+
 /**
  * The world map.
  *
@@ -64,11 +79,19 @@ const hueFor = (i: number): string => `hsl(${Math.round((i * 137.508) % 360)} 46
  * borders Egypt" is symmetric, connected and in-band, which is everything
  * `validateMap` checks.
  */
-export function renderMap(
-  world: GameMap,
-  coords: Record<string, LatLon>,
-  focusId?: string,
-): string {
+export interface MapView {
+  /** The board to draw. The whole world, or a selected sub-map. */
+  base: GameMap
+  /** Narrow to one region and its neighbours. */
+  focusId?: string
+  /** Set when `base` is a dealt board rather than the world. */
+  board?: { factions: number; seed: number }
+}
+
+export function renderMap(view: MapView, coords: Record<string, LatLon>): string {
+  const world = view.base
+  const focusId = view.focusId
+  const board = view.board
   // Focused: the region plus everything bordering it, projected to fill the
   // frame. That is what makes a border checkable -- the whole-world view packs
   // Europe into a blob where no edge can be read.
@@ -132,14 +155,54 @@ export function renderMap(
     })
     .join("")
 
-  const totals = [
-    ["territories", String(map.territories.length)],
-    ["regions", String(map.regions.length)],
-    ["borders", String(border.length)],
+  const totalRows: [string, string][] = [
+    ["territories", String(world.territories.length)],
+    ["regions", String(world.regions.length)],
+    ["borders", String(edges(world).length)],
     ["mean degree", degree.toFixed(2)],
   ]
+  if (board !== undefined) {
+    const per = world.territories.length / board.factions
+    totalRows.push(["per faction", per.toFixed(1)])
+  }
+  const totals = totalRows
     .map(([k, v]) => `<tr><td>${esc(k)}</td><td class="n">${esc(v)}</td></tr>`)
     .join("")
+
+  // Board controls. Plain links rather than a form: there is no client
+  // JavaScript on this page and a GET link is the whole interaction.
+  const query = (over: Record<string, string | undefined>): string => {
+    const q = new URLSearchParams()
+    if (board !== undefined) {
+      q.set("factions", String(board.factions))
+      q.set("seed", String(board.seed))
+    }
+    if (focusId !== undefined) q.set("region", focusId)
+    for (const [k, v] of Object.entries(over)) {
+      if (v === undefined) q.delete(k)
+      else q.set(k, v)
+    }
+    const str = q.toString()
+    return str === "" ? "/map" : `/map?${str}`
+  }
+
+  const rosterLinks = Array.from({ length: 12 }, (_, i) => i + 4)
+    .map((n) => {
+      const on = board?.factions === n
+      return `<a class="chip${on ? " on" : ""}" href="${esc(query({ factions: String(n), region: undefined }))}">${n}</a>`
+    })
+    .join("")
+
+  const boardPanel =
+    board === undefined
+      ? `<h2 class="h2">Deal a board</h2>
+    <p class="hint">Pick a roster size to see the board a season of that size would be dealt.</p>
+    <div class="chips">${rosterLinks}</div>`
+      : `<h2 class="h2">Board</h2>
+    <div class="chips">${rosterLinks}</div>
+    <p class="hint">Seed <code>${esc(board.seed)}</code> ·
+      <a href="${esc(query({ seed: String(board.seed + 1), region: undefined }))}">re-roll</a> ·
+      <a href="${esc(query({ factions: undefined, seed: undefined, region: undefined }))}">whole world</a></p>`
 
   const focusName = focus === undefined ? undefined : world.regions.find((r) => r.id === focusId)?.name
   const label =
@@ -157,13 +220,10 @@ export function renderMap(
   </div>
   <aside class="rail">
     <h1 class="title">Riskety&nbsp;Rekt</h1>
-    <p class="sub">${
-      focusName === undefined
-        ? "World data. Pick a region to check its borders."
-        : `${esc(focusName)} and everything bordering it. <a href="/map">Whole world</a>.`
-    }</p>
+    <p class="sub">${subtitle(board, focusName, query)}</p>
     <h2 class="h2">Regions</h2>
     <table class="t"><tbody>${regions}</tbody></table>
+    ${boardPanel}
     <h2 class="h2">Totals</h2>
     <table class="t"><tbody>${totals}</tbody></table>
     <p class="note">Every line is a border in <code>src/map/world.ts</code>. A line that jumps

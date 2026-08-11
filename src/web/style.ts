@@ -222,4 +222,22 @@ body {
 .t tr.on td { font-weight: 650; }
 .t tr.on a { color: var(--accent); }
 .sub a { color: var(--accent); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 6px; }
+.chip {
+  display: inline-block; min-width: 26px; padding: 3px 7px; text-align: center;
+  border: 1px solid var(--rule); border-radius: 4px; font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums; color: var(--muted);
+}
+.rail a.chip { border-bottom: 1px solid var(--rule); }
+.rail a.chip:hover, .rail a.chip:focus-visible {
+  border-color: var(--accent); color: var(--accent);
+}
+.rail a.chip.on {
+  background: var(--accent); border-color: var(--accent); color: var(--ground);
+  font-weight: 650;
+}
+.hint { color: var(--muted); font-size: 12px; margin: 0 0 4px; }
+.hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
 `

@@ -48,9 +48,18 @@ describe("the web server", () => {
     }
   })
 
-  it("ignores a query string rather than 404ing", async () => {
-    // The URL is parsed for its pathname; "/?seed=1" must not miss the route.
-    expect((await request("/?seed=1")).status).toBe(200)
+  it("ignores a query parameter it does not know", async () => {
+    // The URL is parsed for its pathname, so an unrelated param -- a cache
+    // buster, a tracking tag -- must not miss the route.
+    expect((await request("/?cachebust=1")).status).toBe(200)
+    expect((await request("/map?utm_source=slack")).status).toBe(200)
+  })
+
+  it("404s a KNOWN parameter used wrongly", async () => {
+    // The distinction that matters: an unknown param is somebody else's
+    // business, but "seed" without "factions" is a link this app generates,
+    // typed wrong. Ignoring it would render the world and look like success.
+    expect((await request("/?seed=1")).status).toBe(404)
   })
 
   it("404s an unknown path without reflecting markup into the page", async () => {
@@ -120,5 +129,66 @@ describe("region focus", () => {
     const res = await request("/map?region=balkans")
     expect(res.body).toContain("The Maghreb")
     expect(res.body).toContain("Oceania")
+  })
+})
+
+describe("board selection", () => {
+  it("deals a board for a roster size", async () => {
+    const res = await request("/map?factions=15")
+    expect(res.status).toBe(200)
+    expect(res.body).toContain("15-faction season")
+    // Fewer territories than the world, because it is a selected sub-map.
+    const circles = (res.body.match(/<circle /g) ?? []).length
+    expect(circles).toBeGreaterThan(70)
+    expect(circles).toBeLessThan(180)
+  })
+
+  it("is stable without a seed and different with one", async () => {
+    const a = await request("/map?factions=11")
+    const b = await request("/map?factions=11")
+    const c = await request("/map?factions=11&seed=99")
+    expect(a.body).toBe(b.body)
+    expect(a.body).not.toBe(c.body)
+  })
+
+  it("reports territories per faction, which is the number that must be legal", async () => {
+    const res = await request("/map?factions=15")
+    expect(res.body).toContain("per faction")
+  })
+
+  it("404s a roster outside the faction bounds rather than throwing", async () => {
+    // selectSubMap THROWS on an impossible roster, which would be a 500 where a
+    // 404 is owed. The bound is checked before it is called.
+    for (const q of ["factions=3", "factions=16", "factions=0", "factions=abc", "factions=1.5"]) {
+      expect((await request(`/map?${q}`)).status, q).toBe(404)
+    }
+  })
+
+  it("404s a malformed seed", async () => {
+    for (const q of ["factions=8&seed=abc", "factions=8&seed=-1", "factions=8&seed=1.5"]) {
+      expect((await request(`/map?${q}`)).status, q).toBe(404)
+    }
+  })
+
+  it("focuses a region within a dealt board", async () => {
+    // Both at once, because auditing a dealt board's region is the case this
+    // exists for.
+    const board = await request("/map?factions=15&seed=4711")
+    const region = [...board.body.matchAll(/region=([a-z_]+)/g)].map((m) => m[1]!)[0]!
+    const res = await request(`/map?factions=15&seed=4711&region=${region}`)
+    expect(res.status).toBe(200)
+    expect((res.body.match(/<circle /g) ?? []).length).toBeLessThan(
+      (board.body.match(/<circle /g) ?? []).length,
+    )
+  })
+
+  it("404s a region that exists but was not dealt onto this board", async () => {
+    // Silently drawing the world's copy would misrepresent the deal -- it would
+    // show a region on a board that does not contain it.
+    const board = await request("/map?factions=4&seed=4711")
+    const dealt = new Set([...board.body.matchAll(/region=([a-z_]+)/g)].map((m) => m[1]!))
+    const absent = ["oceania", "caribbean", "cape", "insulindia"].find((r) => !dealt.has(r))
+    expect(absent, "expected some region to be off a 4-faction board").toBeDefined()
+    expect((await request(`/map?factions=4&seed=4711&region=${absent!}`)).status).toBe(404)
   })
 })

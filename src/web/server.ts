@@ -1,6 +1,9 @@
 import { createServer } from "node:http"
 import type { Server } from "node:http"
+import { MAX_FACTIONS, MIN_FACTIONS } from "../config.js"
 import { COORDS } from "../map/coords.js"
+import { selectSubMap } from "../map/select.js"
+import { makeRng } from "../rng.js"
 import { WORLD } from "../map/world.js"
 import { esc, page, renderMap } from "./render.js"
 
@@ -23,21 +26,56 @@ const ROUTES: Record<string, (params: URLSearchParams) => string | undefined> = 
   "/map": (p) => mapPage(p),
 }
 
-/** Known region ids, so `?region=` is checked against a set rather than trusted. */
-const REGION_IDS = new Set(WORLD.regions.map((r) => r.id))
-
 /**
- * Returns `undefined` for an unknown `?region=`, which the caller turns into a
- * 404. Rendering the whole world instead would silently ignore a typo and show
+ * Three views over one renderer: the whole world, a dealt board, and either of
+ * those narrowed to one region.
+ *
+ * Returns `undefined` for anything malformed, which the caller turns into a
+ * 404. Falling back to the world would silently swallow a typo and show
  * something plausible — the worst outcome for a page whose job is catching
  * mistakes.
  */
 function mapPage(params: URLSearchParams): string | undefined {
+  const board = readBoard(params)
+  if (board === "bad") return undefined
+
+  const base = board === undefined ? WORLD : selectSubMap(WORLD, board.factions, makeRng(board.seed))
+
   const region = params.get("region")
-  if (region === null) return renderMap(WORLD, COORDS)
-  if (!REGION_IDS.has(region)) return undefined
-  return renderMap(WORLD, COORDS, region)
+  if (region !== null) {
+    // Checked against the map ACTUALLY on screen, not the world: a region that
+    // exists but was not selected onto this board has nothing to show, and
+    // silently drawing the world's copy would misrepresent the deal.
+    if (!base.regions.some((r) => r.id === region)) return undefined
+    return renderMap({ base, focusId: region, ...(board === undefined ? {} : { board }) }, COORDS)
+  }
+  return renderMap({ base, ...(board === undefined ? {} : { board }) }, COORDS)
 }
+
+/**
+ * `?factions=` and `?seed=`, or neither. Both are untrusted text.
+ *
+ * `factions` is bounded by MIN_FACTIONS/MAX_FACTIONS rather than left to
+ * selectSubMap, which THROWS on an impossible roster — a 500 where a 404 is
+ * owed. The seed is optional and defaults to something stable, so a bare
+ * `?factions=11` is a valid link.
+ */
+function readBoard(params: URLSearchParams): { factions: number; seed: number } | "bad" | undefined {
+  const rawFactions = params.get("factions")
+  const rawSeed = params.get("seed")
+  if (rawFactions === null) return rawSeed === null ? undefined : "bad"
+
+  const factions = Number(rawFactions)
+  if (!Number.isSafeInteger(factions) || factions < MIN_FACTIONS || factions > MAX_FACTIONS) {
+    return "bad"
+  }
+  const seed = rawSeed === null ? DEFAULT_SEED : Number(rawSeed)
+  if (!Number.isSafeInteger(seed) || seed < 0) return "bad"
+  return { factions, seed }
+}
+
+/** Stable, so a bare `?factions=11` link always shows the same board. */
+const DEFAULT_SEED = 4711
 
 /**
  * The web app.

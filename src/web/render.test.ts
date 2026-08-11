@@ -31,7 +31,7 @@ describe("page", () => {
 })
 
 describe("renderMap", () => {
-  const html = renderMap(WORLD, COORDS)
+  const html = renderMap({ base: WORLD }, COORDS)
 
   it("draws one line per border and one circle per territory", () => {
     const degree = WORLD.territories.reduce((s, t) => s + t.neighbors.length, 0)
@@ -65,7 +65,7 @@ describe("renderMap", () => {
         { id: "b", name: "B", region: "x", neighbors: ["a"] },
       ],
     }
-    const out = renderMap(hostile, { a: { lat: 0, lon: 0 }, b: { lat: 1, lon: 1 } })
+    const out = renderMap({ base: hostile }, { a: { lat: 0, lon: 0 }, b: { lat: 1, lon: 1 } })
     expect(out).not.toContain("<script>alert(1)</script>")
     expect(out).toContain("&lt;script&gt;")
     expect(out).toContain("&lt;b&gt;C&lt;/b&gt;")
@@ -76,6 +76,6 @@ describe("renderMap", () => {
       regions: [{ id: "x", name: "X", bonus: 0 }],
       territories: [{ id: "a", name: "A", region: "x", neighbors: [] }],
     }
-    expect(() => renderMap(orphan, {})).not.toThrow()
+    expect(() => renderMap({ base: orphan }, {})).not.toThrow()
   })
 })
