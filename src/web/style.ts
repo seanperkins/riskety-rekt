@@ -279,6 +279,45 @@ body {
   filter: drop-shadow(0 0 1px rgba(6, 14, 20, 0.9));
 }
 
+/* The attack panel. At the FOOT of the map, not over its middle: the decision
+   is made against the board, so the board stays visible while it is open. */
+.stage { position: relative; }
+.atk {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  min-width: 300px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(4, 10, 16, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.atk[hidden] { display: none; }
+
+.atk-route { display: flex; align-items: baseline; justify-content: center; gap: 10px; }
+.atk-side { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.atk-side b { font-size: 13px; }
+.atk-arrow { color: var(--accent); font-size: 15px; }
+
+.atk-pick { display: flex; align-items: center; gap: 8px; }
+.atk-pick input[type="range"] { flex: 1; accent-color: var(--accent); }
+.atk-pick output {
+  min-width: 26px;
+  text-align: right;
+  font: 700 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.atk-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.chip.ok { border-color: var(--accent); color: var(--accent); font-weight: 650; }
+.chip.ok:hover, .chip.ok:focus-visible { background: var(--accent); color: var(--ground); }
+
 .hint { color: var(--muted); font-size: 12px; margin: 0 0 4px; }
 .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
 

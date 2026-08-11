@@ -659,11 +659,54 @@ function deployTo(id) {
   return true
 }
 
-function attackFrom(from, to) {
-  snapshot()
+// ---- the attack panel -------------------------------------------------------
+// Deploys stay one-per-tap -- each one is a small decision made against the
+// map. An assault is ONE decision about a number, and ten taps to express "ten
+// soldiers" is busywork, so tapping a neighbour opens a compact panel: slider
+// for the sweep, the exact count beside it, Okay to commit. It floats at the
+// foot of the map rather than over its middle, and Esc or Cancel closes it
+// without changing anything.
+let atkPending = null
+
+function openAttack(from, to) {
+  const el = $("atk")
+  if (!el) return
+  atkPending = { from: from, to: to }
+  const max = Math.max(1, (P.garrisons[from] ?? 0) - 1)
   const existing = plan.attacks.find((a) => a.from === from && a.to === to)
-  if (existing) existing.count += 1
-  else plan.attacks.push({ from: from, to: to, count: 1 })
+  const slider = $("atk-slider")
+  slider.max = String(max)
+  // 0 is a real choice when an attack already exists: it means call it off.
+  slider.min = existing ? "0" : "1"
+  slider.value = String(existing ? existing.count : Math.min(1, max))
+  $("atk-from").textContent = nameOf(from)
+  $("atk-from-g").textContent = (P.garrisons[from] ?? 0) + " there"
+  $("atk-to").textContent = nameOf(to)
+  $("atk-to-g").textContent = (P.garrisons[to] ?? 0) + " defending"
+  $("atk-n").textContent = slider.value
+  el.hidden = false
+  slider.focus()
+}
+
+function closeAttack() {
+  const el = $("atk")
+  if (el) el.hidden = true
+  atkPending = null
+}
+
+function commitAttack() {
+  if (!atkPending) return
+  const n = Math.floor(Number($("atk-slider").value))
+  snapshot()
+  const i = plan.attacks.findIndex((a) => a.from === atkPending.from && a.to === atkPending.to)
+  if (n <= 0) {
+    if (i >= 0) plan.attacks.splice(i, 1)
+  } else if (i >= 0) {
+    plan.attacks[i].count = n
+  } else {
+    plan.attacks.push({ from: atkPending.from, to: atkPending.to, count: n })
+  }
+  closeAttack()
   save()
 }
 
@@ -691,7 +734,7 @@ function onTap(id) {
   if (!byId[selected].neighbors.includes(id)) {
     return flash(nameOf(id) + " does not border " + nameOf(selected) + ".")
   }
-  attackFrom(selected, id)
+  openAttack(selected, id)
 }
 
 // ---- attack arrows ----------------------------------------------------------
@@ -862,6 +905,9 @@ $("plan").addEventListener("click", (e) => {
 })
 $("btn-protect").addEventListener("click", protect)
 $("btn-undo").addEventListener("click", undo)
+$("atk-slider").addEventListener("input", () => { $("atk-n").textContent = $("atk-slider").value })
+$("atk-ok").addEventListener("click", commitAttack)
+$("atk-cancel").addEventListener("click", closeAttack)
 
 // Cmd+Z / Ctrl+Z, because every order here is built one tap at a time and undo
 // is the whole safety net. Shift+Cmd+Z is left alone rather than wired to a
@@ -870,6 +916,7 @@ $("btn-undo").addEventListener("click", undo)
 // Guarded on the event target: if a text field ever lands in the rail, the
 // browser's own undo has to keep working inside it.
 document.addEventListener("keydown", (e) => {
+  if ((e.key || "") === "Escape") return closeAttack()
   const k = e.key || ""
   if (k.toLowerCase() !== "z" || !(e.metaKey || e.ctrlKey) || e.shiftKey) return
   const tag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : ""

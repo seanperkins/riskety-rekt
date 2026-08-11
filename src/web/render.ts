@@ -317,7 +317,24 @@ export function renderBoard(p: Projection): string {
     `Riskety Rekt — day ${p.day}`,
     `<link rel="stylesheet" href="/vendor/leaflet.css">
 <div class="wrap">
-  <div class="stage"><div id="map"></div></div>
+  <div class="stage"><div id="map"></div>
+    <div id="atk" class="atk" hidden>
+      <div class="atk-route">
+        <span class="atk-side"><b id="atk-from"></b><span class="hint" id="atk-from-g"></span></span>
+        <span class="atk-arrow">→</span>
+        <span class="atk-side"><b id="atk-to"></b><span class="hint" id="atk-to-g"></span></span>
+      </div>
+      <div class="atk-pick">
+        <input id="atk-slider" type="range" min="0" value="1" step="1">
+        <output id="atk-n" for="atk-slider">1</output>
+        <span class="hint">soldiers</span>
+      </div>
+      <div class="atk-actions">
+        <button id="atk-cancel" class="chip">Cancel</button>
+        <button id="atk-ok" class="chip ok">Okay</button>
+      </div>
+    </div>
+  </div>
   <aside class="rail">
     <h1 class="title">Riskety&nbsp;Rekt</h1>
     <p class="sub">Day ${esc(p.day)} · ${esc(me?.name ?? p.factionId)}</p>

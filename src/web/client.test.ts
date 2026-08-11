@@ -220,5 +220,13 @@ describe("the client script", () => {
       "undo is wired",
     ).toContain("click")
     expect(docEvents, "Cmd+Z / Ctrl+Z reaches undo").toContain("keydown")
+    expect(
+      (byId.get("atk-ok")?.["__events"] ?? []) as string[],
+      "the attack panel's Okay commits",
+    ).toContain("click")
+    expect(
+      (byId.get("atk-slider")?.["__events"] ?? []) as string[],
+      "the slider updates its readout",
+    ).toContain("input")
   })
 })
