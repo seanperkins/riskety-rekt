@@ -248,3 +248,63 @@ describe("login", () => {
     expect((await request(`/login/${raw}`)).status).toBe(401)
   })
 })
+
+describe("login before the season is dealt", () => {
+  // A workspace between seasons: the bot is up and /login mints links, but
+  // season:init has not run. This is an operator state, not a fault, and the
+  // player arriving on a fresh link must not be shown a bare 500.
+  let bare: ReturnType<typeof createWebServer>
+  let bareBase: string
+
+  beforeAll(async () => {
+    bare = createWebServer({ port: 0, store, seasonId: "not-a-season" })
+    await new Promise<void>((resolve) => bare.listen(0, "127.0.0.1", resolve))
+    bareBase = `http://127.0.0.1:${(bare.address() as AddressInfo).port}`
+  })
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => bare.close(() => resolve()))
+  })
+
+  const get = async (path: string): Promise<{ status: number; body: string }> => {
+    const { request: httpRequest } = await import("node:http")
+    return new Promise((resolve, reject) => {
+      const req = httpRequest(`${bareBase}${path}`, { method: "GET" }, (res) => {
+        let body = ""
+        res.on("data", (c) => (body += c))
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }))
+      })
+      req.on("error", reject)
+      req.end()
+    })
+  }
+
+  it("says the season has not started instead of 500ing", async () => {
+    const raw = newToken()
+    store.mintLoginToken({
+      slackUserId: "U-preseason",
+      factionId: "f1",
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + 600_000),
+    })
+    const res = await get(`/login/${raw}`)
+    expect(res.status).toBe(503)
+    expect(res.body).toContain("The season hasn't started")
+    expect(res.body).toContain("Your link is still good")
+  })
+
+  it("does NOT consume the token, so the link still works once dealt", async () => {
+    // The whole point of answering early: a player who clicks before the deal
+    // must not have burned their single-use link.
+    const raw = newToken()
+    store.mintLoginToken({
+      slackUserId: "U-preseason-2",
+      factionId: "f1",
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + 600_000),
+    })
+    expect((await get(`/login/${raw}`)).status).toBe(503)
+    // Same token, now against the server that HAS a season.
+    expect((await request(`/login/${raw}`)).status).toBe(303)
+  })
+})

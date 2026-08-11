@@ -202,8 +202,21 @@ export function createWebServer(deps: WebDeps): Server {
     if (path.startsWith("/login/")) {
       const season = deps.store.season(deps.seasonId)
       if (season === undefined) {
-        res.writeHead(500, { "content-type": "text/plain; charset=utf-8" })
-        res.end("no season\n")
+        // Not a crash: the operator has not run season:init yet, which is the
+        // normal state of a workspace between seasons. 503 rather than 500 --
+        // the condition clears on its own, and a bare "no season" in plain text
+        // reads like a broken server to the player who just clicked a link.
+        //
+        // The token is NOT consumed. This returns before consumeLoginToken, so
+        // the same link still works once the season is dealt.
+        res.writeHead(503, { "content-type": "text/html; charset=utf-8" })
+        res.end(
+          page(
+            "No season",
+            `<div class="rail"><h1 class="title">The season hasn't started</h1>
+          <p class="sub">Your link is still good — open it again once the board is dealt.</p></div>`,
+          ),
+        )
         return
       }
       const now = new Date()
