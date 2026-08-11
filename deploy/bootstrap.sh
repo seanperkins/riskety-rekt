@@ -27,13 +27,21 @@ fi
 
 # ---- code --------------------------------------------------------------------
 say "syncing code"
+# The tree is owned by `riskety` and git runs here as root, which git treats as
+# a dubious-ownership error and refuses outright. This is that check's intended
+# escape hatch: the directory is one we just created on a single-tenant box.
+git config --global --add safe.directory "$APP"
+
 if [ -d "$APP/.git" ]; then
   git -C "$APP" fetch --all --prune
   git -C "$APP" reset --hard origin/main
 elif [ -n "$REPO" ]; then
-  git clone "$REPO" "$APP.tmp"
-  # Preserve any database that already exists -- the clone must never be the
-  # thing that removes a live season.
+  # Clone the git metadata beside the tree and adopt it, rather than cloning
+  # over the tree. $APP already holds data/ with the live database in it, and a
+  # clone into a non-empty directory is exactly the operation that would take
+  # a season with it.
+  rm -rf "$APP.tmp"
+  git clone --no-checkout "$REPO" "$APP.tmp"
   mv "$APP.tmp/.git" "$APP/.git"
   rm -rf "$APP.tmp"
   git -C "$APP" reset --hard origin/main
