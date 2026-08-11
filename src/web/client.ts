@@ -198,11 +198,25 @@ for (const t of P.territories) {
   layers[t.id] = poly
 }
 
+// The garrison AFTER the viewer's plan: deploys arrive, committed attacks
+// leave. Only for territories the viewer owns -- an attack does not lower the
+// TARGET's number, because the defender's tonight is unknown and drawing it
+// would be a prediction wearing a fact's clothes.
+function plannedGarrison(id) {
+  const base = P.garrisons[id] ?? 0
+  if (!mine(id)) return base
+  const inbound = plan.deploys.filter((d) => d.territory === id).reduce((n, d) => n + d.count, 0)
+  const outbound = plan.attacks.filter((a) => a.from === id).reduce((n, a) => n + a.count, 0)
+  return base + inbound - outbound
+}
+
 function tooltip(id) {
   const g = P.garrisons[id] ?? 0
   const o = owner(id)
   const f = P.factions.find((x) => x.id === o)
-  return esc(nameOf(id)) + " — " + g + (f ? " · " + esc(f.name) : " · unclaimed")
+  const eff = plannedGarrison(id)
+  const delta = eff === g ? "" : " -> " + eff + " after your orders"
+  return esc(nameOf(id)) + " — " + g + delta + (f ? " · " + esc(f.name) : " · unclaimed")
 }
 
 // ---- garrison counts --------------------------------------------------------
@@ -232,7 +246,10 @@ function paintCounts() {
     if (!m) continue
     const el = m.getElement()
     if (!el) continue
-    el.textContent = String(P.garrisons[t.id] ?? 0)
+    const base = P.garrisons[t.id] ?? 0
+    const eff = plannedGarrison(t.id)
+    el.textContent = String(eff)
+    el.classList.toggle("planned", eff !== base)
     // classList, NEVER el.className. Leaflet puts its own classes on a marker's
     // icon element -- leaflet-marker-icon and leaflet-zoom-animated among them
     // -- and leaflet-zoom-animated is what repositions the marker when the map
@@ -269,7 +286,7 @@ function updateCountVisibility() {
     const wPx = Math.abs(ne.x - sw.x)
     const hPx = Math.abs(ne.y - sw.y)
     // Roughly what the glyphs occupy: ~7px per digit plus breathing room.
-    const digits = String(P.garrisons[t.id] ?? 0).length
+    const digits = String(plannedGarrison(t.id)).length
     el.classList.toggle("hide", wPx < 7 * digits + 4 || hPx < 12)
   }
 }
@@ -890,6 +907,7 @@ let inflight = null
 function save() {
   render()
   drawArrows()
+  paintCounts()
   saveState = "saving"
   render()
   const body = JSON.stringify(plan)

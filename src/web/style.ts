@@ -403,6 +403,11 @@ body {
 /* Your own territories read a shade brighter, so your line is findable. */
 .gcount.own { color: #fff; -webkit-text-stroke: 3px rgba(0, 0, 0, 0.9); font-size: 13px; }
 
+/* A number the viewer's own plan has changed. Gold, the same voice as the
+   attack arrows and the capture notch: everything gold on this map is
+   "tonight, if your orders happen", never settled fact. */
+.gcount.planned { color: #ffd479; }
+
 .rbadge {
   display: flex;
   align-items: center;
