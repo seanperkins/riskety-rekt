@@ -1,7 +1,9 @@
 import type { GameMap } from "../engine/index.js"
 import type { LatLon } from "../map/coords.js"
 import { edges, focusRegion, project, regionStats } from "./projection.js"
+import { CLIENT } from "./client.js"
 import { STYLE } from "./style.js"
+import type { Projection } from "./projection-data.js"
 
 /**
  * Every page is a pure function from data to an HTML string.
@@ -230,5 +232,51 @@ export function renderMap(view: MapView, coords: Record<string, LatLon>): string
       across the map is a bug in the data — that is what this page is for.</p>
   </aside>
 </div>`,
+  )
+}
+
+/**
+ * The player board.
+ *
+ * The projection is serialised into the page as JSON. **Only the viewer's own
+ * plan is in it** — no other faction's deploys, attacks or protect pick is
+ * present, not hidden with CSS but absent from the bytes. A test asserts it.
+ */
+export function renderBoard(p: Projection): string {
+  const me = p.factions.find((f) => f.id === p.factionId)
+  return page(
+    `Riskety Rekt — day ${p.day}`,
+    `<link rel="stylesheet" href="/vendor/leaflet.css">
+<div class="wrap">
+  <div class="stage"><div id="map"></div></div>
+  <aside class="rail">
+    <h1 class="title">Riskety&nbsp;Rekt</h1>
+    <p class="sub">Day ${esc(p.day)} · ${esc(me?.name ?? p.factionId)}</p>
+    <p id="countdown" class="count"></p>
+
+    <h2 class="h2">Selected</h2>
+    <p class="hint"><span id="selected">nothing selected</span></p>
+    <div class="chips">
+      <button id="btn-deploy" class="chip">Deploy</button>
+      <button id="btn-protect" class="chip">Protect</button>
+    </div>
+    <p class="hint" id="flash"></p>
+
+    <h2 class="h2">Your orders <span id="save" class="save ok">saved</span></h2>
+    <div id="plan"></div>
+
+    <h2 class="h2">Reserve</h2>
+    <table class="t"><tbody>
+      <tr><td>unspent</td><td class="n" id="reserve">${esc(p.reserve)}</td></tr>
+    </tbody></table>
+
+    <p class="note">Tap one of your territories to select it, then tap a
+      neighbour to attack. Orders save as you make them and lock at 21:00.
+      <a href="/wagers">Wagers</a> · <a href="/day/${esc(p.day)}">Last night</a></p>
+  </aside>
+</div>
+<script>window.__RR__ = ${JSON.stringify(p).replace(/</g, "\\u003c")}</script>
+<script src="/vendor/leaflet.js"></script>
+<script>${CLIENT}</script>`,
   )
 }

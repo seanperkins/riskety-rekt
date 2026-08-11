@@ -3,19 +3,54 @@ import type { Server } from "node:http"
 import { hashToken, newToken } from "../auth/token.js"
 import { tickInstant } from "../season.js"
 import { serializeSessionCookie } from "./session.js"
-import type { AuthStore, SeasonStore } from "../store/types.js"
+import type {
+  AuthStore,
+  OrderStore,
+  SeasonStore,
+  SlateStore,
+  StateStore,
+} from "../store/types.js"
 import { MAX_FACTIONS, MIN_FACTIONS } from "../config.js"
 import { COORDS } from "../map/coords.js"
 import { selectSubMap } from "../map/select.js"
 import { makeRng } from "../rng.js"
 import { WORLD } from "../map/world.js"
-import { esc, page, renderMap } from "./render.js"
+import { readFileSync } from "node:fs"
+import { createRequire } from "node:module"
+import { currentDay } from "../season.js"
+import { projectionFor } from "./projection-data.js"
+import { esc, page, renderBoard, renderMap } from "./render.js"
+import { sessionFactionFor } from "./session.js"
+import { parseOrderBody } from "../jobs/order-entry.js"
 
 export interface WebDeps {
   port: number
-  store: AuthStore & SeasonStore
+  store: AuthStore & SeasonStore & StateStore & OrderStore & SlateStore
   seasonId: string
   log?: (msg: string) => void
+}
+
+/**
+ * Leaflet, served from node_modules by an explicit allow-list.
+ *
+ * An allow-list rather than a directory: serving a folder wholesale is how a
+ * path-traversal bug gets in, and there are exactly two files.
+ */
+const require_ = createRequire(import.meta.url)
+const VENDOR: Record<string, { file: string; type: string }> = {
+  "/vendor/leaflet.js": { file: "leaflet/dist/leaflet.js", type: "text/javascript; charset=utf-8" },
+  "/vendor/leaflet.css": { file: "leaflet/dist/leaflet.css", type: "text/css; charset=utf-8" },
+}
+const vendorCache = new Map<string, string>()
+function vendor(path: string): { body: string; type: string } | undefined {
+  const entry = VENDOR[path]
+  if (entry === undefined) return undefined
+  let body = vendorCache.get(path)
+  if (body === undefined) {
+    body = readFileSync(require_.resolve(entry.file), "utf8")
+    vendorCache.set(path, body)
+  }
+  return { body, type: entry.type }
 }
 
 /**
@@ -28,8 +63,46 @@ export interface WebDeps {
  * the store is the one thing a bundler would break.
  */
 const ROUTES: Record<string, (params: URLSearchParams) => string | undefined> = {
-  "/": (p) => mapPage(p),
   "/map": (p) => mapPage(p),
+}
+
+/**
+ * The board, for a logged-in player.
+ *
+ * Returns undefined when there is no session, which the caller turns into the
+ * sign-in page rather than a default faction — a fallback would hand a stranger
+ * somebody else's orders.
+ */
+function boardPage(deps: WebDeps, faction: string, now: Date): string | undefined {
+  const season = deps.store.season(deps.seasonId)
+  if (season === undefined) return undefined
+  const day = Math.max(1, currentDay(season, now))
+  const state = deps.store.loadState(deps.seasonId, day - 1)
+  if (state === undefined) return undefined
+
+  const orderRow = deps.store.orderFor(deps.seasonId, day, faction)
+  return renderBoard(
+    projectionFor({
+      state,
+      day,
+      factionId: faction,
+      plan: orderRow ?? { deploys: [], attacks: [], protect: null },
+      wagers: deps.store.wagersFor(deps.seasonId, day, faction),
+      slate: deps.store.loadSlate(deps.seasonId, day),
+      tickAt: tickInstant(season, day),
+      now,
+    }),
+  )
+}
+
+/** Shown when there is no session. Deliberately says nothing about the game. */
+function signInPage(): string {
+  return page(
+    "Riskety Rekt",
+    `<div class="rail"><h1 class="title">Riskety&nbsp;Rekt</h1>
+     <p class="sub">Run <code>/login</code> in Slack and follow the link.</p>
+     <p class="note">Links last ten minutes and work once.</p></div>`,
+  )
 }
 
 /**
@@ -99,9 +172,21 @@ export function createWebServer(deps: WebDeps): Server {
     const url = new URL(req.url ?? "/", "http://localhost")
     const path = url.pathname
 
+    if (req.method === "POST" && new URL(req.url ?? "/", "http://localhost").pathname === "/api/plan") {
+      savePlan(req, res, deps)
+      return
+    }
+
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, { "content-type": "text/plain; charset=utf-8", allow: "GET, HEAD" })
       res.end("method not allowed\n")
+      return
+    }
+
+    const asset = vendor(path)
+    if (asset !== undefined) {
+      res.writeHead(200, { "content-type": asset.type, "cache-control": "public, max-age=86400" })
+      res.end(req.method === "HEAD" ? undefined : asset.body)
       return
     }
 
@@ -155,6 +240,31 @@ export function createWebServer(deps: WebDeps): Server {
       return
     }
 
+    const now = new Date()
+    const faction = sessionFactionFor(req, {
+      store: deps.store,
+      seasonId: deps.seasonId,
+      now,
+    })
+
+    if (path === "/") {
+      if (faction === undefined) {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+        res.end(req.method === "HEAD" ? undefined : signInPage())
+        return
+      }
+      const html = boardPage(deps, faction, now)
+      if (html === undefined) {
+        res.writeHead(503, { "content-type": "text/html; charset=utf-8" })
+        res.end(page("Not dealt", `<div class="rail"><h1 class="title">No board yet</h1>
+          <p class="sub">The season has not been dealt.</p></div>`))
+        return
+      }
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+      res.end(req.method === "HEAD" ? undefined : html)
+      return
+    }
+
     const handler = ROUTES[path]
     if (handler === undefined) {
       res.writeHead(404, { "content-type": "text/html; charset=utf-8" })
@@ -191,5 +301,50 @@ export function createWebServer(deps: WebDeps): Server {
       res.writeHead(500, { "content-type": "text/plain; charset=utf-8" })
       res.end("internal error\n")
     }
+  })
+}
+
+/**
+ * Save the whole plan. The order body replaces what was there, matching
+ * `saveOrder` — the plan IS the order, so there is no merge.
+ *
+ * `factionId` comes from the session and from nowhere else. The body carries
+ * deploys, attacks and protect; a `factionId` in it would simply be ignored by
+ * `parseOrderBody`, which rejects unknown fields.
+ */
+function savePlan(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+  deps: WebDeps,
+): void {
+  const now = new Date()
+  const faction = sessionFactionFor(req, { store: deps.store, seasonId: deps.seasonId, now })
+  const json = (code: number, body: unknown): void => {
+    res.writeHead(code, { "content-type": "application/json; charset=utf-8" })
+    res.end(JSON.stringify(body))
+  }
+  if (faction === undefined) return json(401, { ok: false, reason: "not signed in" })
+
+  const season = deps.store.season(deps.seasonId)
+  if (season === undefined) return json(503, { ok: false, reason: "no season" })
+  const day = Math.max(1, currentDay(season, now))
+
+  let raw = ""
+  req.on("data", (c: Buffer) => {
+    raw += c
+    // A plan is a few hundred bytes. Anything past this is not a plan.
+    if (raw.length > 64_000) req.destroy()
+  })
+  req.on("end", () => {
+    let body
+    try {
+      body = parseOrderBody(raw, {
+        territoryCount: deps.store.loadState(deps.seasonId, 0)?.map.territories.length ?? 300,
+      })
+    } catch (err) {
+      return json(400, { ok: false, reason: err instanceof Error ? err.message : "bad plan" })
+    }
+    const out = deps.store.saveOrder(deps.seasonId, day, faction, body, now)
+    return json(out.ok ? 200 : 409, out.ok ? { ok: true } : { ok: false, reason: out.reason })
   })
 }

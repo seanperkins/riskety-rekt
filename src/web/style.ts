@@ -240,4 +240,35 @@ body {
 }
 .hint { color: var(--muted); font-size: 12px; margin: 0 0 4px; }
 .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+
+/* --- player board ------------------------------------------------------- */
+#map { width: 100%; height: 100%; background: var(--sea); }
+.leaflet-container { background: var(--sea); font: inherit; }
+.leaflet-tooltip {
+  background: var(--surface); color: var(--ink); border: 1px solid var(--rule);
+  box-shadow: none; font-size: 12px;
+}
+.leaflet-tooltip::before { display: none; }
+
+.count { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px; color: var(--accent); margin: 6px 0 0; }
+.count.locked { color: var(--ink); font-weight: 650; }
+
+.prow { display: flex; align-items: baseline; gap: 8px; font-size: 13px;
+  padding: 4px 0; border-bottom: 1px solid var(--rule); }
+.prow span { flex: 1; }
+.prow button { background: none; border: 0; color: var(--muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 0 2px; }
+.prow button:hover, .prow button:focus-visible { color: var(--accent); }
+
+.save { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+  font-weight: 650; margin-left: 6px; }
+.save.ok { color: var(--muted); }
+.save.bad { color: #e5534b; }
+.n.over { color: #e5534b; font-weight: 650; }
+
+button.chip { cursor: pointer; background: none; font: inherit; font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+button.chip:disabled { opacity: .4; cursor: default; }
+button.chip:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
 `

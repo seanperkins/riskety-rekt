@@ -199,6 +199,15 @@ export interface OrderStore {
     wager: WagerInput,
     now: Date,
   ): SaveResult
+  /**
+   * One faction's saved plan for a day, or undefined if they have none.
+   *
+   * The web app reads this to show a player what they already submitted.
+   * Deliberately single-faction: there is no method that hands a caller
+   * everybody's plans except `assembleOrders`, which only the tick calls.
+   */
+  orderFor(seasonId: string, day: number, factionId: FactionId): OrderBody | undefined
+
   /** Test and assembly read path. Ordered by first_staked_at, then market_id. */
   wagersFor(seasonId: string, day: number, factionId: FactionId): WagerRow[]
 

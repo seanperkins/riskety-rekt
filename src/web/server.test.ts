@@ -44,20 +44,25 @@ async function request(
 }
 
 describe("the web server", () => {
-  it("serves the map at / and /map", async () => {
-    for (const path of ["/", "/map"]) {
-      const res = await request(path)
-      expect(res.status, path).toBe(200)
-      expect(res.headers["content-type"], path).toBe("text/html; charset=utf-8")
-      expect(res.body, path).toContain("Riskety")
-      expect(res.body, path).toContain("<svg")
-    }
+  it("serves the debug map at /map", async () => {
+    const res = await request("/map")
+    expect(res.status).toBe(200)
+    expect(res.headers["content-type"]).toBe("text/html; charset=utf-8")
+    expect(res.body).toContain("<svg")
+  })
+
+  it("serves a sign-in page at / when there is no session", async () => {
+    // Never a default faction, and deliberately says nothing about the game.
+    const res = await request("/")
+    expect(res.status).toBe(200)
+    expect(res.body).toContain("/login")
+    expect(res.body).not.toContain("__RR__")
   })
 
   it("ignores a query parameter it does not know", async () => {
     // The URL is parsed for its pathname, so an unrelated param -- a cache
     // buster, a tracking tag -- must not miss the route.
-    expect((await request("/?cachebust=1")).status).toBe(200)
+    expect((await request("/map?cachebust=1")).status).toBe(200)
     expect((await request("/map?utm_source=slack")).status).toBe(200)
   })
 
@@ -65,7 +70,7 @@ describe("the web server", () => {
     // The distinction that matters: an unknown param is somebody else's
     // business, but "seed" without "factions" is a link this app generates,
     // typed wrong. Ignoring it would render the world and look like success.
-    expect((await request("/?seed=1")).status).toBe(404)
+    expect((await request("/map?seed=1")).status).toBe(404)
   })
 
   it("404s an unknown path without reflecting markup into the page", async () => {

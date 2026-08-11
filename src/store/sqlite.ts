@@ -562,6 +562,13 @@ export function openStore(
       })
     },
 
+    orderFor(seasonId: string, day: number, factionId: FactionId): OrderBody | undefined {
+      const row = db
+        .prepare("SELECT body FROM orders WHERE season_id = ? AND day = ? AND faction_id = ?")
+        .get(seasonId, day, factionId) as { body: string } | undefined
+      return row === undefined ? undefined : parseBody(row.body, factionId)
+    },
+
     wagersFor(seasonId: string, day: number, factionId: FactionId): WagerRow[] {
       const rows = db
         .prepare(
