@@ -21,15 +21,50 @@
  *    1200px and full-resolution rings are bytes nobody can see.
  */
 import { createRequire } from "node:module"
-import { writeFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { COORDS } from "../src/map/coords.js"
 import { WORLD } from "../src/map/world.js"
 import { ALIASES, MERGES, PARENTS } from "./shape-map.js"
 
 const require_ = createRequire(import.meta.url)
 const topology = require_("world-atlas/countries-110m.json")
-const { feature } = require_("topojson-client") as {
+const { feature, merge } = require_("topojson-client") as {
   feature: (t: unknown, o: unknown) => { features: NeFeature[] }
+  merge: (t: unknown, objects: unknown[]) => {
+    type: string
+    coordinates: number[][][] | number[][][][]
+  }
+}
+const { topology: buildTopology } = require_("topojson-server") as {
+  topology: (objects: Record<string, unknown>) => {
+    objects: Record<string, { geometries: unknown[] }>
+  }
+}
+
+/**
+ * Natural Earth admin-1: states, provinces, oblasts.
+ *
+ *   curl -L -o .cache/admin1-10m.geojson \
+ *     https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson
+ *
+ * 39 MB, cached and gitignored rather than committed. Absent, the build falls
+ * back to Voronoi cells everywhere and says so.
+ */
+const ADMIN1_PATH = new URL("../.cache/admin1-10m.geojson", import.meta.url).pathname
+
+interface Admin1Feature {
+  properties: { admin?: string; name?: string }
+  geometry: { type: "Polygon" | "MultiPolygon"; coordinates: number[][][] | number[][][][] } | null
+}
+
+const admin1 = new Map<string, Admin1Feature[]>()
+if (existsSync(ADMIN1_PATH)) {
+  const raw = JSON.parse(readFileSync(ADMIN1_PATH, "utf8")) as { features: Admin1Feature[] }
+  for (const f of raw.features) {
+    const country = f.properties.admin
+    if (country === undefined || f.geometry === null) continue
+    admin1.set(country, [...(admin1.get(country) ?? []), f])
+  }
 }
 
 interface NeFeature {
@@ -39,8 +74,14 @@ interface NeFeature {
 
 type Ring = [number, number][]
 
-/** Simplification tolerance in degrees. ~0.05° is about 5 km at the equator. */
-const TOLERANCE = 0.05
+/**
+ * Simplification tolerance in degrees. ~0.05° is about 5 km at the equator.
+ *
+ * Raised once admin-1 arrived: province boundaries come from the 10m dataset,
+ * which is roughly twenty times denser than the 110m coastlines it replaced.
+ * Override with RR_SHAPE_TOLERANCE to re-measure the size/detail curve.
+ */
+const TOLERANCE = Number(process.env.RR_SHAPE_TOLERANCE ?? 0.15)
 /** Rings smaller than this are dropped: unrenderable specks, mostly islets. */
 const MIN_AREA = 0.02
 /**
@@ -320,6 +361,117 @@ function splitAtAntimeridian(ring: Ring): Ring[] {
   return out.length > 0 ? out : [ring]
 }
 
+/**
+ * Carve a country along its REAL provincial boundaries.
+ *
+ * Each province goes to whichever claimant territory its centre is nearest,
+ * then the provinces of one claimant are dissolved into a single shape. The
+ * borders that survive are the ones on the ground — the Columbia between
+ * Washington and Oregon, the Pyrenees, the Urals — instead of the perpendicular
+ * bisector between two centroids, which is a straight line by construction and
+ * looked exactly as computed as it was.
+ *
+ * The dissolve is `topojson.merge`, which drops arcs shared by two geometries.
+ * Building the topology per country rather than globally keeps it to tens of
+ * features, and means an internal border only disappears when both sides of it
+ * went to the same territory.
+ *
+ * Returns undefined when the country has no admin-1 data, and the caller falls
+ * back to a Voronoi cell.
+ */
+function carveByProvince(
+  country: string,
+  claimants: { id: string; lon: number; lat: number }[],
+): Map<string, Ring[]> | undefined {
+  const units = admin1.get(country)
+  if (units === undefined || units.length === 0 || claimants.length === 0) return undefined
+
+  const centreOf = (f: Admin1Feature): [number, number] => {
+    const polys = (
+      f.geometry!.type === "Polygon" ? [f.geometry!.coordinates] : f.geometry!.coordinates
+    ) as number[][][][]
+    // Area-weighted over outer rings, so a province with offshore islets is
+    // placed by its mainland rather than by the midpoint of the two.
+    let ax = 0
+    let ay = 0
+    let aw = 0
+    for (const poly of polys) {
+      const ring = poly[0] as Ring | undefined
+      if (ring === undefined || ring.length < 3) continue
+      const w = Math.max(area(ring), 1e-9)
+      const c = ringCentre(ring)
+      ax += c.lon * w
+      ay += c.lat * w
+      aw += w
+    }
+    return aw === 0 ? [0, 0] : [ax / aw, ay / aw]
+  }
+
+  const assigned = new Map<string, unknown[]>()
+  const geometries = buildTopology({ u: { type: "GeometryCollection", geometries: units.map((f) => f.geometry) } })
+    .objects.u.geometries
+
+  units.forEach((f, i) => {
+    const [lon, lat] = centreOf(f)
+    let best = claimants[0]!
+    let bestD = Infinity
+    for (const c of claimants) {
+      // Longitude compressed by latitude, so "nearest" means nearest on the
+      // ground. Without it every assignment near the poles is wrong.
+      const dx = (c.lon - lon) * Math.cos((lat * Math.PI) / 180)
+      const dy = c.lat - lat
+      const d = dx * dx + dy * dy
+      if (d < bestD) {
+        bestD = d
+        best = c
+      }
+    }
+    assigned.set(best.id, [...(assigned.get(best.id) ?? []), geometries[i]])
+  })
+
+  const topo = buildTopology({ u: { type: "GeometryCollection", geometries: units.map((f) => f.geometry) } })
+  const out = new Map<string, Ring[]>()
+  for (const [id, geoms] of assigned) {
+    const merged = merge(topo, geoms)
+    const polys = (
+      merged.type === "Polygon" ? [merged.coordinates] : merged.coordinates
+    ) as number[][][][]
+    // Outer rings only, matching ringsOf — holes are dropped everywhere.
+    out.set(
+      id,
+      polys.map((p) => p[0] as Ring).filter((r) => r !== undefined && r.length >= 3),
+    )
+  }
+  return out
+}
+
+/** Every territory drawing from a country: its carved children, plus itself. */
+const claimantsOf = new Map<string, { id: string; lon: number; lat: number }[]>()
+for (const [id, parent] of Object.entries(PARENTS)) {
+  const c = COORDS[id]
+  if (c === undefined) continue
+  claimantsOf.set(parent, [...(claimantsOf.get(parent) ?? []), { id, lon: c.lon, lat: c.lat }])
+}
+// A country carved into ONE child still has a territory named after itself --
+// Austria/tyrol, Egypt/sinai. Both were drawing the whole country and sitting
+// exactly on top of each other. Naming the parent as a claimant splits them.
+for (const t of WORLD.territories) {
+  if (PARENTS[t.id] !== undefined) continue
+  const name = ALIASES[t.id] ?? byNorm.get(norm(t.name))
+  const c = COORDS[t.id]
+  if (name === undefined || c === undefined || !claimantsOf.has(name)) continue
+  claimantsOf.set(name, [...claimantsOf.get(name)!, { id: t.id, lon: c.lon, lat: c.lat }])
+}
+
+const province = new Map<string, Ring[]>()
+const carvedByProvince = new Set<string>()
+for (const [country, claimants] of claimantsOf) {
+  const got = carveByProvince(country, claimants)
+  if (got === undefined) continue
+  carvedByProvince.add(country)
+  for (const [id, rings] of got) province.set(id, rings)
+}
+
 const shapes: Record<string, Ring[]> = {}
 const report: string[] = []
 
@@ -327,7 +479,12 @@ for (const t of WORLD.territories) {
   const parent = PARENTS[t.id]
   let rings: Ring[]
 
-  if (parent !== undefined) {
+  const fromProvince = province.get(t.id)
+  if (fromProvince !== undefined) {
+    // Real provincial boundaries. Preferred wherever admin-1 covers the
+    // country, for carved children and self-claiming parents alike.
+    rings = fromProvince
+  } else if (parent !== undefined) {
     const site = COORDS[t.id]!
     const sites = siblings.get(parent)!
     rings = ringsOf(parent)
@@ -337,6 +494,10 @@ for (const t of WORLD.territories) {
     const name = ALIASES[t.id] ?? byNorm.get(norm(t.name))
     rings = name === undefined ? [] : ringsOf(name)
     for (const extra of MERGES[t.id] ?? []) rings = rings.concat(ringsOf(extra))
+  }
+  // Microstate merges still apply on top of a province-derived shape.
+  for (const extra of fromProvince !== undefined ? (MERGES[t.id] ?? []) : []) {
+    rings = rings.concat(ringsOf(extra))
   }
 
   const home = COORDS[t.id]

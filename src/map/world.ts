@@ -384,7 +384,7 @@ const AMERICAS: Spec[] = [
   { id: "colombia", name: "Colombia", region: "andes", borders: ["panama", "venezuela", "ecuador", "peru", "amazonas"], lat: 4.6, lon: -74.1 },
   { id: "venezuela", name: "Venezuela", region: "andes", borders: ["colombia", "guyana", "amazonas"], lat: 7.1, lon: -66.0 },
   { id: "ecuador", name: "Ecuador", region: "andes", borders: ["colombia", "peru"], lat: -1.4, lon: -78.4 },
-  { id: "peru", name: "Peru", region: "andes", borders: ["colombia", "ecuador", "bolivia", "chile", "amazonas", "mato_grosso"], lat: -9.2, lon: -75.0 },
+  { id: "peru", name: "Peru", region: "andes", borders: ["colombia", "ecuador", "bolivia", "chile", "amazonas"], lat: -9.2, lon: -75.0 },
   { id: "bolivia", name: "Bolivia", region: "andes", borders: ["peru", "chile", "paraguay", "mato_grosso"], lat: -16.3, lon: -64.6 },
   { id: "chile", name: "Chile", region: "andes", borders: ["peru", "bolivia", "pampas", "patagonia"], lat: -30.0, lon: -71.0 },
 
@@ -400,7 +400,7 @@ const AMERICAS: Spec[] = [
   { id: "minas_gerais", name: "Minas Gerais", region: "brazil", borders: ["bahia", "sao_paulo", "mato_grosso"], lat: -18.5, lon: -44.6 },
   { id: "sao_paulo", name: "Sao Paulo", region: "brazil", borders: ["minas_gerais", "parana", "mato_grosso"], lat: -22.2, lon: -48.6 },
   { id: "parana", name: "Parana", region: "brazil", borders: ["sao_paulo", "mato_grosso", "paraguay", "uruguay"], lat: -25.5, lon: -51.5 },
-  { id: "mato_grosso", name: "Mato Grosso", region: "brazil", borders: ["amazonas", "para", "nordeste", "bahia", "minas_gerais", "sao_paulo", "parana", "bolivia", "paraguay", "peru"], lat: -13.5, lon: -56.0 },
+  { id: "mato_grosso", name: "Mato Grosso", region: "brazil", borders: ["amazonas", "para", "nordeste", "bahia", "minas_gerais", "sao_paulo", "parana", "bolivia", "paraguay"], lat: -13.5, lon: -56.0 },
 
   // ---- The Southern Cone ----
   { id: "paraguay", name: "Paraguay", region: "southern_cone", borders: ["bolivia", "mato_grosso", "parana", "pampas"], lat: -23.4, lon: -58.4 },
