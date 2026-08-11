@@ -63,34 +63,38 @@ const layers = {}
 
 // The rest of the world: one CANVAS layer, one shape.
 //
-// It was 451 separate SVG polygons -- one per ring across 194 territories --
-// against 70 for the board itself. Every zoom re-projected all of them, and
-// zooming felt sluggish because six sevenths of the work was scenery nobody
-// can click.
+// OFF by default while we find out what makes zooming feel slow. Add
+// ?backdrop=1 to draw it and compare the two directly -- same board, same
+// build, one variable.
 //
-// Two changes, both free because the backdrop is uniform and inert: every ring
-// becomes one multi-polygon, and it renders to a canvas in its own pane
-// instead of the shared SVG. Canvas costs one draw call rather than 451 DOM
-// nodes the browser must lay out and style, and nothing here needs CSS, hit
-// testing or a focus ring.
-map.createPane("backdrop")
-map.getPane("backdrop").style.zIndex = 200
-map.getPane("backdrop").style.pointerEvents = "none"
+// It began as 451 separate SVG polygons -- one per ring across 194
+// territories, against 70 for the board itself -- so every zoom re-projected
+// all of them and the browser laid out 451 DOM nodes. Collapsing it to a
+// single multi-polygon on a canvas made that one draw call, which is free
+// because the backdrop is uniform and inert: no CSS, no hit testing, no focus
+// ring, which are the only reasons to prefer SVG.
+const wantBackdrop = new URLSearchParams(location.search).get("backdrop") === "1"
 
-const backdropRings = []
-for (const id in (P.offBoard || {})) {
-  for (const ring of P.offBoard[id]) {
-    backdropRings.push([ring.map(([lon, lat]) => [lat, lon])])
+if (wantBackdrop) {
+  map.createPane("backdrop")
+  map.getPane("backdrop").style.zIndex = 200
+  map.getPane("backdrop").style.pointerEvents = "none"
+
+  const backdropRings = []
+  for (const id in (P.offBoard || {})) {
+    for (const ring of P.offBoard[id]) {
+      backdropRings.push([ring.map(([lon, lat]) => [lat, lon])])
+    }
   }
-}
-if (backdropRings.length) {
-  L.polygon(backdropRings, {
-    renderer: L.canvas({ pane: "backdrop", padding: 0.3 }),
-    pane: "backdrop",
-    stroke: true, weight: 0.5, color: "#16242f",
-    fillColor: "#22303c", fillOpacity: 0.45,
-    interactive: false,
-  }).addTo(map)
+  if (backdropRings.length) {
+    L.polygon(backdropRings, {
+      renderer: L.canvas({ pane: "backdrop", padding: 0.3 }),
+      pane: "backdrop",
+      stroke: true, weight: 0.5, color: "#16242f",
+      fillColor: "#22303c", fillOpacity: 0.45,
+      interactive: false,
+    }).addTo(map)
+  }
 }
 
 // ---- sea bridges ------------------------------------------------------------
