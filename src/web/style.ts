@@ -387,6 +387,10 @@ body {
   pointer-events: auto;
   cursor: default;
 }
+
+/* The sole holder's crown. Sized to the chip's cap height and never taking a
+   pointer event of its own. */
+.rb-crown { width: 15px; height: 12px; flex: none; pointer-events: none; }
 .rb-in:hover .rb-n { border-color: #ffd479; }
 .rb-in:hover .rb-name { color: #ffd479; }
 

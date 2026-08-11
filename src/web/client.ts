@@ -350,6 +350,13 @@ function overlapsPlaced(lat, lon) {
 // Called AFTER the opening fitBounds. Choosing a side needs pixel positions to
 // keep two badges apart, and latLngToLayerPoint has no scale to work from until
 // the map has a view.
+// A five-point crown. __FILL__ is replaced with the holder's colour; the dark
+// outline matches the map's territory borders.
+const CROWN_SVG =
+  '<svg class="rb-crown" viewBox="0 0 16 13" aria-hidden="true">' +
+  '<path d="M2 11 L2.6 4 L5.6 6.6 L8 2 L10.4 6.6 L13.4 4 L14 11 Z"' +
+  ' fill="__FILL__" stroke="#0b1a24" stroke-width="1.3" stroke-linejoin="round"/></svg>'
+
 function placeRegionBadges() {
 for (const r of P.regions) {
   const ids = regionOf[r.id] || []
@@ -398,10 +405,17 @@ for (const r of P.regions) {
   const pt = map.latLngToLayerPoint([pick.at[0], pick.at[1]])
   placed.push({ x: pt.x, y: pt.y })
 
-  // Whoever holds every territory in the region owns the bonus; the badge says
-  // so by taking their colour.
+  // Whoever holds every territory in the region owns the bonus. The badge says
+  // so with a CROWN in their colour rather than a recoloured chip: ten faction
+  // colours behind gold text made some sole-held badges unreadable, and a
+  // completed region is exactly the thing that must read at a glance. The dark
+  // outline keeps a light crown visible over sea and land alike.
   const holders = new Set(ids.map((id) => owner(id)))
   const sole = holders.size === 1 ? [...holders][0] : null
+  const holderName = sole ? ((P.factions.find((f) => f.id === sole) || {}).name || sole) : null
+  const crown = sole
+    ? CROWN_SVG.replace("__FILL__", colorOf(sole))
+    : ""
   L.marker(pick.at, {
     interactive: true,
     keyboard: false,
@@ -414,9 +428,11 @@ for (const r of P.regions) {
       // aria-label carries the name that CSS hides, so the badge still reads
       // as more than a bare number to a screen reader.
       html: '<span class="rb-in" data-region="' + esc(r.id) + '"' +
-        ' aria-label="' + esc(r.name) + ', +' + r.bonus + ' for the whole region">' +
-        '<span class="rb-n"' + (sole ? ' style="background:' + colorOf(sole) + '"' : "") +
-        '>+' + r.bonus + '</span><span class="rb-name">' + esc(r.name) + '</span></span>',
+        ' aria-label="' + esc(r.name) + ', +' + r.bonus + ' for the whole region' +
+        (holderName ? ', held by ' + esc(holderName) : "") + '">' +
+        crown +
+        '<span class="rb-n">+' + r.bonus + '</span>' +
+        '<span class="rb-name">' + esc(r.name) + '</span></span>',
       // iconSize NULL, not omitted. DivIcon DEFAULTS to [12, 12] and writes it
       // as an inline width/height, which beats the stylesheet -- the badge came
       // out 12px square with its text overflowing, visible but with almost no
