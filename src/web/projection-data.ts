@@ -1,5 +1,5 @@
 import { COORDS } from "../map/coords.js"
-import { LABELS, SHAPES, SHAPES_FINE } from "../map/shapes.js"
+import { LABELS, LABEL_BOXES, SHAPES, SHAPES_FINE } from "../map/shapes.js"
 import { SEA_LINKS } from "../map/world.js"
 import type { GameState } from "../engine/index.js"
 import type { FactionId } from "../engine/index.js"
@@ -39,6 +39,16 @@ export interface Projection {
    * country centroid and drifts visibly off the drawn shape when zoomed in.
    */
   labels: Record<string, { lat: number; lon: number }>
+  /**
+   * The largest label-shaped rectangle that fits INSIDE each territory, as
+   * [west, south, east, north]. Its centre is the matching `labels` entry.
+   *
+   * This is the room a garrison count actually has. Measuring the territory's
+   * BOUNDING box instead overstates it badly for anything not roughly
+   * rectangular — Norway's bounding box is enormous and its interior is a few
+   * kilometres wide, so the number passed the fit test and sat in the sea.
+   */
+  labelBoxes: Record<string, [number, number, number, number]>
   /**
    * Every territory NOT on this board, drawn as inert grey background.
    *
@@ -124,6 +134,11 @@ export function projectionFor(args: {
     ),
     shapesFine: Object.fromEntries(
       state.map.territories.map((t) => [t.id, SHAPES_FINE[t.id] ?? SHAPES[t.id] ?? []]),
+    ),
+    labelBoxes: Object.fromEntries(
+      state.map.territories
+        .filter((t) => LABEL_BOXES[t.id] !== undefined)
+        .map((t) => [t.id, LABEL_BOXES[t.id]!]),
     ),
     seaLinks: SEA_LINKS.filter(([a, b]) => onBoard.has(a) && onBoard.has(b)).map(
       ([a, b]) => [a, b] as [string, string],

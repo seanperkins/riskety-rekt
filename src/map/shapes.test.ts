@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { COORDS } from "./coords.js"
-import { LABELS, SHAPES } from "./shapes.js"
+import { LABELS, LABEL_BOXES, SHAPES } from "./shapes.js"
 import { WORLD } from "./world.js"
 
 /** Mean position of a ring, with longitude wrap handled via unit vectors. */
@@ -144,6 +144,54 @@ describe("label points", () => {
     for (const [id, rings] of Object.entries(SHAPES)) {
       if (rings.length === 0) continue
       expect(LABELS[id], id).toBeDefined()
+    }
+  })
+})
+
+describe("label boxes", () => {
+  const inRing = (lon: number, lat: number, ring: [number, number][]): boolean => {
+    let hit = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i]!
+      const [xj, yj] = ring[j]!
+      if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) hit = !hit
+    }
+    return hit
+  }
+
+  it("gives every shaped territory a box", () => {
+    for (const [id, rings] of Object.entries(SHAPES)) {
+      if (rings.length === 0) continue
+      expect(LABEL_BOXES[id], id).toBeDefined()
+    }
+  })
+
+  it("centres the label inside the box, and the box inside the territory", () => {
+    // The box is the room a garrison count actually has. If its centre drifted
+    // outside the territory the number would sit in the sea -- which is what
+    // measuring the BOUNDING box used to allow.
+    const outside: string[] = []
+    for (const [id, rings] of Object.entries(SHAPES)) {
+      if (rings.length === 0) continue
+      const b = LABEL_BOXES[id]!
+      const c = LABELS[id]!
+      expect(c[0], id).toBeCloseTo((b[0] + b[2]) / 2, 2)
+      expect(c[1], id).toBeCloseTo((b[1] + b[3]) / 2, 2)
+      if (!rings.some((r) => inRing(c[0], c[1], r))) outside.push(id)
+    }
+    expect(outside).toEqual([])
+  })
+
+  it("never claims more room than the territory's own bounds", () => {
+    // A box wider than the territory would let a number through that cannot
+    // possibly fit.
+    for (const [id, rings] of Object.entries(SHAPES)) {
+      if (rings.length === 0) continue
+      const b = LABEL_BOXES[id]!
+      const xs = rings.flat().map((p) => p[0])
+      const ys = rings.flat().map((p) => p[1])
+      expect(b[2] - b[0], `${id} width`).toBeLessThanOrEqual(Math.max(...xs) - Math.min(...xs) + 0.001)
+      expect(b[3] - b[1], `${id} height`).toBeLessThanOrEqual(Math.max(...ys) - Math.min(...ys) + 0.001)
     }
   })
 })

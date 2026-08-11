@@ -241,49 +241,34 @@ function paintCounts() {
   }
 }
 
-// Hide a count that is bigger than the territory it belongs to.
+// Hide a count that does not fit inside its territory.
 //
-// Zoomed out, a two-digit number over a country a few pixels across covers the
-// thing it describes and collides with its neighbours' numbers, which is worse
-// than showing nothing -- the tooltip still has it, and zooming in brings it
-// back. Measured per territory rather than by a zoom threshold, because
-// territories differ by orders of magnitude in size: at the zoom where
-// Luxembourg's number would fit, Russia has been off screen for a while.
+// Measured against the largest rectangle that fits INSIDE the territory, not
+// its bounding box. A bounding box overstates the room badly for anything that
+// is not roughly rectangular: Norway's is enormous while its interior is a few
+// kilometres wide, so the number passed the test and then sat in the sea.
 //
-// The size comes from PROJECTING the territory's own lat/lon bounds, not from
-// reading the DOM. getBoundingClientRect forces a synchronous layout, and doing
-// that for seventy paths on every frame of a zoom made trackpad zooming stutter
-// -- the one moment the map has to stay smooth. latLngToLayerPoint is
-// arithmetic and touches nothing.
-const bboxOf = {}
-for (const t of P.territories) {
-  let n = 90, s2 = -90, e = -180, w = 180, any = false
-  for (const ring of (P.shapes[t.id] || [])) {
-    for (const [lon, lat] of ring) {
-      if (lat < n) n = lat
-      if (lat > s2) s2 = lat
-      if (lon > e) e = lon
-      if (lon < w) w = lon
-      any = true
-    }
-  }
-  if (any) bboxOf[t.id] = { n: n, s: s2, e: e, w: w }
-}
-
+// Zoomed out, a number wider than the country covers the thing it describes
+// and collides with its neighbours'. The tooltip still has it, and zooming in
+// brings it back -- which is the whole point of testing against real room
+// rather than a zoom threshold: territories differ by orders of magnitude, and
+// at the zoom where Luxembourg's number fits, Russia left the screen long ago.
 function updateCountVisibility() {
   for (const t of P.territories) {
     const m = countMarkers[t.id]
-    const bb = bboxOf[t.id]
-    if (!m || !bb) continue
+    const b = (P.labelBoxes || {})[t.id]
+    if (!m) continue
     const el = m.getElement()
     if (!el) continue
-    const a = map.latLngToLayerPoint([bb.s, bb.w])
-    const b = map.latLngToLayerPoint([bb.n, bb.e])
-    const wPx = Math.abs(b.x - a.x)
-    const hPx = Math.abs(b.y - a.y)
+    if (!b) { el.classList.remove("hide"); continue }
+    // Project the two corners. Arithmetic -- it reads nothing from the DOM.
+    const sw = map.latLngToLayerPoint([b[1], b[0]])
+    const ne = map.latLngToLayerPoint([b[3], b[2]])
+    const wPx = Math.abs(ne.x - sw.x)
+    const hPx = Math.abs(ne.y - sw.y)
     // Roughly what the glyphs occupy: ~7px per digit plus breathing room.
     const digits = String(P.garrisons[t.id] ?? 0).length
-    el.classList.toggle("hide", wPx < 7 * digits + 5 || hPx < 13)
+    el.classList.toggle("hide", wPx < 7 * digits + 4 || hPx < 12)
   }
 }
 

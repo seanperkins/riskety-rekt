@@ -513,89 +513,117 @@ for (const [country, claimants] of claimantsOf) {
 }
 
 /**
- * The point inside a territory furthest from its own coastline.
+ * The largest label-shaped rectangle that fits INSIDE a territory.
  *
- * Garrison counts were drawn at the hand-entered COORDS centroid, which is an
- * approximate centre of the COUNTRY rather than of the drawn shape. Zoomed out
- * that passes; zoomed in the number visibly drifts off its territory, and for
- * Tyrol and Cyprus it sat outside the polygon altogether. A mean of the
- * vertices is no better — on a crescent like Norway the mean is in the sea.
+ * Returns the rectangle, not just a point, because both questions have the same
+ * answer: where the number goes is its centre, and whether the number fits is
+ * its size.
  *
- * So: pole of inaccessibility, by grid refinement. Sample the bounding box,
- * keep the sample furthest INSIDE, then resample a shrinking window around it.
- * Six passes is well past the point where the answer stops moving at the
- * resolution anyone renders at, and this runs once at build time.
+ * The previous version placed labels at the pole of inaccessibility -- the
+ * point furthest from the coast -- and then decided whether to show the number
+ * by measuring the territory's BOUNDING BOX. That second part is wrong for any
+ * shape that is not roughly rectangular: Norway's bounding box is enormous and
+ * its interior is a few kilometres wide, so the number passed the fit test and
+ * then sat in the sea. An inscribed rectangle cannot lie about either.
+ *
+ * Method: scanline-rasterise the ring into a grid, then the classic largest
+ * rectangle in a binary matrix, by row histograms and a monotonic stack. Scored
+ * by how large a LABEL-SHAPED box fits rather than by area, since a tall narrow
+ * rectangle is worthless for a number that is wider than it is tall.
  */
-function labelPoint(rings: Ring[]): [number, number] {
+const LABEL_ASPECT = 1.6
+const GRID = 96
+
+function labelBox(rings: Ring[]): { c: [number, number]; box: [number, number, number, number] } | undefined {
   const all = rings.filter((r) => r.length >= 3)
-  if (all.length === 0) return [0, 0]
-  // The largest ring only. A territory's label belongs on its mainland, not
-  // averaged between the mainland and an island chain.
+  if (all.length === 0) return undefined
+  // Largest ring only: a label belongs on the mainland, not averaged across an
+  // island chain.
   const ring = all.reduce((a, b) => (area(a) >= area(b) ? a : b))
 
   const xs = ring.map((p) => p[0])
   const ys = ring.map((p) => p[1])
-  let x0 = Math.min(...xs)
-  let x1 = Math.max(...xs)
-  let y0 = Math.min(...ys)
-  let y1 = Math.max(...ys)
+  const x0 = Math.min(...xs)
+  const x1 = Math.max(...xs)
+  const y0 = Math.min(...ys)
+  const y1 = Math.max(...ys)
+  if (!(x1 > x0 && y1 > y0)) return undefined
 
-  const inside = (px: number, py: number): boolean => {
-    let hit = false
+  const cw = (x1 - x0) / GRID
+  const ch = (y1 - y0) / GRID
+
+  // Scanline fill: one pass per row over the edges, rather than a
+  // point-in-polygon test per cell.
+  const inside: Uint8Array[] = []
+  for (let r = 0; r < GRID; r++) {
+    const y = y0 + (r + 0.5) * ch
+    const cuts: number[] = []
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
       const [xi, yi] = ring[i]!
       const [xj, yj] = ring[j]!
-      if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) hit = !hit
+      if (yi > y !== yj > y) cuts.push(((xj - xi) * (y - yi)) / (yj - yi) + xi)
     }
-    return hit
+    cuts.sort((a, b) => a - b)
+    const row = new Uint8Array(GRID)
+    for (let k = 0; k + 1 < cuts.length; k += 2) {
+      const from = Math.max(0, Math.ceil((cuts[k]! - x0) / cw - 0.5))
+      const to = Math.min(GRID - 1, Math.floor((cuts[k + 1]! - x0) / cw - 0.5))
+      for (let c = from; c <= to; c++) row[c] = 1
+    }
+    inside.push(row)
   }
 
-  // Distance to the nearest edge, negative outside — so one comparison ranks
-  // "inside and far from the coast" above everything else.
-  const clearance = (px: number, py: number): number => {
-    let best = Infinity
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const [xi, yi] = ring[i]!
-      const [xj, yj] = ring[j]!
-      const dx = xj - xi
-      const dy = yj - yi
-      const len = dx * dx + dy * dy
-      const t = len === 0 ? 0 : Math.max(0, Math.min(1, ((px - xi) * dx + (py - yi) * dy) / len))
-      best = Math.min(best, Math.hypot(px - (xi + t * dx), py - (yi + t * dy)))
-    }
-    return inside(px, py) ? best : -best
-  }
-
-  let best: [number, number] = [(x0 + x1) / 2, (y0 + y1) / 2]
-  let bestScore = -Infinity
-  for (let pass = 0; pass < 6; pass++) {
-    const steps = 12
-    for (let i = 0; i <= steps; i++) {
-      for (let j = 0; j <= steps; j++) {
-        const px = x0 + ((x1 - x0) * i) / steps
-        const py = y0 + ((y1 - y0) * j) / steps
-        const score = clearance(px, py)
-        if (score > bestScore) {
-          bestScore = score
-          best = [px, py]
+  // Largest rectangle in a binary matrix, scored for label shape.
+  const heights = new Int32Array(GRID)
+  let best = -1
+  let bestRect: [number, number, number, number] | undefined
+  for (let r = 0; r < GRID; r++) {
+    for (let c = 0; c < GRID; c++) heights[c] = inside[r]![c] ? heights[c]! + 1 : 0
+    const stack: number[] = []
+    for (let c = 0; c <= GRID; c++) {
+      const h = c === GRID ? 0 : heights[c]!
+      let start = c
+      while (stack.length > 0 && heights[stack[stack.length - 1]!]! >= h) {
+        const idx = stack.pop()!
+        const hh = heights[idx]!
+        const wCells = c - idx
+        const wDeg = Math.max(0, wCells - 1) * cw
+        const hDeg = Math.max(0, hh - 1) * ch
+        // How big a label-shaped box fits in this rectangle.
+        const score = Math.min(wDeg / LABEL_ASPECT, hDeg)
+        if (score > best && wCells > 0 && hh > 0) {
+          best = score
+          // Corners at the CENTRES of the corner cells, not at cell edges.
+          // Edges overshoot by half a cell on every side, which put a corner of
+          // 221 of 264 boxes outside the coastline -- the exact overstatement
+          // this function exists to avoid.
+          bestRect = [
+            x0 + (idx + 0.5) * cw,
+            y0 + (r - hh + 1.5) * ch,
+            x0 + (c - 0.5) * cw,
+            y0 + (r + 0.5) * ch,
+          ]
         }
+        start = idx
       }
+      stack.push(start)
+      heights[start] = h
     }
-    // Shrink the window around the winner and look again.
-    const wx = (x1 - x0) / 4
-    const wy = (y1 - y0) / 4
-    x0 = best[0] - wx
-    x1 = best[0] + wx
-    y0 = best[1] - wy
-    y1 = best[1] + wy
   }
-  return [Math.round(best[0] * 1000) / 1000, Math.round(best[1] * 1000) / 1000]
+  if (bestRect === undefined) return undefined
+  const round = (n: number): number => Math.round(n * 1000) / 1000
+  const [bx0, by0, bx1, by1] = bestRect
+  return {
+    c: [round((bx0 + bx1) / 2), round((by0 + by1) / 2)],
+    box: [round(bx0), round(by0), round(bx1), round(by1)],
+  }
 }
 
 const raw: Record<string, Ring[]> = {}
 const shapes: Record<string, Ring[]> = {}
 const fine: Record<string, Ring[]> = {}
 const labels: Record<string, [number, number]> = {}
+const boxes: Record<string, [number, number, number, number]> = {}
 const report: string[] = []
 
 for (const t of WORLD.territories) {
@@ -709,7 +737,13 @@ for (const id of ids) {
   shapes[id] = coarseAll[id] ?? []
   fine[id] = fineAll[id] ?? []
   if ((shapes[id] ?? []).length === 0) report.push(id)
-  else labels[id] = labelPoint(shapes[id]!)
+  else {
+    const lb = labelBox(shapes[id]!)
+    if (lb !== undefined) {
+      labels[id] = lb.c
+      boxes[id] = lb.box
+    }
+  }
 }
 
 // ------------------------------------------------------------------ output --
@@ -771,6 +805,18 @@ export const LABELS: Record<TerritoryId, [number, number]> = ${JSON.stringify(la
  * ${Object.values(fine).reduce((n, rs) => n + rs.reduce((m, r) => m + r.length, 0), 0).toLocaleString()} points.
  */
 export const SHAPES_FINE: Record<TerritoryId, [number, number][][]> = ${JSON.stringify(fine)}
+
+/**
+ * The largest label-shaped rectangle that fits INSIDE each territory, as
+ * [west, south, east, north].
+ *
+ * This is the room actually available for a garrison count. Its centre is
+ * LABELS. Measuring the territory's BOUNDING box instead — which is what this
+ * replaced — is wrong for anything that is not roughly rectangular: Norway's
+ * bounding box is enormous while its interior is a few kilometres wide, so the
+ * number passed the fit test and then sat in the sea.
+ */
+export const LABEL_BOXES: Record<TerritoryId, [number, number, number, number]> = ${JSON.stringify(boxes)}
 `
 
 writeFileSync(new URL("../src/map/shapes.ts", import.meta.url), body)
