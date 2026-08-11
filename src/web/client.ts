@@ -245,8 +245,11 @@ for (const r of P.regions) {
       className: "rbadge rb-" + side,
       html: '<span class="rb-n"' + (sole ? ' style="background:' + colorOf(sole) + '"' : "") +
         '>+' + r.bonus + '</span><span class="rb-name">' + esc(r.name) + '</span>',
-      iconSize: [0, 0],
-      iconAnchor: [0, 0],
+      // NO iconSize and NO iconAnchor. Leaflet writes both as INLINE styles,
+      // which beat the stylesheet: iconSize [0,0] gave the badge width:0 and
+      // height:0, so the text overflowed and was visible while the element
+      // itself had no hit area at all -- it could not be hovered. Left unset,
+      // Leaflet writes nothing and the CSS sizes and positions it.
     }),
   }).addTo(map)
 
