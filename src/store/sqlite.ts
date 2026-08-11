@@ -21,6 +21,7 @@ const { DatabaseSync } = nodeRequire("node:sqlite") as { DatabaseSync: typeof Da
 import { migrate } from "./schema.js"
 import type {
   ApprovalStore,
+  AuthStore,
   OrderBody,
   OrderStore,
   SaveResult,
@@ -124,6 +125,7 @@ function chunk<T>(items: T[], size: number): T[][] {
 export function openStore(
   path: string,
 ): SeasonStore &
+  AuthStore &
   SlateStore &
   RecapLedger &
   RosterStore &
@@ -740,6 +742,60 @@ export function openStore(
       // no longer exists.
       db.prepare("DELETE FROM states WHERE season_id = ? AND day >= ?").run(seasonId, day)
       db.prepare("DELETE FROM tick_context WHERE season_id = ? AND day >= ?").run(seasonId, day)
+    },
+
+    mintLoginToken(row: {
+      slackUserId: string
+      factionId: FactionId
+      tokenHash: string
+      expiresAt: Date
+    }): void {
+      // Delete-then-insert rather than an upsert on the unique column: the token
+      // hash is the PRIMARY KEY, so replacing a user's token changes the key,
+      // and an explicit delete says that plainly.
+      this.transaction(() => {
+        db.prepare("DELETE FROM login_tokens WHERE slack_user_id = ?").run(row.slackUserId)
+        db.prepare(
+          `INSERT INTO login_tokens (token_hash, slack_user_id, faction_id, expires_at)
+           VALUES (?, ?, ?, ?)`,
+        ).run(row.tokenHash, row.slackUserId, row.factionId, row.expiresAt.toISOString())
+      })
+    },
+
+    consumeLoginToken(args: {
+      tokenHash: string
+      seasonId: string
+      sessionHash: string
+      sessionExpiresAt: Date
+      now: Date
+    }): FactionId | undefined {
+      return this.transaction((): FactionId | undefined => {
+        const row = db
+          .prepare("SELECT faction_id FROM login_tokens WHERE token_hash = ? AND expires_at > ?")
+          .get(args.tokenHash, args.now.toISOString()) as { faction_id: string } | undefined
+        if (row === undefined) return undefined
+
+        db.prepare("DELETE FROM login_tokens WHERE token_hash = ?").run(args.tokenHash)
+        db.prepare(
+          `INSERT INTO sessions (token_hash, faction_id, season_id, expires_at)
+           VALUES (?, ?, ?, ?)`,
+        ).run(args.sessionHash, row.faction_id, args.seasonId, args.sessionExpiresAt.toISOString())
+        return row.faction_id
+      })
+    },
+
+    sessionFaction(tokenHash: string, seasonId: string, now: Date): FactionId | undefined {
+      const row = db
+        .prepare(
+          `SELECT faction_id FROM sessions
+            WHERE token_hash = ? AND season_id = ? AND expires_at > ?`,
+        )
+        .get(tokenHash, seasonId, now.toISOString()) as { faction_id: string } | undefined
+      return row?.faction_id
+    },
+
+    revokeSessions(factionId: FactionId): number {
+      return Number(db.prepare("DELETE FROM sessions WHERE faction_id = ?").run(factionId).changes)
     },
 
     close(): void {

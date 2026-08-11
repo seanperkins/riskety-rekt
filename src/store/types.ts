@@ -217,6 +217,44 @@ export interface OrderStore {
   assembleOrders(seasonId: string, day: number): Order[]
 }
 
+/**
+ * Login tokens and sessions.
+ *
+ * Both are keyed by the SHA-256 hash of the token; the raw value exists only in
+ * the DM, the URL and the cookie. This layer never sees one.
+ */
+export interface AuthStore {
+  /** Replaces any live token for that Slack user — one live token per person. */
+  mintLoginToken(row: {
+    slackUserId: string
+    factionId: FactionId
+    tokenHash: string
+    expiresAt: Date
+  }): void
+
+  /**
+   * Consume a login token and create a session, in ONE transaction.
+   *
+   * Returns the faction, or undefined if the token is unknown, expired or
+   * already used. The delete and the insert commit together, so a link opened
+   * twice yields exactly one session rather than two — or one session and a
+   * dangling token.
+   */
+  consumeLoginToken(args: {
+    tokenHash: string
+    seasonId: string
+    sessionHash: string
+    sessionExpiresAt: Date
+    now: Date
+  }): FactionId | undefined
+
+  /** The faction for a live session in this season, or undefined. */
+  sessionFaction(tokenHash: string, seasonId: string, now: Date): FactionId | undefined
+
+  /** Drop every session for a faction. Returns how many. */
+  revokeSessions(factionId: FactionId): number
+}
+
 export type RecapKind = "original" | "correction" | "gap"
 
 /**
