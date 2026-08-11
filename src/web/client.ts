@@ -192,7 +192,13 @@ function paintCounts() {
     const el = m.getElement()
     if (!el) continue
     el.textContent = String(P.garrisons[t.id] ?? 0)
-    el.className = "gcount" + (mine(t.id) ? " own" : "")
+    // classList, NEVER el.className. Leaflet puts its own classes on a marker's
+    // icon element -- leaflet-marker-icon and leaflet-zoom-animated among them
+    // -- and leaflet-zoom-animated is what repositions the marker when the map
+    // zooms. Assigning className wiped them, so every count was correct on
+    // first render and then stayed frozen in place from the first zoom onward,
+    // sliding off its territory and bunching with its neighbours.
+    el.classList.toggle("own", mine(t.id))
   }
   fitCounts()
 }
