@@ -40,6 +40,10 @@ const { topology: buildTopology } = require_("topojson-server") as {
     objects: Record<string, { geometries: unknown[] }>
   }
 }
+const { presimplify, simplify: simplifyTopology } = require_("topojson-simplify") as {
+  presimplify: (t: unknown) => unknown
+  simplify: (t: unknown, minWeight: number) => unknown
+}
 
 /**
  * Natural Earth admin-1: states, provinces, oblasts.
@@ -55,6 +59,25 @@ const ADMIN1_PATH = new URL("../.cache/admin1-10m.geojson", import.meta.url).pat
 interface Admin1Feature {
   properties: { admin?: string; name?: string }
   geometry: { type: "Polygon" | "MultiPolygon"; coordinates: number[][][] | number[][][][] } | null
+}
+
+/**
+ * Territory id -> the country name admin-1 uses, where it differs from the
+ * 110m country name in ALIASES.
+ *
+ * Only seven, and they exist so EVERY territory can be sourced from admin-1.
+ * Mixing datasets is what left gaps between neighbours: a province boundary at
+ * 10m and a country boundary at 110m are different lines, and no amount of
+ * topology-preserving simplification can reconcile geometry that never matched.
+ */
+const ADMIN1_NAMES: Record<string, string> = {
+  dr_congo: "Democratic Republic of the Congo",
+  congo: "Republic of the Congo",
+  tanzania: "United Republic of Tanzania",
+  eswatini: "Swaziland",
+  bosnia: "Bosnia and Herzegovina",
+  serbia: "Republic of Serbia",
+  hispaniola: "Dominican Republic",
 }
 
 const admin1 = new Map<string, Admin1Feature[]>()
@@ -462,12 +485,22 @@ for (const [id, parent] of Object.entries(PARENTS)) {
 // A country carved into ONE child still has a territory named after itself --
 // Austria/tyrol, Egypt/sinai. Both were drawing the whole country and sitting
 // exactly on top of each other. Naming the parent as a claimant splits them.
+const admin1Norm = new Map<string, string>()
+for (const country of admin1.keys()) admin1Norm.set(norm(country), country)
+
 for (const t of WORLD.territories) {
   if (PARENTS[t.id] !== undefined) continue
-  const name = ALIASES[t.id] ?? byNorm.get(norm(t.name))
   const c = COORDS[t.id]
-  if (name === undefined || c === undefined || !claimantsOf.has(name)) continue
-  claimantsOf.set(name, [...claimantsOf.get(name)!, { id: t.id, lon: c.lon, lat: c.lat }])
+  if (c === undefined) continue
+  // Every territory that admin-1 knows is sourced from admin-1, carved or not.
+  // A plain country is simply a country with ONE claimant, so carveByProvince
+  // merges all its provinces back into the country -- at the same resolution,
+  // from the same arcs, as every neighbour.
+  const want = ADMIN1_NAMES[t.id] ?? ALIASES[t.id] ?? t.name
+  const country =
+    admin1Norm.get(norm(want)) ?? admin1Norm.get(norm(t.name)) ?? byNorm.get(norm(t.name))
+  if (country === undefined) continue
+  claimantsOf.set(country, [...(claimantsOf.get(country) ?? []), { id: t.id, lon: c.lon, lat: c.lat }])
 }
 
 const province = new Map<string, Ring[]>()
@@ -559,6 +592,7 @@ function labelPoint(rings: Ring[]): [number, number] {
   return [Math.round(best[0] * 1000) / 1000, Math.round(best[1] * 1000) / 1000]
 }
 
+const raw: Record<string, Ring[]> = {}
 const shapes: Record<string, Ring[]> = {}
 const fine: Record<string, Ring[]> = {}
 const labels: Record<string, [number, number]> = {}
@@ -589,38 +623,93 @@ for (const t of WORLD.territories) {
     rings = rings.concat(ringsOf(extra))
   }
 
-  const home = COORDS[t.id]
+  // Collected raw. Simplification happens ONCE for the whole world below, in
+  // topology space, so a border shared by two territories is simplified as a
+  // single arc and both sides get identical geometry.
+  raw[t.id] = rings.flatMap((r) => splitAtAntimeridian(r))
+}
 
-  /**
-   * The same pipeline at a given tolerance.
-   *
-   * Run twice, because one resolution cannot serve both ends of the zoom. At
-   * 0.15° the whole board is 2,800 points and reads correctly when it fills
-   * the frame; zoomed in, the same rings are visibly straight-edged, and a
-   * coastline made of 15 km chords looks like a bad tracing. At 0.04° it holds
-   * up close and costs several times the points -- which is why only the
-   * territories actually in play get the fine set.
-   */
-  const finish = (tol: number): Ring[] =>
-    rings
-      .flatMap((r) => splitAtAntimeridian(r))
-      .map((r) => simplify(r, tol))
-      .filter((r) => r.length >= 3 && area(r) >= MIN_AREA)
+// ---------------------------------------------------- topology simplification --
+
+/**
+ * Simplify every territory at once, in topology space.
+ *
+ * Simplifying each territory's rings on their own is what left gaps: two
+ * neighbours simplify the SAME border independently and keep different
+ * vertices, so the shared edge stops matching and daylight shows between them.
+ * Measured on the previous build, 39% of adjacent pairs shared no vertex at
+ * all.
+ *
+ * TopoJSON cuts the world into arcs, so a shared border exists once and is
+ * simplified once. Both sides then read the identical arc back and the seam
+ * closes by construction rather than by tolerance.
+ *
+ * The threshold is an AREA weight rather than a distance, which is what
+ * presimplify computes, so the numbers are found by measurement below rather
+ * than reasoned from degrees.
+ */
+const ids = Object.keys(raw).filter((id) => (raw[id] ?? []).length > 0)
+const topo = presimplify(
+  buildTopology({
+    world: {
+      type: "GeometryCollection",
+      geometries: ids.map((id) => ({
+        type: "MultiPolygon",
+        id,
+        coordinates: (raw[id] ?? []).map((r) => [r]),
+      })),
+    },
+  }),
+)
+
+function ringsAt(weight: number): Record<string, Ring[]> {
+  const simplified = simplifyTopology(topo, weight) as never
+  const fc = feature(simplified, (simplified as { objects: { world: unknown } }).objects.world) as unknown as {
+    features: { geometry: { type: string; coordinates: number[][][][] } | null }[]
+  }
+  const out: Record<string, Ring[]> = {}
+  // Paired BY INDEX. topojson-server drops the `id` on an input geometry, so
+  // every feature comes back id-less; the geometries array keeps input order
+  // and `feature` maps it one to one.
+  fc.features.forEach((f, i) => {
+    const id = ids[i]!
+    if (f.geometry === null) return
+    const polys = (
+      f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates
+    ) as unknown as number[][][][]
+    const home = COORDS[id]
+    out[id] = polys
+      .map((poly) => poly[0] as Ring)
+      .filter((r) => r !== undefined && r.length >= 3 && area(r) >= MIN_AREA)
       .filter((r) => !isSliver(r))
-      // Drop rings that belong to somebody else's hemisphere. See
-      // MAX_RING_OFFSET_DEG.
       .filter((r) => home === undefined || offsetDeg(ringCentre(r), home) <= MAX_RING_OFFSET_DEG)
       .map((r) =>
         r.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000] as [number, number]),
       )
+  })
+  return out
+}
 
-  const coarse = finish(TOLERANCE)
-  if (coarse.length === 0) report.push(t.id)
-  shapes[t.id] = coarse
-  // The label point comes from the COARSE rings, so it cannot shift when the
-  // map swaps resolution under it.
-  if (coarse.length > 0) labels[t.id] = labelPoint(coarse)
-  fine[t.id] = finish(FINE_TOLERANCE)
+/**
+ * Simplification thresholds, as AREA weights rather than distances -- that is
+ * what presimplify computes, so these were found by measuring the resulting
+ * point counts rather than reasoned from degrees:
+ *
+ *   0.004 -> 45,907 points     0.05 -> 14,875     0.2 -> 7,669
+ *
+ * 0.05 lands on the same budget the old per-territory RDP produced at 0.15°,
+ * and 0.004 gives the close-up set roughly three times the detail.
+ */
+const COARSE_WEIGHT = Number(process.env.RR_SHAPE_WEIGHT ?? 0.05)
+const FINE_WEIGHT = Number(process.env.RR_SHAPE_FINE_WEIGHT ?? 0.004)
+
+const coarseAll = ringsAt(COARSE_WEIGHT)
+const fineAll = ringsAt(FINE_WEIGHT)
+for (const id of ids) {
+  shapes[id] = coarseAll[id] ?? []
+  fine[id] = fineAll[id] ?? []
+  if ((shapes[id] ?? []).length === 0) report.push(id)
+  else labels[id] = labelPoint(shapes[id]!)
 }
 
 // ------------------------------------------------------------------ output --
