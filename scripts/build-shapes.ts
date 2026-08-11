@@ -241,6 +241,56 @@ for (const [id, parent] of Object.entries(PARENTS)) {
   siblings.set(parent, [...(siblings.get(parent) ?? []), [c.lon, c.lat]])
 }
 
+/**
+ * Split a ring that crosses the antimeridian into one ring per side.
+ *
+ * Natural Earth stores Fiji as a single ring running from -180 to +180, which
+ * is correct as data and catastrophic as geometry: drawn literally it is a
+ * polygon wrapping the entire globe, and Leaflet paints it as a bar straight
+ * across the map at Fiji's latitude.
+ *
+ * Unwrap first so consecutive points never jump more than 180 degrees -- that
+ * turns -179 into +181 and makes the ring continuous -- then cut at the
+ * meridian with the same half-plane clipper the Voronoi cells use, and shift
+ * the eastern piece back into range.
+ */
+function splitAtAntimeridian(ring: Ring): Ring[] {
+  const xs = ring.map((p) => p[0])
+  if (Math.max(...xs) - Math.min(...xs) <= 180) return [ring]
+
+  const unwrapped: Ring = [ring[0]!]
+  for (let i = 1; i < ring.length; i++) {
+    const prev = unwrapped[i - 1]!
+    let x = ring[i]![0]
+    while (x - prev[0] > 180) x -= 360
+    while (x - prev[0] < -180) x += 360
+    unwrapped.push([x, ring[i]![1]])
+  }
+
+  const cut = (keepBelow: boolean, at: number): Ring =>
+    clipHalfPlane(
+      unwrapped,
+      (p) => (keepBelow ? p[0] <= at : p[0] >= at),
+      (a, b) => [at, a[1] + ((at - a[0]) / (b[0] - a[0])) * (b[1] - a[1])],
+    )
+
+  const out: Ring[] = []
+  for (const [keepBelow, shift] of [
+    [true, 0],
+    [false, -360],
+  ] as const) {
+    const piece = cut(keepBelow, 180).map(([x, y]) => [x + shift, y] as [number, number])
+    if (piece.length >= 3) out.push(piece)
+  }
+  // West of -180 as well, for a ring unwrapped the other way.
+  if (Math.min(...unwrapped.map((p) => p[0])) < -180) {
+    const piece = cut(false, -180)
+    const west = cut(true, -180).map(([x, y]) => [x + 360, y] as [number, number])
+    return [piece, west].filter((r) => r.length >= 3)
+  }
+  return out.length > 0 ? out : [ring]
+}
+
 const shapes: Record<string, Ring[]> = {}
 const report: string[] = []
 
@@ -262,6 +312,7 @@ for (const t of WORLD.territories) {
 
   const home = COORDS[t.id]
   rings = rings
+    .flatMap((r) => splitAtAntimeridian(r))
     .map((r) => simplify(r, TOLERANCE))
     .filter((r) => r.length >= 3 && area(r) >= MIN_AREA)
     // Drop rings that belong to somebody else's hemisphere. See

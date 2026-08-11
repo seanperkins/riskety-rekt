@@ -45,7 +45,13 @@ for (const t of P.territories) {
   const rings = P.shapes[t.id] || []
   if (!rings.length) continue
   // GeoJSON is [lon, lat]; Leaflet polygons are [lat, lon].
-  const latlngs = rings.map((r) => r.map(([lon, lat]) => [lat, lon]))
+  //
+  // Each ring is wrapped in its own array, making this a MULTI-polygon rather
+  // than one polygon with holes. Leaflet reads a flat array of rings as
+  // outer-then-holes, and every ring here is a separate landmass -- the build
+  // drops holes at extraction. Flat, Nunavut's twenty Arctic islands were
+  // punched out of the mainland as holes; 46 of 264 territories were affected.
+  const latlngs = rings.map((r) => [r.map(([lon, lat]) => [lat, lon])])
   const poly = L.polygon(latlngs, { weight: 1, color: "#0b1a24", fillOpacity: 0.85 })
   poly.on("click", () => onTap(t.id))
   poly.bindTooltip(() => tooltip(t.id), { sticky: true })
