@@ -16,13 +16,42 @@ export const MAX_FACTIONS = 15
  * above the income floor of 5.
  *
  * The LOWER bound is. Five dealt territories is ten troops: enough that losing
- * one border does not cascade, and it keeps the smallest realistic continent (4)
+ * one border does not cascade, and it keeps the smallest realistic region (4)
  * in reach. Two or three is the failure it guards — 42 territories dealt to 15
  * factions is 2.8 each, six troops, eliminated by one focused attack. Note that
  * income does NOT distinguish 2.8 from 7.0; both sit at the floor by design.
  */
 export const MIN_TERRITORIES_PER_FACTION = 5
 export const MAX_TERRITORIES_PER_FACTION = 11
+
+/**
+ * Region size band, enforced by `validateMap`.
+ *
+ * The upper bound is the load-bearing one: a region of twenty territories is
+ * a bonus nobody ever collects, which removes the region race rather than
+ * adding to it. Classic Risk keeps five of its six continents inside this band
+ * — Asia at 12 is the exception, and `RISK_MAP` is grandfathered because it is
+ * only the golden fixture and is never selected from.
+ */
+export const REGION_MIN = 4
+export const REGION_MAX = 9
+
+/**
+ * The fewest regions a selected board may have.
+ *
+ * Three is already implied by the size floor — the smallest board is 5 × 4 = 20
+ * territories and the largest region is 9, so `ceil(20/9) = 3` is
+ * unavoidable — which makes 4 the first value that constrains anything. It is
+ * what makes a region race exist rather than a scramble for one of two
+ * prizes.
+ */
+export const MIN_REGIONS = 4
+
+/**
+ * Restarts allowed when a selection walk strands itself below the size floor
+ * with no adjacent region that fits under the ceiling.
+ */
+export const MAX_ATTEMPTS = 20
 
 /** Slate size target. Fewer is published if fewer candidates survive filtering. */
 export const SLATE_MIN = 3

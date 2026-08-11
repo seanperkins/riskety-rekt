@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { SEASON_LENGTH } from "../config.js"
-import { runMany, runSeason } from "./run.js"
+import { checkDeal } from "../season.js"
+import { runMany, runSeason, seatsFor } from "./run.js"
 
 const four = ["Turtle", "Blitz", "GymRat", "Slacker"]
 
@@ -24,9 +25,19 @@ describe("runSeason", () => {
     expect(Object.values(r.finalReserves).every((v) => v >= 0)).toBe(true)
   })
 
-  it("still accounts for all 42 territories at season end", () => {
+  it("still accounts for every territory at season end", () => {
+    // Conservation. Deliberately NOT a constant: the board is selected, so its
+    // size varies with the roster and the seed, and a hardcoded 42 was really
+    // asserting "this is RISK_MAP" rather than "nothing was lost".
     const r = runSeason(four, 3)
-    expect(Object.values(r.finalTerritories).reduce((a, b) => a + b, 0)).toBe(42)
+    expect(Object.values(r.finalTerritories).reduce((a, b) => a + b, 0)).toBe(r.territories)
+  })
+
+  it("deals a board sized to the roster", () => {
+    for (const seed of [1, 2, 3]) {
+      const r = runSeason(four, seed)
+      expect(checkDeal(four.length, r.territories), `seed ${seed}`).toBeNull()
+    }
   })
 
   it("rejects an unknown policy name loudly", () => {
@@ -52,5 +63,44 @@ describe("runMany", () => {
     const rep = runMany(["Arbitrageur", "Blitz", "Turtle", "GymRat"], 60)
     expect(rep.wins["Arbitrageur"]).toBeDefined()
     expect(rep.wins["Arbitrageur"]! / 60).toBeLessThan(0.6)
+  })
+})
+
+describe("seats", () => {
+  it("keeps a bare name when a policy appears once", () => {
+    // So existing rosters and every committed balance figure stay comparable.
+    expect(seatsFor(["Turtle", "Blitz"])).toEqual([
+      { id: "Turtle", policy: "Turtle" },
+      { id: "Blitz", policy: "Blitz" },
+    ])
+  })
+
+  it("gives a repeated policy distinct seat ids", () => {
+    // Faction ids used to be policy names directly, so two Blitz seats shared
+    // one faction id and one reserve. Both spent from it and the engine's
+    // closing invariant fired with "reserve for Blitz is -2".
+    expect(seatsFor(["Blitz", "Turtle", "Blitz"])).toEqual([
+      { id: "Blitz#1", policy: "Blitz" },
+      { id: "Turtle", policy: "Turtle" },
+      { id: "Blitz#2", policy: "Blitz" },
+    ])
+  })
+
+  it("runs a 15-faction season from 8 policies", () => {
+    // The roster size the world map exists to support, and it was unmeasurable
+    // before: repeats collided and the season died on the reserve invariant.
+    const roster = Array.from({ length: 15 }, (_, i) => four[i % four.length]!)
+    const r = runSeason(roster, 1)
+    expect(r.seats).toHaveLength(15)
+    expect(new Set(r.seats.map((s) => s.id)).size).toBe(15)
+    expect(Object.values(r.finalTerritories).reduce((a, b) => a + b, 0)).toBe(r.territories)
+  })
+
+  it("aggregates wins by policy and reports the seats behind them", () => {
+    // A two-seat policy's baseline is 2/N, not 1/N. Without the seat count you
+    // would read its win rate as twice as impressive as it is.
+    const rep = runMany(["Blitz", "Blitz", "Turtle", "Hunter"], 20)
+    expect(rep.seats).toEqual({ Blitz: 2, Turtle: 1, Hunter: 1 })
+    expect(Object.values(rep.wins).reduce((a, b) => a + b, 0)).toBe(20)
   })
 })

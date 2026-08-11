@@ -73,7 +73,7 @@ function parseState(json: string, seasonId: string, day: number): GameState {
   if (!Array.isArray(s.map?.territories) || s.map.territories.length === 0) {
     return bad("map.territories is empty or absent")
   }
-  if (!Array.isArray(s.map.continents)) return bad("map.continents is absent")
+  if (!Array.isArray(s.map.regions)) return bad("map.regions is absent")
   if (!Array.isArray(s.factions)) return bad("factions is absent")
   for (const key of ["ownership", "garrisons", "reserves"] as const) {
     if (typeof s[key] !== "object" || s[key] === null) return bad(`${key} is absent`)

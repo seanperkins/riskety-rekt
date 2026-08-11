@@ -11,15 +11,15 @@ const factions: Faction[] = [
 const ids = RISK_MAP.territories.map((t) => t.id)
 
 /**
- * 36 territory ids that can never complete a continent: one territory of every
- * continent is deliberately excluded, so continent bonuses stay 0 for any n <= 36.
+ * 36 territory ids that can never complete a region: one territory of every
+ * region is deliberately excluded, so region bonuses stay 0 for any n <= 36.
  */
 const noBonusPool = (() => {
   const skipped = new Set<string>()
   return RISK_MAP.territories
     .filter((t) => {
-      if (!skipped.has(t.continent)) {
-        skipped.add(t.continent)
+      if (!skipped.has(t.region)) {
+        skipped.add(t.region)
         return false
       }
       return true
@@ -55,10 +55,10 @@ describe("territoryIncome", () => {
     expect(territoryIncome(withCount(20), "f1")).toBe(10)
   })
 
-  it("adds continent bonuses on top", () => {
+  it("adds region bonuses on top", () => {
     const s = createSeason("s1", factions, ids)
     for (const t of RISK_MAP.territories) s.ownership[t.id] = "f2"
-    for (const t of RISK_MAP.territories.filter((x) => x.continent === "au")) s.ownership[t.id] = "f1"
+    for (const t of RISK_MAP.territories.filter((x) => x.region === "au")) s.ownership[t.id] = "f1"
     // 4 territories -> floor of 5, plus Australia's 2
     expect(territoryIncome(s, "f1")).toBe(7)
   })
@@ -66,7 +66,7 @@ describe("territoryIncome", () => {
   it("pays 45 to a faction holding the whole board", () => {
     const s = createSeason("s1", factions, ids)
     for (const t of RISK_MAP.territories) s.ownership[t.id] = "f1"
-    // floor(42/2) = 21, plus all 24 continent bonuses
+    // floor(42/2) = 21, plus all 24 region bonuses
     expect(territoryIncome(s, "f1")).toBe(45)
   })
 })

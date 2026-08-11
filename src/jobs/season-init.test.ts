@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { MAX_FACTIONS, SEASON_LENGTH } from "../config.js"
 import { RISK_MAP } from "../engine/index.js"
+import { checkDeal } from "../season.js"
 import type { GameMap } from "../engine/index.js"
 import { openStore } from "../store/sqlite.js"
-import { PALETTE, runSeasonInit, shuffle } from "./season-init.js"
-import { makeRng } from "../sim/policies.js"
+import { PALETTE, runSeasonInit } from "./season-init.js"
+import { shuffle } from "../rng.js"
+import { makeRng } from "../rng.js"
 
 const BASE = { seasonId: "s1", startDate: "2026-09-01", lengthDays: SEASON_LENGTH, seed: 4711 }
 
@@ -20,50 +22,21 @@ function withRoster(count: number) {
 const init = (store: ReturnType<typeof openStore>, over: Partial<typeof BASE> = {}) =>
   runSeasonInit({ store, ...BASE, ...over })
 
-describe("shuffle", () => {
-  it("is a permutation, and the same seed gives the same one", () => {
-    const items = RISK_MAP.territories.map((t) => t.id)
-    const a = shuffle(items, makeRng(99))
-    const b = shuffle(items, makeRng(99))
-    expect(a).toEqual(b)
-    expect([...a].sort()).toEqual([...items].sort())
-    expect(a).not.toEqual(items) // 42! makes an identity shuffle vanishingly unlikely
-  })
-
-  it("does not mutate its input", () => {
-    const items = ["a", "b", "c", "d"]
-    shuffle(items, makeRng(1))
-    expect(items).toEqual(["a", "b", "c", "d"])
-  })
-
-  it("reaches the last element", () => {
-    // The classic off-by-one: `for (i = n - 1; i > 0; i--)` with `j` drawn from
-    // [0, i] is correct, but drawing from [0, n) or stopping at i >= 0 is not.
-    // Over many seeds every position must see more than one value.
-    const seen = new Map<number, Set<string>>()
-    for (let seed = 1; seed <= 200; seed++) {
-      shuffle(["a", "b", "c", "d"], makeRng(seed)).forEach((v, i) => {
-        const set = seen.get(i) ?? new Set()
-        set.add(v)
-        seen.set(i, set)
-      })
-    }
-    for (const [, values] of seen) expect(values.size).toBe(4)
-  })
-})
-
 describe("runSeasonInit", () => {
   it("deals day 0 and records the seed", () => {
     const store = withRoster(6)
-    expect(init(store)).toEqual({
-      status: "dealt",
-      seed: 4711,
-      factions: 6,
-      territories: 42,
-    })
-    const state = store.loadState("s1", 0)
-    expect(state?.day).toBe(0)
-    expect(Object.keys(state?.ownership ?? {})).toHaveLength(42)
+    const out = init(store)
+    expect(out).toMatchObject({ status: "dealt", seed: 4711, factions: 6 })
+
+    // Deliberately NOT an exact territory count. The board is selected, so the
+    // number moves whenever the selector is tuned -- and a test that has to be
+    // edited for every tuning stops being evidence of anything. What must hold
+    // is that the board is legal and every territory was dealt.
+    const state = store.loadState("s1", 0)!
+    expect(state.day).toBe(0)
+    expect(checkDeal(6, state.map.territories.length)).toBeNull()
+    expect(Object.keys(state.ownership)).toHaveLength(state.map.territories.length)
+    expect(out.status === "dealt" && out.territories).toBe(state.map.territories.length)
     expect(store.season("s1")).toEqual({
       seasonId: "s1",
       startDate: "2026-09-01",
@@ -94,23 +67,45 @@ describe("runSeasonInit", () => {
     store.close()
   })
 
-  it("supports a full 15-faction roster on a board sized for it", () => {
-    // 42 territories fails checkDeal at 15 factions; 105 is the sized board.
+  it("deals a full 15-faction roster, which the 42-territory board could not", () => {
+    // The whole reason the world map exists. checkDeal(15, 42) is 2.8 each, so
+    // this was a hard refusal until the board became something selected from
+    // the world rather than a fixed 42 territories.
     const store = withRoster(MAX_FACTIONS)
-    const big = bigMap(105)
-    expect(init(store, {}).status).toBe("refused")
-    const fresh = withRoster(MAX_FACTIONS)
-    expect(runSeasonInit({ store: fresh, ...BASE, map: big }).status).toBe("dealt")
-    expect(fresh.loadState("s1", 0)?.factions).toHaveLength(15)
+    const out = init(store)
+    expect(out.status).toBe("dealt")
+    const state = store.loadState("s1", 0)!
+    expect(state.factions).toHaveLength(15)
+    expect(checkDeal(15, state.map.territories.length)).toBeNull()
+    expect(state.map.territories.length).not.toBe(42)
     store.close()
-    fresh.close()
   })
 
-  it("refuses every checkDeal problem with a reason naming it", () => {
+  it("sizes the board to the roster", () => {
+    for (const count of [4, 7, 11, 15]) {
+      const store = withRoster(count)
+      expect(init(store).status, `${count} factions`).toBe("dealt")
+      const map = store.loadState("s1", 0)!.map
+      expect(checkDeal(count, map.territories.length), `${count} factions`).toBeNull()
+      store.close()
+    }
+  })
+
+  it("refuses a board whose ratio is wrong, when one is supplied", () => {
+    // Selection cannot produce an illegal board, so this path is only reachable
+    // with an explicit map -- but the guard stays, because it is the last thing
+    // between a bad board and a dealt season.
+    const store = withRoster(6)
+    const out = runSeasonInit({ store, ...BASE, map: bigMap(200) })
+    expect(out).toMatchObject({ status: "refused" })
+    expect(out.status === "refused" && out.reason).toMatch(/above the income floor/)
+    store.close()
+  })
+
+  it("refuses a roster outside the faction bounds, with a reason naming it", () => {
     for (const [count, pattern] of [
       [3, /roster has 3 factions/],
       [MAX_FACTIONS + 1, /roster has 16 factions/],
-      [15, /too few to survive/],
     ] as const) {
       const store = withRoster(count)
       const out = init(store)
@@ -127,7 +122,7 @@ describe("runSeasonInit", () => {
     const out = runSeasonInit({
       store,
       ...BASE,
-      map: { territories: [], continents: [] },
+      map: { territories: [], regions: [] },
     })
     expect(out).toMatchObject({ status: "refused" })
     store.close()
@@ -184,16 +179,16 @@ describe("runSeasonInit", () => {
   })
 })
 
-/** A synthetic map with `n` territories in one fully-connected continent. */
+/** A synthetic map with `n` territories in one fully-connected region. */
 function bigMap(n: number): GameMap {
   const ids = Array.from({ length: n }, (_, i) => `t${String(i).padStart(3, "0")}`)
   return {
     territories: ids.map((id) => ({
       id,
       name: id,
-      continent: "c",
+      region: "c",
       neighbors: ids.filter((o) => o !== id),
     })),
-    continents: [{ id: "c", name: "C", bonus: 1 }],
+    regions: [{ id: "c", name: "C", bonus: 1 }],
   }
 }

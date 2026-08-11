@@ -1,39 +1,18 @@
-import { RISK_MAP, cmp, territoriesOf } from "../engine/index.js"
-import type { FactionId, GameState, Market, Order, TerritoryId } from "../engine/index.js"
+import { cmp, territoriesOf } from "../engine/index.js"
+import type {
+  FactionId,
+  GameMap,
+  GameState,
+  Market,
+  Order,
+  Territory,
+  TerritoryId,
+} from "../engine/index.js"
+import type { Rng } from "../rng.js"
 
-export type Rng = () => number
-
-/**
- * xorshift32 — deterministic for a seed, so seasons replay exactly.
- *
- * Two corrections, both measured rather than assumed:
- *
- * The middle shift is `>>>`, not `>>`. JS bitwise operators coerce to *signed*
- * int32, so once the state passes 2^31 a `>>` sign-extends and folds ones into
- * the high bits — a different map from xorshift32, with no reason to believe it
- * keeps the full period.
- *
- * And the generator is warmed up. From a small seed, xorshift32's first output
- * is nearly linear in it: seeds 1..200 produced first draws of 0.000063,
- * 0.000126, 0.000189 ... — 200 out of 200 in the bottom quarter. The simulator
- * seeds seasons sequentially, so every season's first decision was drawn from
- * the same sliver, and a seeded Fisher-Yates picked j = 0 for its first swap
- * regardless of seed. Discarding the first outputs costs nothing and the state
- * is fully mixed by then.
- */
-export function makeRng(seed: number): Rng {
-  let s = seed >>> 0 || 1
-  const step = (): number => {
-    s ^= s << 13
-    s >>>= 0
-    s ^= s >>> 17
-    s ^= s << 5
-    s >>>= 0
-    return s / 0x1_0000_0000
-  }
-  for (let i = 0; i < 16; i++) step()
-  return step
-}
+// Re-exported so existing importers keep working; the source of truth is
+// src/rng.ts, which season-init and map selection also use.
+export { makeRng, type Rng } from "../rng.js"
 
 export interface Policy {
   name: string
@@ -42,7 +21,29 @@ export interface Policy {
   decide(state: GameState, factionId: FactionId, slate: Market[], rng: Rng): Order
 }
 
-const byId = new Map(RISK_MAP.territories.map((t) => [t.id, t]))
+/**
+ * Territory lookup for a state's OWN map, cached per map object.
+ *
+ * This used to be a single module-level index built from `RISK_MAP`, with
+ * `byId.get(x)!` at four call sites — so every lookup threw on any board that
+ * was not the classic one. Seven of the eight policies died on the first
+ * selected sub-map with "Cannot read properties of undefined".
+ *
+ * Keyed by the map OBJECT rather than by id: `resolve` spreads the state
+ * forward, so one season shares one `GameMap` reference and the index is built
+ * once per season rather than once per decision. A WeakMap so a finished
+ * season's index is collectable — the simulator runs two thousand of them.
+ */
+const indexes = new WeakMap<GameMap, Map<TerritoryId, Territory>>()
+
+function territoryIndex(map: GameMap): Map<TerritoryId, Territory> {
+  let index = indexes.get(map)
+  if (index === undefined) {
+    index = new Map(map.territories.map((t) => [t.id, t]))
+    indexes.set(map, index)
+  }
+  return index
+}
 
 const empty = (factionId: FactionId): Order => ({
   factionId,
@@ -55,6 +56,7 @@ const empty = (factionId: FactionId): Order => ({
 /** Owned territories that touch an enemy, paired with each enemy neighbour. */
 function borders(state: GameState, f: FactionId): { from: TerritoryId; to: TerritoryId }[] {
   const out: { from: TerritoryId; to: TerritoryId }[] = []
+  const byId = territoryIndex(state.map)
   for (const t of territoriesOf(state, f)) {
     for (const n of byId.get(t)!.neighbors) {
       if (state.ownership[n] !== f) out.push({ from: t, to: n })
@@ -175,7 +177,7 @@ export const POLICIES: Policy[] = [
   },
 
   {
-    // Fights for continent bonuses: prefers targets in whichever continent it is
+    // Fights for region bonuses: prefers targets in whichever region it is
     // closest to completing. A different strategic axis from Blitz, not a clone.
     name: "Consolidator",
     irlActionsPerDay: 1,
@@ -183,14 +185,15 @@ export const POLICIES: Policy[] = [
       play(s, f, (g) => {
         const mine = new Set(territoriesOf(s, f))
         const progress = new Map<string, number>()
-        for (const c of s.map.continents) {
-          const members = s.map.territories.filter((t) => t.continent === c.id)
+        for (const c of s.map.regions) {
+          const members = s.map.territories.filter((t) => t.region === c.id)
           const held = members.filter((t) => mine.has(t.id)).length
           if (held > 0 && held < members.length) progress.set(c.id, held / members.length)
         }
+        const byId = territoryIndex(s.map)
         const best = viableAttacks(s, f, g).sort((a, b) => {
-          const pa = progress.get(byId.get(a.to)!.continent) ?? 0
-          const pb = progress.get(byId.get(b.to)!.continent) ?? 0
+          const pa = progress.get(byId.get(a.to)!.region) ?? 0
+          const pb = progress.get(byId.get(b.to)!.region) ?? 0
           return pb - pa || b.margin - a.margin || cmp(a.from + a.to, b.from + b.to)
         })[0]
         return {
@@ -309,7 +312,7 @@ export const POLICIES: Policy[] = [
       if (from) {
         // 2. Over-commit: full-strength attack down every border edge at once.
         const g = s.garrisons[from] ?? 0
-        order.attacks = byId
+        order.attacks = territoryIndex(s.map)
           .get(from)!
           .neighbors.filter((n) => s.ownership[n] !== f)
           .map((to) => ({ from, to, count: Math.max(0, g - 1) }))

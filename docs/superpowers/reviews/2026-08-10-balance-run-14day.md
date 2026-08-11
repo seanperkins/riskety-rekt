@@ -1,5 +1,9 @@
 # Balance run — 2026-08-10, season length 21 → 14
 
+> **Superseded 2026-08-10.** Measured on the 42-territory `RISK_MAP`, which no season
+> uses — the board is now selected from the world and sized to the roster. See
+> `2026-08-10-balance-run-world.md`.
+
 2,000 seasons per run, seeds 1..2000, engine v1.0.0.
 
 The spec's season-length decision rests on a measurement, and a reviewer cannot

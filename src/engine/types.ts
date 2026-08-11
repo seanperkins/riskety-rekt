@@ -2,7 +2,7 @@ export const ENGINE_VERSION = "1.0.0"
 
 export type FactionId = string
 export type TerritoryId = string
-export type ContinentId = string
+export type RegionId = string
 export type MarketId = string
 
 export type WagerSide = "yes" | "no"
@@ -11,19 +11,19 @@ export type Settlement = "yes" | "no" | "unsettled"
 export interface Territory {
   id: TerritoryId
   name: string
-  continent: ContinentId
+  region: RegionId
   neighbors: TerritoryId[]
 }
 
-export interface Continent {
-  id: ContinentId
+export interface Region {
+  id: RegionId
   name: string
   bonus: number
 }
 
 export interface GameMap {
   territories: Territory[]
-  continents: Continent[]
+  regions: Region[]
 }
 
 export interface Faction {

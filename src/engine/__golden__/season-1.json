@@ -2,7 +2,7 @@
   "seasonId": "golden",
   "day": 10,
   "map": {
-    "continents": [
+    "regions": [
       {
         "id": "na",
         "name": "North America",
@@ -38,7 +38,7 @@
       {
         "id": "alaska",
         "name": "Alaska",
-        "continent": "na",
+        "region": "na",
         "neighbors": [
           "northwest_territory",
           "alberta",
@@ -48,7 +48,7 @@
       {
         "id": "northwest_territory",
         "name": "Northwest Territory",
-        "continent": "na",
+        "region": "na",
         "neighbors": [
           "alaska",
           "alberta",
@@ -59,7 +59,7 @@
       {
         "id": "alberta",
         "name": "Alberta",
-        "continent": "na",
+        "region": "na",
         "neighbors": [
           "alaska",
           "northwest_territory",
@@ -70,7 +70,7 @@
       {
         "id": "ontario",
         "name": "Ontario",
-        "continent": "na",
+        "region": "na",
         "neighbors": [
           "northwest_territory",
           "alberta",
@@ -83,7 +83,7 @@
       {
         "id": "quebec",
         "name": "Quebec",
-        "continent": "na",
+        "region": "na",
         "neighbors": [
           "ontario",
           "eastern_united_states",
@@ -93,7 +93,7 @@
       {
         "id": "western_united_states",
         "name": "Western United States",
-        "continent": "na",
+        "region": "na",
         "neighbors": [
           "alberta",
           "ontario",
@@ -104,7 +104,7 @@
       {
         "id": "eastern_united_states",
         "name": "Eastern United States",
-        "continent": "na",
+        "region": "na",
         "neighbors": [
           "western_united_states",
           "ontario",
@@ -115,7 +115,7 @@
       {
         "id": "central_america",
         "name": "Central America",
-        "continent": "na",
+        "region": "na",
         "neighbors": [
           "western_united_states",
           "eastern_united_states",
@@ -125,7 +125,7 @@
       {
         "id": "greenland",
         "name": "Greenland",
-        "continent": "na",
+        "region": "na",
         "neighbors": [
           "northwest_territory",
           "ontario",
@@ -136,7 +136,7 @@
       {
         "id": "venezuela",
         "name": "Venezuela",
-        "continent": "sa",
+        "region": "sa",
         "neighbors": [
           "central_america",
           "peru",
@@ -146,7 +146,7 @@
       {
         "id": "peru",
         "name": "Peru",
-        "continent": "sa",
+        "region": "sa",
         "neighbors": [
           "venezuela",
           "brazil",
@@ -156,7 +156,7 @@
       {
         "id": "brazil",
         "name": "Brazil",
-        "continent": "sa",
+        "region": "sa",
         "neighbors": [
           "venezuela",
           "peru",
@@ -167,7 +167,7 @@
       {
         "id": "argentina",
         "name": "Argentina",
-        "continent": "sa",
+        "region": "sa",
         "neighbors": [
           "peru",
           "brazil"
@@ -176,7 +176,7 @@
       {
         "id": "iceland",
         "name": "Iceland",
-        "continent": "eu",
+        "region": "eu",
         "neighbors": [
           "greenland",
           "great_britain",
@@ -186,7 +186,7 @@
       {
         "id": "scandinavia",
         "name": "Scandinavia",
-        "continent": "eu",
+        "region": "eu",
         "neighbors": [
           "iceland",
           "great_britain",
@@ -197,7 +197,7 @@
       {
         "id": "ukraine",
         "name": "Ukraine",
-        "continent": "eu",
+        "region": "eu",
         "neighbors": [
           "scandinavia",
           "northern_europe",
@@ -210,7 +210,7 @@
       {
         "id": "great_britain",
         "name": "Great Britain",
-        "continent": "eu",
+        "region": "eu",
         "neighbors": [
           "iceland",
           "scandinavia",
@@ -221,7 +221,7 @@
       {
         "id": "northern_europe",
         "name": "Northern Europe",
-        "continent": "eu",
+        "region": "eu",
         "neighbors": [
           "great_britain",
           "scandinavia",
@@ -233,7 +233,7 @@
       {
         "id": "western_europe",
         "name": "Western Europe",
-        "continent": "eu",
+        "region": "eu",
         "neighbors": [
           "great_britain",
           "northern_europe",
@@ -244,7 +244,7 @@
       {
         "id": "southern_europe",
         "name": "Southern Europe",
-        "continent": "eu",
+        "region": "eu",
         "neighbors": [
           "western_europe",
           "northern_europe",
@@ -257,7 +257,7 @@
       {
         "id": "north_africa",
         "name": "North Africa",
-        "continent": "af",
+        "region": "af",
         "neighbors": [
           "brazil",
           "western_europe",
@@ -270,7 +270,7 @@
       {
         "id": "egypt",
         "name": "Egypt",
-        "continent": "af",
+        "region": "af",
         "neighbors": [
           "north_africa",
           "southern_europe",
@@ -281,7 +281,7 @@
       {
         "id": "congo",
         "name": "Congo",
-        "continent": "af",
+        "region": "af",
         "neighbors": [
           "north_africa",
           "east_africa",
@@ -291,7 +291,7 @@
       {
         "id": "east_africa",
         "name": "East Africa",
-        "continent": "af",
+        "region": "af",
         "neighbors": [
           "north_africa",
           "egypt",
@@ -304,7 +304,7 @@
       {
         "id": "south_africa",
         "name": "South Africa",
-        "continent": "af",
+        "region": "af",
         "neighbors": [
           "congo",
           "east_africa",
@@ -314,7 +314,7 @@
       {
         "id": "madagascar",
         "name": "Madagascar",
-        "continent": "af",
+        "region": "af",
         "neighbors": [
           "east_africa",
           "south_africa"
@@ -323,7 +323,7 @@
       {
         "id": "middle_east",
         "name": "Middle East",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "ukraine",
           "southern_europe",
@@ -336,7 +336,7 @@
       {
         "id": "afghanistan",
         "name": "Afghanistan",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "ukraine",
           "ural",
@@ -348,7 +348,7 @@
       {
         "id": "ural",
         "name": "Ural",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "ukraine",
           "siberia",
@@ -359,7 +359,7 @@
       {
         "id": "siberia",
         "name": "Siberia",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "ural",
           "yakutsk",
@@ -371,7 +371,7 @@
       {
         "id": "yakutsk",
         "name": "Yakutsk",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "siberia",
           "irkutsk",
@@ -381,7 +381,7 @@
       {
         "id": "irkutsk",
         "name": "Irkutsk",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "siberia",
           "yakutsk",
@@ -392,7 +392,7 @@
       {
         "id": "kamchatka",
         "name": "Kamchatka",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "yakutsk",
           "irkutsk",
@@ -404,7 +404,7 @@
       {
         "id": "mongolia",
         "name": "Mongolia",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "siberia",
           "irkutsk",
@@ -416,7 +416,7 @@
       {
         "id": "japan",
         "name": "Japan",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "kamchatka",
           "mongolia"
@@ -425,7 +425,7 @@
       {
         "id": "china",
         "name": "China",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "siberia",
           "ural",
@@ -438,7 +438,7 @@
       {
         "id": "india",
         "name": "India",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "middle_east",
           "afghanistan",
@@ -449,7 +449,7 @@
       {
         "id": "siam",
         "name": "Siam",
-        "continent": "as",
+        "region": "as",
         "neighbors": [
           "india",
           "china",
@@ -459,7 +459,7 @@
       {
         "id": "indonesia",
         "name": "Indonesia",
-        "continent": "au",
+        "region": "au",
         "neighbors": [
           "siam",
           "new_guinea",
@@ -469,7 +469,7 @@
       {
         "id": "new_guinea",
         "name": "New Guinea",
-        "continent": "au",
+        "region": "au",
         "neighbors": [
           "indonesia",
           "western_australia",
@@ -479,7 +479,7 @@
       {
         "id": "western_australia",
         "name": "Western Australia",
-        "continent": "au",
+        "region": "au",
         "neighbors": [
           "indonesia",
           "new_guinea",
@@ -489,7 +489,7 @@
       {
         "id": "eastern_australia",
         "name": "Eastern Australia",
-        "continent": "au",
+        "region": "au",
         "neighbors": [
           "new_guinea",
           "western_australia"

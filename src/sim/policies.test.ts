@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { RISK_MAP, createSeason, territoriesOf } from "../engine/index.js"
-import { POLICIES, makeRng } from "./policies.js"
+import { POLICIES } from "./policies.js"
+import { makeRng } from "../rng.js"
 import type { Faction, GameState, Market } from "../engine/index.js"
 
 const factions: Faction[] = ["f1", "f2", "f3"].map((id) => ({ id, playerName: id, color: "#000" }))
@@ -86,7 +87,7 @@ describe("attacking policies", () => {
     expect(s.ownership[attack!.to]).toBe("f2")
   })
 
-  it("Consolidator prefers a target in a continent it is closest to completing", () => {
+  it("Consolidator prefers a target in a region it is closest to completing", () => {
     const s = createSeason("s", factions, ids)
     for (const t of RISK_MAP.territories) s.ownership[t.id] = "f2"
     // f1 holds 3 of Australia's 4 plus a bridgehead in Asia.
@@ -162,14 +163,5 @@ describe("Arbitrageur", () => {
     const s = createSeason("s", factions, ids)
     s.reserves["f1"] = 10
     expect(policy("Arbitrageur").decide(s, "f1", slate, makeRng(1)).protect).not.toBeNull()
-  })
-})
-
-describe("makeRng", () => {
-  it("is deterministic for a seed and differs across seeds", () => {
-    const a = makeRng(7)
-    const b = makeRng(7)
-    expect([a(), a(), a()]).toEqual([b(), b(), b()])
-    expect(makeRng(7)()).not.toEqual(makeRng(8)())
   })
 })

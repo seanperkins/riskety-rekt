@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { RISK_MAP } from "./map.js"
-import { continentBonusesFor, createSeason, territoriesOf } from "./setup.js"
+import { regionBonusesFor, createSeason, territoriesOf } from "./setup.js"
 import type { Faction, GameMap } from "./types.js"
 
 const factions: Faction[] = [
@@ -12,10 +12,10 @@ const ids = RISK_MAP.territories.map((t) => t.id)
 
 const TINY: GameMap = {
   territories: [
-    { id: "a", name: "A", continent: "x", neighbors: ["b"] },
-    { id: "b", name: "B", continent: "x", neighbors: ["a"] },
+    { id: "a", name: "A", region: "x", neighbors: ["b"] },
+    { id: "b", name: "B", region: "x", neighbors: ["a"] },
   ],
-  continents: [{ id: "x", name: "X", bonus: 1 }],
+  regions: [{ id: "x", name: "X", bonus: 1 }],
 }
 
 describe("createSeason", () => {
@@ -86,36 +86,36 @@ describe("territoriesOf", () => {
   })
 })
 
-describe("continentBonusesFor", () => {
+describe("regionBonusesFor", () => {
   it("pays exactly 2 for holding all of Australia", () => {
     const s = createSeason("s1", factions, ids)
     for (const t of RISK_MAP.territories) s.ownership[t.id] = "f2"
-    for (const t of RISK_MAP.territories.filter((x) => x.continent === "au")) s.ownership[t.id] = "f1"
-    expect(continentBonusesFor(s, "f1")).toBe(2)
+    for (const t of RISK_MAP.territories.filter((x) => x.region === "au")) s.ownership[t.id] = "f1"
+    expect(regionBonusesFor(s, "f1")).toBe(2)
   })
 
-  it("pays 0 once a single territory of that continent is lost", () => {
+  it("pays 0 once a single territory of that region is lost", () => {
     const s = createSeason("s1", factions, ids)
     for (const t of RISK_MAP.territories) s.ownership[t.id] = "f2"
-    const au = RISK_MAP.territories.filter((x) => x.continent === "au")
+    const au = RISK_MAP.territories.filter((x) => x.region === "au")
     for (const t of au) s.ownership[t.id] = "f1"
-    expect(continentBonusesFor(s, "f1")).toBe(2)
+    expect(regionBonusesFor(s, "f1")).toBe(2)
     s.ownership[au[0]!.id] = "f2"
-    expect(continentBonusesFor(s, "f1")).toBe(0)
+    expect(regionBonusesFor(s, "f1")).toBe(0)
   })
 
-  it("sums bonuses across multiple held continents", () => {
+  it("sums bonuses across multiple held regions", () => {
     const s = createSeason("s1", factions, ids)
     for (const t of RISK_MAP.territories) s.ownership[t.id] = "f2"
-    for (const t of RISK_MAP.territories.filter((x) => x.continent === "au" || x.continent === "sa")) {
+    for (const t of RISK_MAP.territories.filter((x) => x.region === "au" || x.region === "sa")) {
       s.ownership[t.id] = "f1"
     }
-    expect(continentBonusesFor(s, "f1")).toBe(4)
+    expect(regionBonusesFor(s, "f1")).toBe(4)
   })
 
   it("pays 24 to a faction holding the whole board", () => {
     const s = createSeason("s1", factions, ids)
     for (const t of RISK_MAP.territories) s.ownership[t.id] = "f1"
-    expect(continentBonusesFor(s, "f1")).toBe(24)
+    expect(regionBonusesFor(s, "f1")).toBe(24)
   })
 })
