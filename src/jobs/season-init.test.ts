@@ -25,15 +25,18 @@ const init = (store: ReturnType<typeof openStore>, over: Partial<typeof BASE> = 
 describe("runSeasonInit", () => {
   it("deals day 0 and records the seed", () => {
     const store = withRoster(6)
-    expect(init(store)).toEqual({
-      status: "dealt",
-      seed: 4711,
-      factions: 6,
-      territories: 42,
-    })
-    const state = store.loadState("s1", 0)
-    expect(state?.day).toBe(0)
-    expect(Object.keys(state?.ownership ?? {})).toHaveLength(42)
+    const out = init(store)
+    expect(out).toMatchObject({ status: "dealt", seed: 4711, factions: 6 })
+
+    // Deliberately NOT an exact territory count. The board is selected, so the
+    // number moves whenever the selector is tuned -- and a test that has to be
+    // edited for every tuning stops being evidence of anything. What must hold
+    // is that the board is legal and every territory was dealt.
+    const state = store.loadState("s1", 0)!
+    expect(state.day).toBe(0)
+    expect(checkDeal(6, state.map.territories.length)).toBeNull()
+    expect(Object.keys(state.ownership)).toHaveLength(state.map.territories.length)
+    expect(out.status === "dealt" && out.territories).toBe(state.map.territories.length)
     expect(store.season("s1")).toEqual({
       seasonId: "s1",
       startDate: "2026-09-01",

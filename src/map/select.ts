@@ -1,6 +1,47 @@
 import { MAX_ATTEMPTS, MIN_REGIONS } from "../config.js"
 import type { GameMap, RegionId, Territory } from "../engine/index.js"
 import type { Rng } from "../rng.js"
+import { COORDS } from "./coords.js"
+import type { LatLon } from "./coords.js"
+
+/**
+ * How far a region's size fit may be from the best and still be considered.
+ *
+ * This is the dial that trades board tightness against board variety, and both
+ * ends are bad: 0 gives sprawling boards, and dropping the size term entirely
+ * gives the same Mediterranean board every season. Measured at 2.
+ */
+const SIZE_SLACK = 2
+
+/** Great-circle kilometres. Only ever used to COMPARE distances. */
+function distanceKm(a: LatLon, b: LatLon): number {
+  const R = 6371
+  const rad = Math.PI / 180
+  const dLat = (b.lat - a.lat) * rad
+  const dLon = (b.lon - a.lon) * rad
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
+}
+
+/**
+ * Mean position of a set of territories.
+ *
+ * A naive mean of longitudes, which is wrong across the date line — a board
+ * spanning it would get a centre on the far side of the planet. Accepted
+ * because the centre is only ever used to RANK candidates against each other,
+ * and the one date-line crossing in the world (the Bering Strait) is exactly
+ * the sprawl this ranking exists to discourage.
+ */
+function centroidOf(ids: string[]): LatLon {
+  const points = ids.map((id) => COORDS[id]).filter((c): c is LatLon => c !== undefined)
+  if (points.length === 0) return { lat: 0, lon: 0 }
+  return {
+    lat: points.reduce((s, p) => s + p.lat, 0) / points.length,
+    lon: points.reduce((s, p) => s + p.lon, 0) / points.length,
+  }
+}
 
 /**
  * A region's bonus.
@@ -47,6 +88,8 @@ export function selectSubMap(world: GameMap, factionCount: number, rng: Rng): Ga
   for (const t of world.territories) members.get(t.region)?.push(t)
 
   const sizeOf = (id: RegionId): number => members.get(id)?.length ?? 0
+  const centreOf = (id: RegionId): LatLon =>
+    centroidOf((members.get(id) ?? []).map((t) => t.id))
 
   // Region adjacency, derived from borders rather than stored. A second source
   // of truth could drift from the territory records.
@@ -83,12 +126,35 @@ export function selectSubMap(world: GameMap, factionCount: number, rng: Rng): Ga
       }
       if (candidates.size === 0) break // stranded; restart from a new seed region
 
-      // Nearest to target, with ties broken by rng so the walk is not
-      // deterministically greedy in one direction.
+      // Size fit stays primary, but candidates within SIZE_SLACK of the best are
+      // treated as equally good; among those, prefer the one nearest the board's
+      // centre, and draw from the nearer half so the walk stays varied.
+      //
+      // Without the distance term a 15-faction board averaged a 15,400 km
+      // widest span -- Canada to Kamchatka to the Congo, contiguous through
+      // Greenland and the Bering Strait but not anywhere. Measured over 60
+      // seeds:
+      //
+      //   rule                     mean span   p90      distinct boards
+      //   size fit only              15,410   18,355         59/60
+      //   size fit, distance tie     13,914   18,355         13/60
+      //   THIS (slack, then near)    11,384   14,647         59/60
+      //   distance only              10,988   14,647          8/60
+      //
+      // The obvious softening -- keep size fit and break ties by distance --
+      // is the WORST of them: it barely tightens the board and collapses
+      // variety, because a deterministic tiebreak removes the rng from most
+      // choices. Widening the bucket first is what keeps a real pool to draw
+      // from.
       const list = [...candidates].sort((a, b) => (a < b ? -1 : 1))
-      const best = Math.min(...list.map((c) => Math.abs(size + sizeOf(c) - target)))
-      const near = list.filter((c) => Math.abs(size + sizeOf(c) - target) === best)
-      const chosen = near[Math.floor(rng() * near.length)]!
+      const fit = (c: RegionId): number => Math.abs(size + sizeOf(c) - target)
+      const best = Math.min(...list.map(fit))
+      const centre = centroidOf([...picked].flatMap((r) => (members.get(r) ?? []).map((t) => t.id)))
+      const pool = list
+        .filter((c) => fit(c) <= best + SIZE_SLACK)
+        .sort((a, b) => distanceKm(centreOf(a), centre) - distanceKm(centreOf(b), centre))
+      const nearer = pool.slice(0, Math.max(1, Math.ceil(pool.length / 2)))
+      const chosen = nearer[Math.floor(rng() * nearer.length)]!
       picked.add(chosen)
       size += sizeOf(chosen)
     }

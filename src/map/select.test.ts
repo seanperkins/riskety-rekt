@@ -1,10 +1,31 @@
 import { describe, expect, it } from "vitest"
 import { MIN_REGIONS } from "../config.js"
 import { makeRng } from "../rng.js"
+import { COORDS } from "./coords.js"
 import { checkDeal } from "../season.js"
 import { bonusFor, selectSubMap } from "./select.js"
 import { validateMap } from "./validate.js"
 import { WORLD } from "./world.js"
+
+/** Greatest great-circle distance between any two territories on a board. */
+function widestSpanKm(map: { territories: { id: string }[] }): number {
+  const R = 6371
+  const rad = Math.PI / 180
+  const pts = map.territories.map((t) => COORDS[t.id]!)
+  let max = 0
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const a = pts[i]!
+      const b = pts[j]!
+      const h =
+        Math.sin(((b.lat - a.lat) * rad) / 2) ** 2 +
+        Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(((b.lon - a.lon) * rad) / 2) ** 2
+      const d = 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
+      if (d > max) max = d
+    }
+  }
+  return max
+}
 
 describe("bonusFor", () => {
   it("reproduces classic Risk on four of its six continents", () => {
@@ -125,6 +146,36 @@ describe("selectSubMap", () => {
       if (r !== undefined) seen.add(r.bonus)
     }
     expect(seen.size, "balkans always priced the same").toBeGreaterThan(1)
+  })
+
+  it("keeps boards geographically tight", () => {
+    // Without the distance term, a 15-faction board averaged a 15,400 km widest
+    // span -- Canada to Kamchatka to the Congo. Contiguous through Greenland
+    // and the Bering Strait, but not anywhere you could name.
+    const spans: number[] = []
+    for (let seed = 1; seed <= 40; seed++) {
+      spans.push(widestSpanKm(selectSubMap(WORLD, 15, makeRng(seed))))
+    }
+    const mean = spans.reduce((a, b) => a + b, 0) / spans.length
+    expect(mean, "mean widest span").toBeLessThan(13_000)
+  })
+
+  it("keeps boards varied", () => {
+    // The other half, and the reason the obvious softening was rejected:
+    // breaking size-fit ties by distance tightened the board barely at all and
+    // cut distinct boards from 59 to 13, because a deterministic tiebreak
+    // removes the rng from most choices. Tightness alone is not the goal.
+    const keys = new Set<string>()
+    for (let seed = 1; seed <= 40; seed++) {
+      const map = selectSubMap(WORLD, 15, makeRng(seed))
+      keys.add(
+        map.regions
+          .map((r) => r.id)
+          .sort()
+          .join("|"),
+      )
+    }
+    expect(keys.size, "distinct boards out of 40").toBeGreaterThan(30)
   })
 
   it("throws rather than returning an illegal board when it cannot succeed", () => {
