@@ -23,16 +23,17 @@ www.riskety.com {
 riskety.com {
 	encode zstd gzip
 
-	# The Slack events endpoint. Bolt's default path, and the URL Slack holds
-	# in the app's Event Subscriptions -- changing it here means changing it
-	# there too, and Slack re-verifies with a live challenge when you do.
-	handle /slack/events* {
-		reverse_proxy 127.0.0.1:3001
-	}
-
-	# The /login slash command posts here as well. Same port, same Bolt
-	# receiver; it is a command rather than an event, but not a separate route.
-	handle /slack/commands* {
+	# Everything Slack-facing goes to Bolt, which serves it ALL on
+	# /slack/events -- events, the /login slash command, and interactivity
+	# alike. There is no separate command endpoint to route to, so the whole
+	# /slack/* prefix is forwarded rather than one path: a misconfigured URL in
+	# the Slack app then reaches Bolt and gets a real answer, instead of being
+	# handed to the player app and 404ing in a way that looks like an outage.
+	#
+	# This must NOT be Socket Mode. createSlackApp builds a plain HTTP receiver
+	# with no appToken; with Socket Mode enabled in the Slack app, Slack stops
+	# delivering over HTTP entirely and this route goes quiet with no error.
+	handle /slack/* {
 		reverse_proxy 127.0.0.1:3001
 	}
 
