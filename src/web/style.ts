@@ -276,7 +276,15 @@ body {
  * the number lands on ten different faction colours plus the grey backdrop, and
  * a shadow tuned for one of them fails on the others.
  */
-.gcount, .rbadge { pointer-events: none; }
+.gcount { pointer-events: none; }
+.gcount.hide { display: none; }
+
+/* The badge IS interactive -- hovering it lights its region. Safe because a
+   badge sits outside its region's bounding box, so it covers no territory
+   whose tap it could steal. */
+.rbadge { pointer-events: auto; cursor: default; }
+.rbadge:hover .rb-n { border-color: #ffd479; }
+.rbadge:hover .rb-name { color: #ffd479; }
 
 .gcount {
   display: grid;
@@ -389,6 +397,18 @@ body {
 }
 
 .standings .you { color: var(--ink); font-weight: 600; }
+
+/* Hovering a row lights that faction's territories on the map, so the row
+   needs to look reachable and to echo the highlight colour used out there. */
+.standings tbody tr { cursor: default; }
+.standings tbody tr:hover,
+.standings tbody tr:focus-visible,
+.standings tbody tr.lit {
+  outline: none;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.standings tbody tr:hover td:first-child,
+.standings tbody tr.lit td:first-child { color: var(--accent); }
 .standings .tag {
   font-size: 9px;
   letter-spacing: 0.08em;

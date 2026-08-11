@@ -25,6 +25,9 @@ let plan = { deploys: [], attacks: [], protect: P.plan.protect ?? null }
 plan.deploys = P.plan.deploys.map((d) => ({ ...d }))
 plan.attacks = P.plan.attacks.map((a) => ({ ...a }))
 let selected = null
+// A transient hover highlight: {kind: "region"|"faction", id}. Distinct from
+// 'selected', which is an ORDER target and survives the pointer leaving.
+let highlight = null
 let saveState = "saved"
 
 const mine = (id) => P.ownership[id] === P.factionId
@@ -139,6 +142,35 @@ function paintCounts() {
     el.textContent = String(P.garrisons[t.id] ?? 0)
     el.className = "gcount" + (mine(t.id) ? " own" : "")
   }
+  fitCounts()
+}
+
+// Hide a count that is bigger than the territory it belongs to.
+//
+// Zoomed out, a two-digit number over a country a few pixels across covers the
+// thing it describes and collides with its neighbours' numbers, which is worse
+// than showing nothing -- the tooltip still has it, and zooming in brings it
+// back. Measured against the rendered path rather than a zoom threshold,
+// because territories differ by orders of magnitude in size: at the zoom where
+// Luxembourg's number would fit, Russia has been off screen for a while.
+function fitCounts() {
+  for (const t of P.territories) {
+    const m = countMarkers[t.id]
+    const l = layers[t.id]
+    if (!m || !l || !l._path) continue
+    const el = m.getElement()
+    if (!el) continue
+    const box = l._path.getBoundingClientRect()
+    // Roughly what the glyphs occupy: ~7px per digit plus breathing room.
+    const digits = String(P.garrisons[t.id] ?? 0).length
+    const needW = 7 * digits + 5
+    const needH = 13
+    // A zero-size box means Leaflet has clipped the path out of the current
+    // view. Leave those alone -- they are not visible either way, and moveend
+    // re-runs this when they come back.
+    const clipped = box.width === 0 && box.height === 0
+    el.classList.toggle("hide", !clipped && (box.width < needW || box.height < needH))
+  }
 }
 
 // ---- region bonuses ---------------------------------------------------------
@@ -201,8 +233,11 @@ for (const r of P.regions) {
   // so by taking their colour.
   const holders = new Set(ids.map((id) => owner(id)))
   const sole = holders.size === 1 ? [...holders][0] : null
-  L.marker(at, {
-    interactive: false,
+  const badge = L.marker(at, {
+    // Interactive, unlike every other overlay: hovering it lights the region.
+    // Safe because a badge now sits OUTSIDE its region's bounding box, so it
+    // covers no territory whose tap it could steal.
+    interactive: true,
     keyboard: false,
     // The final gap is a CSS translate rather than a degree offset, so it stays
     // the same number of pixels at every zoom instead of growing as you zoom in.
@@ -214,21 +249,77 @@ for (const r of P.regions) {
       iconAnchor: [0, 0],
     }),
   }).addTo(map)
+
+  const el = badge.getElement()
+  if (el) {
+    el.addEventListener("mouseenter", () => setHighlight("region", r.id))
+    el.addEventListener("mouseleave", () => setHighlight(null))
+  }
 }
 
+function setHighlight(kind, id) {
+  const next = kind === null ? null : { kind: kind, id: id }
+  const same =
+    (next === null && highlight === null) ||
+    (next !== null && highlight !== null && next.kind === highlight.kind && next.id === highlight.id)
+  if (same) return
+  highlight = next
+  paint()
+  syncRailHighlight()
+}
+
+// Mirror the map highlight back into the rail, so hovering a region badge also
+// shows WHO holds it -- the two panels answer the same question from opposite
+// ends.
+function syncRailHighlight() {
+  for (const row of document.querySelectorAll("[data-faction]")) {
+    const on =
+      highlight !== null &&
+      highlight.kind === "faction" &&
+      row.getAttribute("data-faction") === highlight.id
+    row.classList.toggle("lit", on)
+  }
+}
+
+// Hovering a player lights everything they hold.
+for (const row of document.querySelectorAll("[data-faction]")) {
+  const id = row.getAttribute("data-faction")
+  row.addEventListener("mouseenter", () => setHighlight("faction", id))
+  row.addEventListener("mouseleave", () => setHighlight(null))
+  // Keyboard reaches the same state; the rows are focusable for this.
+  row.setAttribute("tabindex", "0")
+  row.addEventListener("focus", () => setHighlight("faction", id))
+  row.addEventListener("blur", () => setHighlight(null))
+}
+
+const lit = (id) =>
+  highlight !== null &&
+  (highlight.kind === "region"
+    ? byId[id] && byId[id].region === highlight.id
+    : owner(id) === highlight.id)
+
 function paint() {
+  const front = []
   for (const t of P.territories) {
     const l = layers[t.id]
     if (!l) continue
     const isMine = mine(t.id)
     const isSel = selected === t.id
+    const isLit = lit(t.id)
     l.setStyle({
       fillColor: colorOf(owner(t.id)),
-      color: isSel ? "#fff" : isMine ? "#e6edf3" : "#0b1a24",
-      weight: isSel ? 3.5 : isMine ? 2 : 1,
+      color: isSel ? "#fff" : isLit ? "#ffd479" : isMine ? "#e6edf3" : "#0b1a24",
+      weight: isSel ? 3.5 : isLit ? 3 : isMine ? 2 : 1,
+      // Lit territories keep their fill and gain an edge. Dimming everything
+      // else instead would repaint 70 shapes on every pointer move and make the
+      // rest of the board unreadable exactly when you are comparing against it.
       fillOpacity: isMine ? 0.9 : 0.55,
     })
+    if (isLit) front.push(l)
   }
+  // Same reason the selection comes forward: SVG has no z-index, so a
+  // neighbour drawn later would paint over the highlighted edge.
+  for (const l of front) if (l.bringToFront) l.bringToFront()
   // The selected outline traces the real border, so it has to be drawn LAST.
   // SVG has no z-index: a neighbour added after it paints its own edge over the
   // shared boundary, and the highlight comes out broken along exactly the sides
@@ -246,6 +337,9 @@ function paint() {
 // off screen and there was no way to tell where you sat relative to anyone
 // else. The world is the opposite problem — most of it is grey backdrop
 // nobody can act on. The board is the thing being played.
+map.on("zoomend", fitCounts)
+map.on("moveend", fitCounts)
+
 const played = P.territories.map((t) => layers[t.id]).filter(Boolean)
 if (played.length) map.fitBounds(L.featureGroup(played).getBounds(), { padding: [24, 24] })
 else map.setView([20, 0], 2)

@@ -291,7 +291,7 @@ function standings(p: Projection): string {
     .sort((a, b) => b.count - a.count || (a.f.id < b.f.id ? -1 : 1))
     .map(({ f, count, regions, income }) => {
       const you = f.id === p.factionId
-      return `<tr class="${you ? "you" : ""}">
+      return `<tr class="${you ? "you" : ""}" data-faction="${esc(f.id)}">
         <td class="swatch"><i style="background:${esc(f.color)}"></i>${esc(f.name)}${
           you ? ' <span class="tag">you</span>' : ""
         }</td>
