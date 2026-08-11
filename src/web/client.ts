@@ -280,30 +280,74 @@ function updateCountVisibility() {
 const regionOf = {}
 for (const t of P.territories) (regionOf[t.region] = regionOf[t.region] || []).push(t.id)
 
-// The board's centre, so each badge can be pushed AWAY from it.
-let bLat = 0, bLon = 0, bN = 0
-for (const t of P.territories) {
-  const c = P.centres[t.id]
-  if (c) { bLat += c.lat; bLon += c.lon; bN++ }
-}
-const boardCentre = bN ? { lat: bLat / bN, lon: bLon / bN } : { lat: 0, lon: 0 }
+// Where each region's badge goes.
+//
+// A badge must not cover playable ground -- it is the one overlay that sits
+// outside the shape it names, precisely so it hides nothing. So each of the
+// four sides is TESTED rather than guessed: the anchor is pushed a little way
+// out from the region's bounding box, and if that point lands inside a
+// territory somebody is playing, that side is rejected. Water and the unused
+// backdrop are both fine to sit on; neither is anything you can act on.
+//
+// Among the sides that are free, the order is left, right, up, down -- reading
+// order, so a scan across the map finds labels where the eye already is. A side
+// already taken by another badge is skipped, since two badges in the same place
+// is worse than one badge on a less preferred side.
+//
+// Decided ONCE, at the opening fit. The anchor is a lat/lon, so it travels with
+// the map; recomputing per zoom would make badges hop between sides while you
+// are reading them.
+const boardRings = P.territories.map((t) => P.shapes[t.id] || [])
 
+function insideBoard(lon, lat) {
+  for (const rings of boardRings) {
+    for (const ring of rings) {
+      let hit = false
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i]
+        const [xj, yj] = ring[j]
+        if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) hit = !hit
+      }
+      if (hit) return true
+    }
+  }
+  return false
+}
+
+// Roughly what a collapsed badge occupies. Only used to keep two of them apart,
+// so an estimate is enough -- the name is hidden until hover.
+const BADGE_W = 34
+const BADGE_H = 22
+const placed = []
+
+function overlapsPlaced(lat, lon) {
+  const p = map.latLngToLayerPoint([lat, lon])
+  for (const q of placed) {
+    if (Math.abs(p.x - q.x) < BADGE_W && Math.abs(p.y - q.y) < BADGE_H) return true
+  }
+  return false
+}
+
+// Called AFTER the opening fitBounds. Choosing a side needs pixel positions to
+// keep two badges apart, and latLngToLayerPoint has no scale to work from until
+// the map has a view.
+function placeRegionBadges() {
 for (const r of P.regions) {
   const ids = regionOf[r.id] || []
   if (!ids.length) continue
 
-  // Bounds over the real POLYGONS, not the centre points. A region's badge has
-  // to clear the land it names, and a centre-of-centres box sits well inside
-  // the coastline of anything larger than a few territories.
-  let n0 = 90, s0 = -90, e0 = -180, w0 = 180, any = false
+  // Bounds over the real POLYGONS, not the centre points: a badge has to clear
+  // the land it names, and a box over centres sits well inside the coastline of
+  // anything bigger than a few territories.
+  let north = -90, south = 90, east = -180, west = 180, any = false
   let cLat = 0, cLon = 0, cN = 0
   for (const id of ids) {
     for (const ring of (P.shapes[id] || [])) {
       for (const [lon, lat] of ring) {
-        if (lat < n0) n0 = lat
-        if (lat > s0) s0 = lat
-        if (lon > e0) e0 = lon
-        if (lon < w0) w0 = lon
+        if (lat > north) north = lat
+        if (lat < south) south = lat
+        if (lon > east) east = lon
+        if (lon < west) west = lon
         any = true
       }
     }
@@ -313,35 +357,37 @@ for (const r of P.regions) {
   if (!any || !cN) continue
   const mid = { lat: cLat / cN, lon: cLon / cN }
 
-  // One of four sides, chosen by whichever way the region already sits relative
-  // to the board's middle -- so badges radiate outward and the ones on the rim
-  // land in open water. The dominant axis decides, so a region north-east of
-  // centre goes north if it is more north than east.
-  const dLat = mid.lat - boardCentre.lat
-  const dLon = (mid.lon - boardCentre.lon) * Math.cos((mid.lat * Math.PI) / 180)
-  let side, at
-  if (Math.abs(dLat) >= Math.abs(dLon)) {
-    side = dLat >= 0 ? "n" : "s"
-    at = [dLat >= 0 ? s0 : n0, mid.lon]
-  } else {
-    side = dLon >= 0 ? "e" : "w"
-    at = [mid.lat, dLon >= 0 ? e0 : w0]
-  }
+  // A nudge outward, proportional to the region so a small one is not pushed
+  // halfway across the board.
+  const padLon = Math.max(0.4, (east - west) * 0.06)
+  const padLat = Math.max(0.4, (north - south) * 0.06)
+
+  const sides = [
+    { side: "w", at: [mid.lat, west], probe: [mid.lat, west - padLon] },
+    { side: "e", at: [mid.lat, east], probe: [mid.lat, east + padLon] },
+    { side: "n", at: [north, mid.lon], probe: [north + padLat, mid.lon] },
+    { side: "s", at: [south, mid.lon], probe: [south - padLat, mid.lon] },
+  ]
+
+  const free = sides.filter((o) => !insideBoard(o.probe[1], o.probe[0]))
+  const pick =
+    free.find((o) => !overlapsPlaced(o.at[0], o.at[1])) ||
+    sides.find((o) => !overlapsPlaced(o.at[0], o.at[1])) ||
+    free[0] ||
+    sides[0]
+
+  const pt = map.latLngToLayerPoint([pick.at[0], pick.at[1]])
+  placed.push({ x: pt.x, y: pt.y })
 
   // Whoever holds every territory in the region owns the bonus; the badge says
   // so by taking their colour.
   const holders = new Set(ids.map((id) => owner(id)))
   const sole = holders.size === 1 ? [...holders][0] : null
-  const badge = L.marker(at, {
-    // Interactive, unlike every other overlay: hovering it lights the region.
-    // Safe because a badge now sits OUTSIDE its region's bounding box, so it
-    // covers no territory whose tap it could steal.
+  L.marker(pick.at, {
     interactive: true,
     keyboard: false,
-    // The final gap is a CSS translate rather than a degree offset, so it stays
-    // the same number of pixels at every zoom instead of growing as you zoom in.
     icon: L.divIcon({
-      className: "rbadge rb-" + side,
+      className: "rbadge rb-" + pick.side,
       // aria-label carries the name that CSS hides, so the badge still reads
       // as more than a bare number to a screen reader.
       html: '<span class="rb-in" data-region="' + esc(r.id) + '"' +
@@ -357,80 +403,7 @@ for (const r of P.regions) {
     }),
   }).addTo(map)
 }
-
-function setHighlight(kind, id) {
-  const next = kind === null ? null : { kind: kind, id: id }
-  const same =
-    (next === null && highlight === null) ||
-    (next !== null && highlight !== null && next.kind === highlight.kind && next.id === highlight.id)
-  if (same) return
-  highlight = next
-  paint()
-  syncRailHighlight()
 }
-
-// Mirror the map highlight back into the rail, so hovering a region badge also
-// shows WHO holds it -- the two panels answer the same question from opposite
-// ends.
-function syncRailHighlight() {
-  for (const row of document.querySelectorAll("[data-faction]")) {
-    const on =
-      highlight !== null &&
-      highlight.kind === "faction" &&
-      row.getAttribute("data-faction") === highlight.id
-    row.classList.toggle("lit", on)
-  }
-}
-
-// Region hover by DELEGATION on the map container rather than a listener per
-// badge. Leaflet owns those icon elements and may recreate them; mouseover and
-// mouseout bubble, so one pair of listeners on a node we own cannot go stale.
-const mapEl = document.getElementById("map")
-mapEl.addEventListener("mouseover", (e) => {
-  const el = e.target && e.target.closest && e.target.closest("[data-region]")
-  if (el) setHighlight("region", el.getAttribute("data-region"))
-})
-mapEl.addEventListener("mouseout", (e) => {
-  const el = e.target && e.target.closest && e.target.closest("[data-region]")
-  if (el) setHighlight(null)
-})
-
-// Hovering a player lights everything they hold; clicking flies to it.
-function zoomToFaction(id) {
-  const theirs = P.territories
-    .filter((t) => owner(t.id) === id)
-    .map((t) => layers[t.id])
-    .filter(Boolean)
-  if (!theirs.length) return
-  // Padded well past the holding itself: a faction's territories are the
-  // question, but the answer is usually who is next to them, and a bounds
-  // hugging their coastline shows the ground without the threat.
-  map.flyToBounds(L.featureGroup(theirs).getBounds(), {
-    padding: [70, 70],
-    duration: 0.5,
-  })
-}
-
-for (const row of document.querySelectorAll("[data-faction]")) {
-  const id = row.getAttribute("data-faction")
-  row.addEventListener("mouseenter", () => setHighlight("faction", id))
-  row.addEventListener("mouseleave", () => setHighlight(null))
-  row.addEventListener("click", () => zoomToFaction(id))
-  // Keyboard reaches the same states; the rows are focusable for this.
-  row.setAttribute("tabindex", "0")
-  row.setAttribute("role", "button")
-  row.addEventListener("focus", () => setHighlight("faction", id))
-  row.addEventListener("blur", () => setHighlight(null))
-  row.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); zoomToFaction(id) }
-  })
-}
-
-const lit = (id) =>
-  highlight !== null &&
-  (highlight.kind === "region"
-    ? byId[id] && byId[id].region === highlight.id
-    : owner(id) === highlight.id)
 
 function paint() {
   const front = []
@@ -526,6 +499,7 @@ map.options.zoomSnap = snapParam === null ? 0.25 : Number(snapParam)
 paint()
 updateCountVisibility()
 updateDetail()
+placeRegionBadges()
 
 // ---- acting ----------------------------------------------------------------
 function onTap(id) {
