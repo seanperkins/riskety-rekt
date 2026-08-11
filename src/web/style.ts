@@ -250,6 +250,35 @@ body {
   background: var(--accent); border-color: var(--accent); color: var(--ground);
   font-weight: 650;
 }
+/* Plan rows: the text, then the controls that change it. Every order is built
+   one soldier at a time, so minus and plus are the primary controls and the
+   remove is the escape hatch. */
+.prow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.pbtns { display: flex; gap: 2px; flex: none; }
+.prow button {
+  min-width: 20px; padding: 0 4px;
+  background: none; border: 1px solid var(--rule); border-radius: 3px;
+  color: var(--muted); cursor: pointer;
+  font: 600 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.prow button:hover, .prow button:focus-visible { color: var(--accent); border-color: var(--accent); }
+
+.chip:disabled { opacity: 0.45; cursor: default; }
+.chip:disabled:hover { border-color: var(--rule); color: var(--muted); }
+
+/* Attack arrows. The head is a CSS triangle rotated to the bearing, so it needs
+   no asset and scales with the text size rather than the map. */
+.arrow { pointer-events: auto; cursor: pointer; }
+.arrow-head {
+  display: block;
+  width: 0; height: 0;
+  margin: -5px 0 0 -5px;
+  border-left: 9px solid #ffd479;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  filter: drop-shadow(0 0 1px rgba(6, 14, 20, 0.9));
+}
+
 .hint { color: var(--muted); font-size: 12px; margin: 0 0 4px; }
 .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
 

@@ -88,6 +88,12 @@ function fakeLeaflet(): Record<string, unknown> {
       setView() {
         return this
       },
+      removeLayer() {
+        return this
+      },
+      addLayer() {
+        return this
+      },
       getZoom: () => 4,
       latLngToLayerPoint: () => ({ x: 0, y: 0 }),
     }),
@@ -135,8 +141,13 @@ describe("the client script", () => {
   it("runs to completion against a real projection", () => {
     const mapEl = element("map")
     const factionRow = element("row")
+    // Stable per id, so the wiring on a specific control can be asserted.
+    const byId = new Map<string, Record<string, unknown>>([["map", mapEl]])
     const doc = {
-      getElementById: (id: string) => (id === "map" ? mapEl : element()),
+      getElementById: (id: string) => {
+        if (!byId.has(id)) byId.set(id, element(id))
+        return byId.get(id)!
+      },
       querySelector: () => element(),
       querySelectorAll: (sel: string) => (sel.includes("data-faction") ? [factionRow] : [element()]),
       createElement: () => element(),
@@ -193,5 +204,15 @@ describe("the client script", () => {
     expect(rowEvents, "player rows highlight on hover").toContain("mouseenter")
     expect(rowEvents, "player rows fly to the faction on click").toContain("click")
     expect(rowEvents, "and are reachable by keyboard").toContain("keydown")
+
+    // The order pane and undo are the only way to take a tap back.
+    expect(
+      (byId.get("plan")?.["__events"] ?? []) as string[],
+      "the plan pane handles its own +/-/x buttons",
+    ).toContain("click")
+    expect(
+      (byId.get("btn-undo")?.["__events"] ?? []) as string[],
+      "undo is wired",
+    ).toContain("click")
   })
 })

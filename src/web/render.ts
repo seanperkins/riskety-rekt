@@ -326,8 +326,8 @@ export function renderBoard(p: Projection): string {
     <h2 class="h2">Selected</h2>
     <p class="hint"><span id="selected">nothing selected</span></p>
     <div class="chips">
-      <button id="btn-deploy" class="chip">Deploy</button>
       <button id="btn-protect" class="chip">Protect</button>
+      <button id="btn-undo" class="chip">Undo</button>
     </div>
     <p class="hint" id="flash"></p>
 

@@ -613,54 +613,167 @@ for (const row of document.querySelectorAll("[data-faction]")) {
 }
 
 // ---- acting ----------------------------------------------------------------
+//
+// One gesture, repeated: tap your own territory to select it, tap it again to
+// put a soldier there. Every tap is worth exactly ONE soldier, so a slip costs
+// one tap to undo rather than a re-typed number, and the plan pane carries a
+// minus next to every line.
+//
+// It replaced a window.prompt asking for a count. A prompt is a modal that
+// blocks the map you are deciding against, it cannot be undone, and on a phone
+// it covers the board entirely.
+//
+// Once the reserve is spent, selecting stops meaning "deploy here" and starts
+// meaning "attack from here": the arrows appear and the same second tap on a
+// neighbour commits one soldier to that attack.
+
+// Snapshot-based undo. The plan is small and flat, so storing whole copies is
+// simpler than inverting each kind of edit, and it cannot drift from the thing
+// it is undoing.
+const history = []
+const MAX_UNDO = 50
+
+function snapshot() {
+  history.push(JSON.stringify(plan))
+  if (history.length > MAX_UNDO) history.shift()
+}
+
+function undo() {
+  const prev = history.pop()
+  if (prev === undefined) return flash("Nothing to undo.")
+  plan = JSON.parse(prev)
+  save()
+  drawArrows()
+}
+
+/** Soldiers not yet committed. Attacks come from garrisons, not the reserve. */
+const unspent = () => P.reserve - spent()
+
+function deployTo(id) {
+  if (unspent() <= 0) return false
+  snapshot()
+  const existing = plan.deploys.find((d) => d.territory === id)
+  if (existing) existing.count += 1
+  else plan.deploys.push({ territory: id, count: 1 })
+  save()
+  return true
+}
+
+function attackFrom(from, to) {
+  snapshot()
+  const existing = plan.attacks.find((a) => a.from === from && a.to === to)
+  if (existing) existing.count += 1
+  else plan.attacks.push({ from: from, to: to, count: 1 })
+  save()
+}
+
 function onTap(id) {
   if (P.locked) return
+
   if (mine(id)) {
-    selected = selected === id ? null : id
-    paint()
-    render()
+    if (selected !== id) {
+      selected = id
+      paint()
+      drawArrows()
+      render()
+      return
+    }
+    // Tapping the selection again spends a soldier on it. With none left, the
+    // second tap is what reveals where they can go instead.
+    if (!deployTo(id)) {
+      flash("No soldiers left to deploy. Tap a neighbour to attack it.")
+      drawArrows()
+    }
     return
   }
-  // An enemy territory: attack it from the selected neighbour.
+
   if (!selected) return flash("Pick one of your territories first.")
-  if (!byId[selected].neighbors.includes(id)) return flash(nameOf(id) + " does not border " + nameOf(selected) + ".")
-  const max = Math.max(0, (P.garrisons[selected] ?? 0) - 1)
-  const n = ask("Attack " + nameOf(id) + " from " + nameOf(selected) + " with how many? (max " + max + ")", max)
-  if (n === null) return
-  plan.attacks.push({ from: selected, to: id, count: n })
-  save()
+  if (!byId[selected].neighbors.includes(id)) {
+    return flash(nameOf(id) + " does not border " + nameOf(selected) + ".")
+  }
+  attackFrom(selected, id)
 }
 
-function ask(label, suggested) {
-  const raw = window.prompt(label, String(suggested))
-  if (raw === null) return null
-  const n = Number(raw)
-  // The server decides legality. This only rejects what is not a number at all.
-  if (!Number.isFinite(n) || n <= 0) { flash("That is not a number of soldiers."); return null }
-  return Math.floor(n)
+// ---- attack arrows ----------------------------------------------------------
+// Shown once the reserve is spent, because that is when the question changes
+// from "where do these go" to "where do I send them". Each arrow points at a
+// neighbour you could attack; tapping one is the same as tapping the territory.
+const arrowLines = []
+const arrowMarks = []
+
+function clearArrows() {
+  for (const l of arrowLines) map.removeLayer(l)
+  for (const m of arrowMarks) map.removeLayer(m)
+  arrowLines.length = 0
+  arrowMarks.length = 0
 }
 
-function deploy() {
-  if (!selected) return flash("Pick one of your territories first.")
-  const n = ask("Deploy how many to " + nameOf(selected) + "? (reserve " + (P.reserve - spent()) + ")", 1)
-  if (n === null) return
-  const existing = plan.deploys.find((d) => d.territory === selected)
-  if (existing) existing.count += n
-  else plan.deploys.push({ territory: selected, count: n })
-  save()
+function drawArrows() {
+  clearArrows()
+  if (P.locked || !selected || unspent() > 0) return
+  const from = (P.labels || {})[selected] || P.centres[selected]
+  if (!from) return
+
+  for (const n of byId[selected].neighbors) {
+    if (mine(n)) continue
+    const to = (P.labels || {})[n] || P.centres[n]
+    if (!to) continue
+    // Stop short of the target so the head sits in open ground rather than on
+    // top of the garrison count it is pointing at.
+    const t = 0.72
+    const tip = { lat: from.lat + (to.lat - from.lat) * t, lon: from.lon + (to.lon - from.lon) * t }
+    const line = L.polyline([[from.lat, from.lon], [tip.lat, tip.lon]], {
+      pane: "highlight", color: "#ffd479", weight: 2.5, opacity: 0.95,
+    }).addTo(map)
+    line.on("click", () => onTap(n))
+    arrowLines.push(line)
+
+    const a = map.latLngToLayerPoint([from.lat, from.lon])
+    const b = map.latLngToLayerPoint([to.lat, to.lon])
+    const deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI
+    const mark = L.marker([tip.lat, tip.lon], {
+      pane: "highlight",
+      keyboard: false,
+      icon: L.divIcon({
+        className: "arrow",
+        html: '<span class="arrow-head" style="transform:rotate(' + deg.toFixed(1) + 'deg)"></span>',
+        iconSize: null,
+        iconAnchor: null,
+      }),
+    }).addTo(map)
+    const el = mark.getElement()
+    if (el) el.addEventListener("click", () => onTap(n))
+    arrowMarks.push(mark)
+  }
 }
 
 function protect() {
   if (!selected) return flash("Pick one of your territories first.")
+  snapshot()
   plan.protect = plan.protect === selected ? null : selected
   save()
 }
 
-function remove(kind, i) {
-  if (kind === "deploy") plan.deploys.splice(i, 1)
-  if (kind === "attack") plan.attacks.splice(i, 1)
-  if (kind === "protect") plan.protect = null
+/** Adjust one line of the plan by +1, -1, or remove it entirely. */
+function adjust(kind, i, delta) {
+  snapshot()
+  if (kind === "protect") {
+    plan.protect = null
+  } else {
+    const list = kind === "deploy" ? plan.deploys : plan.attacks
+    const entry = list[i]
+    if (!entry) return
+    if (delta === 0) list.splice(i, 1)
+    else {
+      // A deploy cannot grow past what is left in the reserve; an attack is the
+      // engine's business, as everything else here is.
+      if (delta > 0 && kind === "deploy" && unspent() <= 0) return flash("No soldiers left.")
+      entry.count += delta
+      if (entry.count <= 0) list.splice(i, 1)
+    }
+  }
   save()
+  drawArrows()
 }
 
 // ---- saving ----------------------------------------------------------------
@@ -669,6 +782,7 @@ function remove(kind, i) {
 let inflight = null
 function save() {
   render()
+  drawArrows()
   saveState = "saving"
   render()
   const body = JSON.stringify(plan)
@@ -710,10 +824,10 @@ function render() {
 
   const rows = []
   plan.deploys.forEach((d, i) =>
-    rows.push(row("deploy", i, "Deploy " + d.count + " to " + esc(nameOf(d.territory)))))
+    rows.push(row("deploy", i, "Deploy " + d.count + " to " + esc(nameOf(d.territory)), true)))
   plan.attacks.forEach((a, i) =>
-    rows.push(row("attack", i, "Attack " + esc(nameOf(a.to)) + " from " + esc(nameOf(a.from)) + " with " + a.count)))
-  if (plan.protect) rows.push(row("protect", 0, "Protect " + esc(nameOf(plan.protect))))
+    rows.push(row("attack", i, "Attack " + esc(nameOf(a.to)) + " from " + esc(nameOf(a.from)) + " with " + a.count, true)))
+  if (plan.protect) rows.push(row("protect", 0, "Protect " + esc(nameOf(plan.protect)), false))
   $("plan").innerHTML = rows.length ? rows.join("") : '<p class="hint">No orders yet. Tap one of your territories.</p>'
 
   const left = P.reserve - spent()
@@ -725,22 +839,29 @@ function render() {
   else if (saveState === "saving") { s.textContent = "saving…"; s.className = "save" }
   else { s.textContent = "NOT SAVED — " + saveState.slice(6); s.className = "save bad" }
 
-  $("selected").textContent = selected ? nameOf(selected) : "nothing selected"
+  $("selected").textContent = selected
+    ? nameOf(selected) + (left > 0 ? " — tap again to add a soldier" : " — tap a neighbour to attack")
+    : "nothing selected"
   $("flash").textContent = flashMsg
-  for (const b of ["deploy", "protect"]) $("btn-" + b).disabled = !selected || P.locked
+  $("btn-protect").disabled = !selected || P.locked
+  $("btn-undo").disabled = history.length === 0 || P.locked
 }
 
-function row(kind, i, text) {
-  return '<div class="prow"><span>' + text + '</span>' +
-    '<button data-kind="' + kind + '" data-i="' + i + '" aria-label="remove">×</button></div>'
+function row(kind, i, text, steppable) {
+  const btn = (delta, glyph, label) =>
+    '<button data-kind="' + kind + '" data-i="' + i + '" data-delta="' + delta +
+    '" aria-label="' + label + '">' + glyph + '</button>'
+  return '<div class="prow"><span>' + text + '</span><span class="pbtns">' +
+    (steppable ? btn(-1, "−", "one fewer") + btn(1, "+", "one more") : "") +
+    btn(0, "×", "remove") + '</span></div>'
 }
 
 $("plan").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-kind]")
-  if (b) remove(b.dataset.kind, Number(b.dataset.i))
+  if (b) adjust(b.dataset.kind, Number(b.dataset.i), Number(b.dataset.delta))
 })
-$("btn-deploy").addEventListener("click", deploy)
 $("btn-protect").addEventListener("click", protect)
+$("btn-undo").addEventListener("click", undo)
 
 P.loadedAt = Date.now()
 setInterval(() => { $("countdown").textContent = countdown() }, 30000)
