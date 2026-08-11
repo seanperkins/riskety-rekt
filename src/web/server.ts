@@ -1,5 +1,9 @@
 import { createServer } from "node:http"
 import type { Server } from "node:http"
+import { hashToken, newToken } from "../auth/token.js"
+import { tickInstant } from "../season.js"
+import { serializeSessionCookie } from "./session.js"
+import type { AuthStore, SeasonStore } from "../store/types.js"
 import { MAX_FACTIONS, MIN_FACTIONS } from "../config.js"
 import { COORDS } from "../map/coords.js"
 import { selectSubMap } from "../map/select.js"
@@ -9,6 +13,8 @@ import { esc, page, renderMap } from "./render.js"
 
 export interface WebDeps {
   port: number
+  store: AuthStore & SeasonStore
+  seasonId: string
   log?: (msg: string) => void
 }
 
@@ -96,6 +102,56 @@ export function createWebServer(deps: WebDeps): Server {
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, { "content-type": "text/plain; charset=utf-8", allow: "GET, HEAD" })
       res.end("method not allowed\n")
+      return
+    }
+
+    // Prefix route: the token is a path segment, so it cannot be a key in the
+    // exact-match table below.
+    if (path.startsWith("/login/")) {
+      const season = deps.store.season(deps.seasonId)
+      if (season === undefined) {
+        res.writeHead(500, { "content-type": "text/plain; charset=utf-8" })
+        res.end("no season\n")
+        return
+      }
+      const now = new Date()
+      // The session dies with the season, so nobody is bounced mid-week -- and
+      // a faction id means nothing in the next one anyway.
+      const seasonEnd = tickInstant(season, season.lengthDays)
+      const sessionToken = newToken()
+
+      const faction = deps.store.consumeLoginToken({
+        tokenHash: hashToken(path.slice("/login/".length)),
+        seasonId: deps.seasonId,
+        sessionHash: hashToken(sessionToken),
+        sessionExpiresAt: seasonEnd,
+        now,
+      })
+
+      if (faction === undefined) {
+        // Deliberately identical for expired, already-used and never-existed.
+        // Distinguishing them tells someone holding a stale link which kind of
+        // wrong it is, and helps nobody entitled to be here.
+        res.writeHead(401, { "content-type": "text/html; charset=utf-8" })
+        res.end(
+          page(
+            "Link expired",
+            `<div class="rail"><h1 class="title">That link is no longer good</h1>
+             <p class="sub">Links last ten minutes and work once.
+             Run <code>/login</code> in Slack for a fresh one.</p></div>`,
+          ),
+        )
+        return
+      }
+
+      log(`login: session created for ${faction}`)
+      // 303 rather than 200, so refreshing the landing page does not re-submit
+      // a token that has already been consumed.
+      res.writeHead(303, {
+        location: "/",
+        "set-cookie": serializeSessionCookie(sessionToken, seasonEnd),
+      })
+      res.end()
       return
     }
 

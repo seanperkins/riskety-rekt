@@ -1,10 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import type { AddressInfo } from "node:net"
 import type { Server } from "node:http"
+import { hashToken, newToken } from "../auth/token.js"
+import { openStore } from "../store/sqlite.js"
 import { createWebServer } from "./server.js"
 
 let server: Server
 let base: string
+let store: ReturnType<typeof openStore>
 
 /**
  * A real server on an ephemeral port. `test/no-network.ts` replaces global
@@ -12,13 +15,16 @@ let base: string
  * is to exercise the server, not to reach the network.
  */
 beforeAll(async () => {
-  server = createWebServer({ port: 0 })
+  store = openStore(":memory:")
+  store.upsertSeason({ seasonId: "s1", startDate: "2026-09-01", lengthDays: 14 })
+  server = createWebServer({ port: 0, store, seasonId: "s1" })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 })
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()))
+  store.close()
 })
 
 async function request(
@@ -190,5 +196,50 @@ describe("board selection", () => {
     const absent = ["oceania", "caribbean", "cape", "insulindia"].find((r) => !dealt.has(r))
     expect(absent, "expected some region to be off a 4-faction board").toBeDefined()
     expect((await request(`/map?factions=4&seed=4711&region=${absent!}`)).status).toBe(404)
+  })
+})
+
+describe("login", () => {
+  it("401s an unknown, expired or reused token identically", async () => {
+    // The same page for every kind of wrong: telling someone holding a stale
+    // link which kind it is helps nobody entitled to be here.
+    for (const t of ["nope", "aaaaaaaaaaaaaaaaaaaaaaaa"]) {
+      const res = await request(`/login/${t}`)
+      expect(res.status, t).toBe(401)
+      expect(res.body, t).toContain("no longer good")
+    }
+  })
+
+  it("does not set a cookie when the token is refused", async () => {
+    expect((await request("/login/nope")).headers["set-cookie"]).toBeUndefined()
+  })
+
+  it("issues a session cookie and redirects for a good token", async () => {
+    const raw = newToken()
+    store.mintLoginToken({
+      slackUserId: "U1",
+      factionId: "f1",
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + 600_000),
+    })
+    const res = await request(`/login/${raw}`)
+    expect(res.status).toBe(303)
+    expect(res.headers["location"]).toBe("/")
+    const cookie = String(res.headers["set-cookie"])
+    expect(cookie).toContain("rr_session=")
+    expect(cookie).toContain("HttpOnly")
+    expect(cookie).toContain("SameSite=Lax")
+  })
+
+  it("refuses the same link twice", async () => {
+    const raw = newToken()
+    store.mintLoginToken({
+      slackUserId: "U2",
+      factionId: "f2",
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + 600_000),
+    })
+    expect((await request(`/login/${raw}`)).status).toBe(303)
+    expect((await request(`/login/${raw}`)).status).toBe(401)
   })
 })
