@@ -46,10 +46,22 @@ const spent = () =>
 // the area needed -- the board filled barely half the container with grey
 // backdrop around it. Fractional zoom is only a problem for raster tiles, which
 // have a native resolution to be blurred away from; this map is vector.
+// Two knobs, both overridable by query string so they can be compared without
+// a redeploy:
+//
+//   ?zoomanim=0   zoom jumps straight to the new scale instead of tweening
+//   ?zoomsnap=N   0 is continuous, 1 is Leaflet's default (see below)
+//
+// zoomAnimation tweens each step over 250ms. A trackpad emits a continuous
+// stream, so every new step INTERRUPTS the running tween -- Leaflet stops it,
+// re-projects, and starts another. Off, each step is one instant re-projection
+// and the map keeps up with the gesture.
+const params = new URLSearchParams(location.search)
 const map = L.map("map", {
   zoomControl: true,
   attributionControl: false,
   worldCopyJump: false,
+  zoomAnimation: params.get("zoomanim") !== "0",
   // zoomSnap 0 ONLY for the opening fitBounds -- see below, where it is put
   // back. Left at 0, every wheel notch is a distinct fractional zoom, so a
   // trackpad's continuous stream starts a fresh animated zoom cycle every few
@@ -494,7 +506,7 @@ else map.setView([20, 0], 2)
 //
 // Override with ?zoomsnap=N to compare: 0 is the old continuous behaviour, 1
 // is Leaflet's default.
-const snapParam = new URLSearchParams(location.search).get("zoomsnap")
+const snapParam = params.get("zoomsnap")
 map.options.zoomSnap = snapParam === null ? 0.25 : Number(snapParam)
 paint()
 updateCountVisibility()
