@@ -8,7 +8,9 @@ import {
 } from "../engine/index.js"
 import { SEASON_LENGTH } from "../config.js"
 import { POLICIES } from "./policies.js"
-import { makeRng, type Rng } from "../rng.js"
+import { makeRng, shuffle, type Rng } from "../rng.js"
+import { selectSubMap } from "../map/select.js"
+import { WORLD } from "../map/world.js"
 import type {
   ApprovedAction,
   DailyContext,
@@ -22,6 +24,8 @@ import type {
 
 export interface SeasonResult {
   days: number
+  /** Size of the board this season was dealt. Varies: the board is selected. */
+  territories: number
   winner: string
   finalTerritories: Record<string, number>
   finalReserves: Record<string, number>
@@ -30,20 +34,11 @@ export interface SeasonResult {
 
 export interface Report {
   seasons: number
+  /** Mean board size across the run. The board is selected, so it varies. */
+  meanTerritories: number
   wins: Record<string, number>
   day3LeaderWinRate: number
   meanFinalTerritories: Record<string, number>
-}
-
-function shuffled(rng: Rng): string[] {
-  const a = RISK_MAP.territories.map((t) => t.id)
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1))
-    const tmp = a[i]!
-    a[i] = a[j]!
-    a[j] = tmp
-  }
-  return a
 }
 
 function makeSlate(day: number, rng: Rng): Market[] {
@@ -68,7 +63,21 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
   })
   const factions: Faction[] = policyNames.map((n) => ({ id: n, playerName: n, color: "#000" }))
 
-  let state = createSeason(`sim-${seed}`, factions, shuffled(rng))
+  // The board is SELECTED, exactly as season-init selects it, and from one rng
+  // in the same order. Measuring balance on RISK_MAP while every real season
+  // plays a selected sub-map is the same defect as SEASON_DAYS versus
+  // SEASON_LENGTH: two things that drift apart until the measurement describes
+  // a game nobody plays.
+  const map = selectSubMap(WORLD, policyNames.length, rng)
+  let state = createSeason(
+    `sim-${seed}`,
+    factions,
+    shuffle(
+      map.territories.map((t) => t.id),
+      rng,
+    ),
+    map,
+  )
   let day3Leader = policyNames[0]!
 
   for (let day = 1; day <= SEASON_LENGTH; day++) {
@@ -138,6 +147,7 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
 
   return {
     days: SEASON_LENGTH,
+    territories: map.territories.length,
     winner,
     finalTerritories,
     finalReserves: Object.fromEntries(policyNames.map((n) => [n, state.reserves[n] ?? 0])),
@@ -149,16 +159,19 @@ export function runMany(policyNames: string[], seasons: number): Report {
   const wins: Record<string, number> = Object.fromEntries(policyNames.map((n) => [n, 0]))
   const totals: Record<string, number> = Object.fromEntries(policyNames.map((n) => [n, 0]))
   let day3Converted = 0
+  let territories = 0
 
   for (let i = 0; i < seasons; i++) {
     const r = runSeason(policyNames, i + 1)
     wins[r.winner] = (wins[r.winner] ?? 0) + 1
     for (const n of policyNames) totals[n] = totals[n]! + r.finalTerritories[n]!
     if (r.day3Leader === r.winner) day3Converted++
+    territories += r.territories
   }
 
   return {
     seasons,
+    meanTerritories: territories / seasons,
     wins,
     day3LeaderWinRate: day3Converted / seasons,
     meanFinalTerritories: Object.fromEntries(

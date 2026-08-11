@@ -1,5 +1,13 @@
-import { RISK_MAP, cmp, territoriesOf } from "../engine/index.js"
-import type { FactionId, GameState, Market, Order, TerritoryId } from "../engine/index.js"
+import { cmp, territoriesOf } from "../engine/index.js"
+import type {
+  FactionId,
+  GameMap,
+  GameState,
+  Market,
+  Order,
+  Territory,
+  TerritoryId,
+} from "../engine/index.js"
 import type { Rng } from "../rng.js"
 
 // Re-exported so existing importers keep working; the source of truth is
@@ -13,7 +21,29 @@ export interface Policy {
   decide(state: GameState, factionId: FactionId, slate: Market[], rng: Rng): Order
 }
 
-const byId = new Map(RISK_MAP.territories.map((t) => [t.id, t]))
+/**
+ * Territory lookup for a state's OWN map, cached per map object.
+ *
+ * This used to be a single module-level index built from `RISK_MAP`, with
+ * `byId.get(x)!` at four call sites — so every lookup threw on any board that
+ * was not the classic one. Seven of the eight policies died on the first
+ * selected sub-map with "Cannot read properties of undefined".
+ *
+ * Keyed by the map OBJECT rather than by id: `resolve` spreads the state
+ * forward, so one season shares one `GameMap` reference and the index is built
+ * once per season rather than once per decision. A WeakMap so a finished
+ * season's index is collectable — the simulator runs two thousand of them.
+ */
+const indexes = new WeakMap<GameMap, Map<TerritoryId, Territory>>()
+
+function territoryIndex(map: GameMap): Map<TerritoryId, Territory> {
+  let index = indexes.get(map)
+  if (index === undefined) {
+    index = new Map(map.territories.map((t) => [t.id, t]))
+    indexes.set(map, index)
+  }
+  return index
+}
 
 const empty = (factionId: FactionId): Order => ({
   factionId,
@@ -26,6 +56,7 @@ const empty = (factionId: FactionId): Order => ({
 /** Owned territories that touch an enemy, paired with each enemy neighbour. */
 function borders(state: GameState, f: FactionId): { from: TerritoryId; to: TerritoryId }[] {
   const out: { from: TerritoryId; to: TerritoryId }[] = []
+  const byId = territoryIndex(state.map)
   for (const t of territoriesOf(state, f)) {
     for (const n of byId.get(t)!.neighbors) {
       if (state.ownership[n] !== f) out.push({ from: t, to: n })
@@ -159,6 +190,7 @@ export const POLICIES: Policy[] = [
           const held = members.filter((t) => mine.has(t.id)).length
           if (held > 0 && held < members.length) progress.set(c.id, held / members.length)
         }
+        const byId = territoryIndex(s.map)
         const best = viableAttacks(s, f, g).sort((a, b) => {
           const pa = progress.get(byId.get(a.to)!.region) ?? 0
           const pb = progress.get(byId.get(b.to)!.region) ?? 0
@@ -280,7 +312,7 @@ export const POLICIES: Policy[] = [
       if (from) {
         // 2. Over-commit: full-strength attack down every border edge at once.
         const g = s.garrisons[from] ?? 0
-        order.attacks = byId
+        order.attacks = territoryIndex(s.map)
           .get(from)!
           .neighbors.filter((n) => s.ownership[n] !== f)
           .map((to) => ({ from, to, count: Math.max(0, g - 1) }))

@@ -88,8 +88,14 @@ export function selectSubMap(world: GameMap, factionCount: number, rng: Rng): Ga
   for (const t of world.territories) members.get(t.region)?.push(t)
 
   const sizeOf = (id: RegionId): number => members.get(id)?.length ?? 0
-  const centreOf = (id: RegionId): LatLon =>
-    centroidOf((members.get(id) ?? []).map((t) => t.id))
+
+  // Region centroids are constant, and the walk compares them on every step
+  // against every candidate. Recomputing them made the 2,000-season balance run
+  // take 8.4s instead of 2s.
+  const centres = new Map<RegionId, LatLon>(
+    world.regions.map((r) => [r.id, centroidOf((members.get(r.id) ?? []).map((t) => t.id))]),
+  )
+  const centreOf = (id: RegionId): LatLon => centres.get(id) ?? { lat: 0, lon: 0 }
 
   // Region adjacency, derived from borders rather than stored. A second source
   // of truth could drift from the territory records.
@@ -109,6 +115,17 @@ export function selectSubMap(world: GameMap, factionCount: number, rng: Rng): Ga
     const first = starts[Math.floor(rng() * starts.length)]!
     const picked = new Set<RegionId>([first])
     let size = sizeOf(first)
+    // Running sums, so the board's centre is O(1) per step rather than a fresh
+    // pass over every territory picked so far.
+    let sumLat = 0
+    let sumLon = 0
+    for (const t of members.get(first) ?? []) {
+      const c = COORDS[t.id]
+      if (c !== undefined) {
+        sumLat += c.lat
+        sumLon += c.lon
+      }
+    }
 
     // Two different reasons to keep walking, and conflating them was a bug:
     // stopping the moment `size >= lo` parks every board at the FLOOR of the
@@ -149,7 +166,7 @@ export function selectSubMap(world: GameMap, factionCount: number, rng: Rng): Ga
       const list = [...candidates].sort((a, b) => (a < b ? -1 : 1))
       const fit = (c: RegionId): number => Math.abs(size + sizeOf(c) - target)
       const best = Math.min(...list.map(fit))
-      const centre = centroidOf([...picked].flatMap((r) => (members.get(r) ?? []).map((t) => t.id)))
+      const centre: LatLon = { lat: sumLat / size, lon: sumLon / size }
       const pool = list
         .filter((c) => fit(c) <= best + SIZE_SLACK)
         .sort((a, b) => distanceKm(centreOf(a), centre) - distanceKm(centreOf(b), centre))
@@ -157,6 +174,13 @@ export function selectSubMap(world: GameMap, factionCount: number, rng: Rng): Ga
       const chosen = nearer[Math.floor(rng() * nearer.length)]!
       picked.add(chosen)
       size += sizeOf(chosen)
+      for (const t of members.get(chosen) ?? []) {
+        const c = COORDS[t.id]
+        if (c !== undefined) {
+          sumLat += c.lat
+          sumLon += c.lon
+        }
+      }
     }
 
     if (size >= lo && size <= hi && picked.size >= MIN_REGIONS) {

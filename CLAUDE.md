@@ -10,7 +10,7 @@ npm test -- src/engine/combat.test.ts     # a single file
 npm test -- -t "largest surviving force"  # a single test by name
 npm run test:watch
 npm run typecheck                         # tsc --noEmit
-npm run sim                               # 2,000-season balance run, ~2s
+npm run sim                               # 2,000-season balance run, ~7s
 npm run sim -- Slacker Blitz GymRat       # custom policy roster
 npm run sample:kalshi                     # re-derive VOLUME_FLOOR from live data (hits the network)
 ```

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { SEASON_LENGTH } from "../config.js"
+import { checkDeal } from "../season.js"
 import { runMany, runSeason } from "./run.js"
 
 const four = ["Turtle", "Blitz", "GymRat", "Slacker"]
@@ -24,9 +25,19 @@ describe("runSeason", () => {
     expect(Object.values(r.finalReserves).every((v) => v >= 0)).toBe(true)
   })
 
-  it("still accounts for all 42 territories at season end", () => {
+  it("still accounts for every territory at season end", () => {
+    // Conservation. Deliberately NOT a constant: the board is selected, so its
+    // size varies with the roster and the seed, and a hardcoded 42 was really
+    // asserting "this is RISK_MAP" rather than "nothing was lost".
     const r = runSeason(four, 3)
-    expect(Object.values(r.finalTerritories).reduce((a, b) => a + b, 0)).toBe(42)
+    expect(Object.values(r.finalTerritories).reduce((a, b) => a + b, 0)).toBe(r.territories)
+  })
+
+  it("deals a board sized to the roster", () => {
+    for (const seed of [1, 2, 3]) {
+      const r = runSeason(four, seed)
+      expect(checkDeal(four.length, r.territories), `seed ${seed}`).toBeNull()
+    }
   })
 
   it("rejects an unknown policy name loudly", () => {
