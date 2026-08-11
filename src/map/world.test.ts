@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { REGION_MAX, REGION_MIN } from "../config.js"
+import { readFileSync } from "node:fs"
 import { COORDS } from "./coords.js"
+import { SHAPES } from "./shapes.js"
 import { validateMap } from "./validate.js"
 import { WORLD } from "./world.js"
 
@@ -22,6 +24,32 @@ const LONG_LINKS = new Set<string>(
     "greenland|nunavut",
   ].map((k) => k.split("|").sort().join("|")),
 )
+
+/**
+ * Sea links, read out of the source so the list cannot drift from the data.
+ * A land border must be between shapes that nearly touch; a sea link may not.
+ */
+const SEA_LINKS = new Set(
+  [...readFileSync(new URL("./world.ts", import.meta.url), "utf8").matchAll(
+    /\["([a-z_]+)", "([a-z_]+)"\]/g,
+  )].map((m) => [m[1]!, m[2]!].sort().join("|")),
+)
+
+/** Smallest distance between any two vertices of two territories, in degrees. */
+function shapeGap(a: string, b: string): number {
+  let best = Infinity
+  for (const ra of SHAPES[a] ?? []) {
+    for (const pa of ra) {
+      for (const rb of SHAPES[b] ?? []) {
+        for (const pb of rb) {
+          const d = Math.hypot(pa[0] - pb[0], pa[1] - pb[1])
+          if (d < best) best = d
+        }
+      }
+    }
+  }
+  return best
+}
 
 describe("WORLD", () => {
   it("is structurally valid", () => {
@@ -100,6 +128,30 @@ describe("WORLD", () => {
       expect(c.lat, id).toBeLessThanOrEqual(90)
       expect(c.lon, id).toBeGreaterThanOrEqual(-180)
       expect(c.lon, id).toBeLessThanOrEqual(180)
+    }
+  })
+
+  it("puts every LAND border between shapes that are actually close", () => {
+    // The geographic audit, and the only one that can be automated. Symmetry
+    // and connectivity say nothing about whether a border is real, but two
+    // territories that share a land border have polygons that nearly touch --
+    // so a large gap is a border somebody invented.
+    //
+    // It found two: carolinas|texas, with Georgia, Alabama, Mississippi and
+    // Louisiana between them, and gulf_states|kuwait, which is across the
+    // Persian Gulf and is now a sea link.
+    //
+    // The threshold is loose because Voronoi-carved territories have
+    // approximate internal borders by design, and Natural Earth at 110m
+    // renders small countries crudely -- Djibouti and Somalia really do meet.
+    const seen = new Set<string>()
+    for (const t of WORLD.territories) {
+      for (const n of t.neighbors) {
+        const key = [t.id, n].sort().join("|")
+        if (seen.has(key) || SEA_LINKS.has(key)) continue
+        seen.add(key)
+        expect(shapeGap(t.id, n), `${key} is a land border but the shapes are far apart`).toBeLessThan(6)
+      }
     }
   })
 

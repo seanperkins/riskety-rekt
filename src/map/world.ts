@@ -226,8 +226,8 @@ const EUROPE: Spec[] = [
   // ---- Arabia ----
   { id: "hejaz", name: "Hejaz", region: "arabia", borders: ["najd", "yemen"], lat: 22.0, lon: 40.0 },
   { id: "najd", name: "Najd", region: "arabia", borders: ["hejaz", "jordan", "iraq", "kuwait", "gulf_states", "oman", "yemen"], lat: 24.5, lon: 45.5 },
-  { id: "kuwait", name: "Kuwait", region: "arabia", borders: ["iraq", "najd", "gulf_states"], lat: 29.3, lon: 47.6 },
-  { id: "gulf_states", name: "The Gulf States", region: "arabia", borders: ["najd", "kuwait", "oman"], lat: 24.3, lon: 52.5 },
+  { id: "kuwait", name: "Kuwait", region: "arabia", borders: ["iraq", "najd"], lat: 29.3, lon: 47.6 },
+  { id: "gulf_states", name: "The Gulf States", region: "arabia", borders: ["najd", "oman"], lat: 24.3, lon: 52.5 },
   { id: "oman", name: "Oman", region: "arabia", borders: ["gulf_states", "najd", "yemen"], lat: 21.0, lon: 56.5 },
   { id: "yemen", name: "Yemen", region: "arabia", borders: ["hejaz", "najd", "oman"], lat: 15.5, lon: 47.6 },
 ]
@@ -350,14 +350,14 @@ const AMERICAS: Spec[] = [
   { id: "dakotas", name: "The Dakotas", region: "usa_central", borders: ["saskatchewan", "rockies", "nebraska", "great_lakes_us"], lat: 45.0, lon: -100.0 },
   { id: "nebraska", name: "Nebraska", region: "usa_central", borders: ["dakotas", "rockies", "missouri", "texas"], lat: 41.5, lon: -99.9 },
   { id: "missouri", name: "Missouri", region: "usa_central", borders: ["nebraska", "great_lakes_us", "texas", "appalachia"], lat: 38.5, lon: -92.5 },
-  { id: "texas", name: "Texas", region: "usa_central", borders: ["southwest", "rockies", "nebraska", "missouri", "carolinas", "sonora", "central_mexico"], lat: 31.5, lon: -99.3 },
+  { id: "texas", name: "Texas", region: "usa_central", borders: ["southwest", "rockies", "nebraska", "missouri", "sonora", "central_mexico"], lat: 31.5, lon: -99.3 },
   { id: "great_lakes_us", name: "The Great Lakes", region: "usa_central", borders: ["ontario", "dakotas", "missouri", "appalachia", "mid_atlantic"], lat: 43.5, lon: -85.5 },
 
   // ---- The American East ----
   { id: "new_england", name: "New England", region: "usa_east", borders: ["quebec", "maritimes", "mid_atlantic"], lat: 43.5, lon: -71.5 },
   { id: "mid_atlantic", name: "The Mid-Atlantic", region: "usa_east", borders: ["new_england", "great_lakes_us", "appalachia"], lat: 40.3, lon: -76.5 },
   { id: "appalachia", name: "Appalachia", region: "usa_east", borders: ["mid_atlantic", "great_lakes_us", "missouri", "carolinas"], lat: 37.5, lon: -81.5 },
-  { id: "carolinas", name: "The Carolinas", region: "usa_east", borders: ["appalachia", "texas", "florida"], lat: 34.5, lon: -79.5 },
+  { id: "carolinas", name: "The Carolinas", region: "usa_east", borders: ["appalachia", "florida"], lat: 34.5, lon: -79.5 },
   { id: "florida", name: "Florida", region: "usa_east", borders: ["carolinas"], lat: 28.5, lon: -82.0 },
 
   // ---- Mexico ----
@@ -506,6 +506,7 @@ const SEA_LINKS: [string, string][] = [
   ["fiji", "new_caledonia"], // the Koro Sea
   ["new_caledonia", "new_guinea"], // the Coral Sea, north -- keeps Oceania whole
   ["new_zealand", "fiji"], // the South Pacific -- keeps Oceania whole
+  ["gulf_states", "kuwait"], // the Persian Gulf -- not a land border
   ["kamchatka", "alaska"], // the Bering Strait -- Asia to the Americas, as in classic Risk
   ["greenland", "nunavut"], // the Nares Strait
   ["greenland", "iceland"], // the Denmark Strait -- the Americas to Europe
