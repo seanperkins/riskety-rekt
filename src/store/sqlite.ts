@@ -110,6 +110,7 @@ function parseBody(json: string, factionId: string): OrderBody {
     raw === null ||
     !Array.isArray(body.deploys) ||
     !Array.isArray(body.attacks) ||
+    !(body.moves === undefined || Array.isArray(body.moves)) ||
     !(body.protect === null || typeof body.protect === "string")
   ) {
     throw new Error(`orders row for ${factionId} is not an order body: ${json}`)
@@ -678,6 +679,7 @@ export function openStore(
         const order = orderFor(row.faction_id)
         order.deploys = body.deploys
         order.attacks = body.attacks
+        if (body.moves !== undefined) order.moves = body.moves
         order.protect = body.protect
       }
       for (const row of wagers) {

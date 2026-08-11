@@ -163,6 +163,8 @@ export interface WagerInput {
 export interface OrderBody {
   deploys: { territory: TerritoryId; count: number }[]
   attacks: { from: TerritoryId; to: TerritoryId; count: number }[]
+  /** Absent in bodies saved before moves existed; read as empty. */
+  moves?: { from: TerritoryId; to: TerritoryId; count: number }[]
   protect: TerritoryId | null
 }
 

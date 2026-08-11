@@ -51,9 +51,42 @@ export function validateOrder(
   const postDeploy: Record<TerritoryId, number> = { ...state.garrisons }
   for (const d of deploys) postDeploy[d.territory] = (postDeploy[d.territory] ?? 0) + d.count
 
+  // Moves: owned origin, owned adjacent target. They share the attacker's
+  // per-origin cap through the same `committed` ledger, and validate FIRST --
+  // when an origin is over-committed, the reinforcement survives and the
+  // attack is what dies, because a rejected defence loses ground already held
+  // while a rejected attack merely fails to gain some.
+  const moves: NonNullable<Order["moves"]> = []
+  const committed: Record<TerritoryId, number> = {}
+  for (const m of order.moves ?? []) {
+    if (!isCount(m.count) || m.count === 0) {
+      reject("moves", `bad count ${m.from} -> ${m.to}`)
+      continue
+    }
+    if (state.ownership[m.from] !== f) {
+      reject("moves", `does not own ${m.from}`)
+      continue
+    }
+    if (state.ownership[m.to] !== f) {
+      reject("moves", `${m.to} is not yours to reinforce`)
+      continue
+    }
+    if (!byId.get(m.from)?.neighbors.includes(m.to)) {
+      reject("moves", `${m.to} is not adjacent to ${m.from}`)
+      continue
+    }
+    const cap = Math.max(0, (postDeploy[m.from] ?? 0) - 1)
+    const used = committed[m.from] ?? 0
+    if (used + m.count > cap) {
+      reject("moves", `exceeds garrison cap at ${m.from}`)
+      continue
+    }
+    committed[m.from] = used + m.count
+    moves.push(m)
+  }
+
   // Attacks: owned origin, adjacent enemy target, aggregate per origin <= garrison - 1.
   const attacks: Order["attacks"] = []
-  const committed: Record<TerritoryId, number> = {}
   for (const a of order.attacks) {
     if (!isCount(a.count) || a.count === 0) {
       reject("attacks", `bad count ${a.from} -> ${a.to}`)
@@ -124,5 +157,5 @@ export function validateOrder(
     }
   }
 
-  return { clean: { factionId: f, deploys, attacks, wagers, protect }, rejections }
+  return { clean: { factionId: f, deploys, attacks, moves, wagers, protect }, rejections }
 }

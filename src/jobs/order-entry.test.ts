@@ -16,12 +16,13 @@ describe("parseOrderBody", () => {
     ).toEqual({
       deploys: [{ territory: "alaska", count: 3 }],
       attacks: [{ from: "alaska", to: "alberta", count: 2 }],
+      moves: [],
       protect: "peru",
     })
   })
 
   it("fills in absent arrays and a null protect", () => {
-    expect(order({})).toEqual({ deploys: [], attacks: [], protect: null })
+    expect(order({})).toEqual({ deploys: [], attacks: [], moves: [], protect: null })
   })
 
   it("rejects an unknown field rather than ignoring it", () => {

@@ -65,7 +65,7 @@ export function parseOrderBody(json: string, opts: ParseOrderOptions): OrderBody
     return bad(`not valid JSON: ${err instanceof Error ? err.message : String(err)}`)
   }
   const obj = object(raw, "order")
-  only(obj, ["deploys", "attacks", "protect"], "order")
+  only(obj, ["deploys", "attacks", "moves", "protect"], "order")
 
   const deploys = array(obj["deploys"], "deploys", opts.territoryCount).map((d, i) => {
     const e = object(d, `deploys[${i}]`)
@@ -89,13 +89,26 @@ export function parseOrderBody(json: string, opts: ParseOrderOptions): OrderBody
     return { from: e["from"] as string, to: e["to"] as string, count: e["count"] as number }
   })
 
+  // Absent is fine -- clients and files from before moves existed omit it.
+  const moves = array(obj["moves"] ?? [], "moves", opts.territoryCount).map((m, i) => {
+    const e = object(m, `moves[${i}]`)
+    only(e, ["from", "to", "count"], `moves[${i}]`)
+    for (const key of ["from", "to"]) {
+      if (typeof e[key] !== "string" || e[key] === "") {
+        bad(`moves[${i}].${key} must be a non-empty string`)
+      }
+    }
+    if (!isCount(e["count"])) bad(`moves[${i}].count must be an integer`)
+    return { from: e["from"] as string, to: e["to"] as string, count: e["count"] as number }
+  })
+
   const protectRaw = obj["protect"]
   if (protectRaw !== undefined && protectRaw !== null && typeof protectRaw !== "string") {
     bad("protect must be a territory id or null")
   }
   const protect = typeof protectRaw === "string" && protectRaw !== "" ? protectRaw : null
 
-  return { deploys, attacks, protect }
+  return { deploys, attacks, moves, protect }
 }
 
 /**

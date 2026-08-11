@@ -114,6 +114,16 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
     )
   }
 
+  const movesEv = of("move")
+  if (movesEv.length > 0) {
+    blocks.push(
+      section(
+        "Movements",
+        movesEv.map((e) => `${nameOf(e.faction)} moved ${e.count} from ${place(e.from)} to ${place(e.to)}`),
+      ),
+    )
+  }
+
   const field = of("fieldBattle")
   if (field.length > 0) {
     blocks.push(

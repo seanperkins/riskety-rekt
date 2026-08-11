@@ -87,6 +87,24 @@ export interface Attack {
   count: number
 }
 
+/**
+ * A reinforcement between two OWNED, adjacent territories.
+ *
+ * Movers arrive BEFORE combat resolves, defend the destination that same
+ * night, and can die doing it. That was a design choice, not an accident of
+ * ordering: the alternative -- arrival after combat, as pure logistics -- was
+ * considered and declined because "send help" is what a move means to the
+ * person giving the order.
+ *
+ * Moves share the attacker's per-origin cap: attacks plus moves out of one
+ * territory total at most its post-deploy garrison minus one.
+ */
+export interface Move {
+  from: TerritoryId
+  to: TerritoryId
+  count: number
+}
+
 export interface WagerOrder {
   marketId: MarketId
   side: WagerSide
@@ -108,6 +126,8 @@ export interface Order {
   factionId: FactionId
   deploys: Deploy[]
   attacks: Attack[]
+  /** Absent in orders saved before moves existed; treated as empty. */
+  moves?: Move[]
   wagers: WagerOrder[]
   protect: TerritoryId | null
 }
@@ -116,6 +136,7 @@ export type TickEvent =
   | { t: "income"; faction: FactionId; amount: number }
   | { t: "irl"; faction: FactionId; actions: number; bonus: number }
   | { t: "deploy"; faction: FactionId; territory: TerritoryId; count: number }
+  | { t: "move"; faction: FactionId; from: TerritoryId; to: TerritoryId; count: number }
   | { t: "fieldBattle"; a: TerritoryId; b: TerritoryId; aContinues: number; bContinues: number }
   | { t: "protected"; territory: TerritoryId; byCount: number }
   | {

@@ -21,9 +21,10 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;"
 // ---- state -----------------------------------------------------------------
 // The plan is the order. saveOrder replaces the whole body, so there is no
 // merge and no partial state to reconcile.
-let plan = { deploys: [], attacks: [], protect: P.plan.protect ?? null }
+let plan = { deploys: [], attacks: [], moves: [], protect: P.plan.protect ?? null }
 plan.deploys = P.plan.deploys.map((d) => ({ ...d }))
 plan.attacks = P.plan.attacks.map((a) => ({ ...a }))
+plan.moves = (P.plan.moves || []).map((m) => ({ ...m }))
 let selected = null
 // A transient hover highlight: {kind: "region"|"faction", id}. Distinct from
 // 'selected', which is an ORDER target and survives the pointer leaving.
@@ -205,8 +206,12 @@ for (const t of P.territories) {
 function plannedGarrison(id) {
   const base = P.garrisons[id] ?? 0
   if (!mine(id)) return base
-  const inbound = plan.deploys.filter((d) => d.territory === id).reduce((n, d) => n + d.count, 0)
-  const outbound = plan.attacks.filter((a) => a.from === id).reduce((n, a) => n + a.count, 0)
+  const inbound =
+    plan.deploys.filter((d) => d.territory === id).reduce((n, d) => n + d.count, 0) +
+    plan.moves.filter((m) => m.to === id).reduce((n, m) => n + m.count, 0)
+  const outbound =
+    plan.attacks.filter((a) => a.from === id).reduce((n, a) => n + a.count, 0) +
+    plan.moves.filter((m) => m.from === id).reduce((n, m) => n + m.count, 0)
   return base + inbound - outbound
 }
 
@@ -679,6 +684,7 @@ function undo() {
   const prev = history.pop()
   if (prev === undefined) return flash("Nothing to undo.")
   plan = JSON.parse(prev)
+  if (!plan.moves) plan.moves = []
   save()
   drawArrows()
 }
@@ -705,6 +711,32 @@ function deployTo(id) {
 // without changing anything.
 let atkPending = null
 
+function openMove(from, to) {
+  const el = $("atk")
+  if (!el) return
+  atkPending = { from: from, to: to, kind: "move" }
+  const max = originCap(from, to)
+  const existing = plan.moves.find((m) => m.from === from && m.to === to)
+  if (max <= 0 && !existing) {
+    atkPending = null
+    return flash("Nothing left in " + nameOf(from) + " to send.")
+  }
+  const slider = $("atk-slider")
+  slider.max = String(Math.max(max, existing ? existing.count : 0))
+  slider.min = existing ? "0" : "1"
+  slider.value = String(existing ? existing.count : Math.min(1, max))
+  $("atk-from").textContent = nameOf(from)
+  $("atk-from-g").textContent = plannedGarrison(from) + " there"
+  $("atk-to").textContent = nameOf(to)
+  $("atk-to-g").textContent = plannedGarrison(to) + " there"
+  $("atk-n").textContent = slider.value
+  $("atk-need").hidden = true
+  $("atk-select").hidden = false
+  paintVerdict()
+  el.hidden = false
+  slider.focus()
+}
+
 // What an origin can still send at TARGET, mirroring the engine's own rule:
 // the aggregate of attacks from one origin is capped at its POST-DEPLOY
 // garrison minus one, so tonight's deploys into a launch point raise the
@@ -721,15 +753,19 @@ function originCap(from, target) {
   const others = plan.attacks
     .filter((a) => a.from === from && a.to !== target)
     .reduce((n, a) => n + a.count, 0)
-  return Math.max(0, (P.garrisons[from] ?? 0) + deployed - 1 - others)
+  const moved = plan.moves
+    .filter((m) => m.from === from && m.to !== target)
+    .reduce((n, m) => n + m.count, 0)
+  return Math.max(0, (P.garrisons[from] ?? 0) + deployed - 1 - others - moved)
 }
 
 function openAttack(from, to) {
   const el = $("atk")
   if (!el) return
-  atkPending = { from: from, to: to }
+  atkPending = { from: from, to: to, kind: "attack" }
   const max = originCap(from, to)
   const existing = plan.attacks.find((a) => a.from === from && a.to === to)
+  $("atk-select").hidden = true
   if (max <= 0 && !existing) {
     atkPending = null
     return flash("Nothing left in " + nameOf(from) + " to attack with.")
@@ -773,6 +809,11 @@ function paintVerdict() {
   const v = $("atk-verdict")
   if (!v || !atkPending) return
   const n = Math.floor(Number($("atk-slider").value))
+  if (atkPending.kind === "move") {
+    v.textContent = n <= 0 ? "No move." : "Reinforces " + nameOf(atkPending.to) + " before any fighting tonight."
+    v.classList.toggle("takes", n > 0)
+    return
+  }
   const need = atkPending.need
   const d = P.garrisons[atkPending.to] ?? 0
   if (n <= 0) v.textContent = "No attack."
@@ -791,13 +832,14 @@ function commitAttack() {
   if (!atkPending) return
   const n = Math.floor(Number($("atk-slider").value))
   snapshot()
-  const i = plan.attacks.findIndex((a) => a.from === atkPending.from && a.to === atkPending.to)
+  const list = atkPending.kind === "move" ? plan.moves : plan.attacks
+  const i = list.findIndex((x) => x.from === atkPending.from && x.to === atkPending.to)
   if (n <= 0) {
-    if (i >= 0) plan.attacks.splice(i, 1)
+    if (i >= 0) list.splice(i, 1)
   } else if (i >= 0) {
-    plan.attacks[i].count = n
+    list[i].count = n
   } else {
-    plan.attacks.push({ from: atkPending.from, to: atkPending.to, count: n })
+    list.push({ from: atkPending.from, to: atkPending.to, count: n })
   }
   closeAttack()
   save()
@@ -808,6 +850,13 @@ function onTap(id) {
 
   if (mine(id)) {
     if (selected !== id) {
+      // An ADJACENT own territory is a reinforcement target; anywhere else of
+      // yours just moves the selection. The panel's "Select instead" is the
+      // escape hatch for when the tap meant selection after all.
+      if (selected && mine(selected) && byId[selected].neighbors.includes(id)) {
+        openMove(selected, id)
+        return
+      }
       selected = id
       paint()
       drawArrows()
@@ -896,7 +945,7 @@ function adjust(kind, i, delta) {
   if (kind === "protect") {
     plan.protect = null
   } else {
-    const list = kind === "deploy" ? plan.deploys : plan.attacks
+    const list = kind === "deploy" ? plan.deploys : kind === "move" ? plan.moves : plan.attacks
     const entry = list[i]
     if (!entry) return
     if (delta === 0) list.splice(i, 1)
@@ -905,7 +954,11 @@ function adjust(kind, i, delta) {
       // cannot grow past what its origin can still send -- the same per-origin
       // cap the engine applies at the tick.
       if (delta > 0 && kind === "deploy" && unspent() <= 0) return flash("No soldiers left.")
-      if (delta > 0 && kind === "attack" && entry.count >= originCap(entry.from, entry.to)) {
+      if (
+        delta > 0 &&
+        (kind === "attack" || kind === "move") &&
+        entry.count >= originCap(entry.from, entry.to)
+      ) {
         return flash("Nothing left in " + nameOf(entry.from) + " to send.")
       }
       entry.count += delta
@@ -968,6 +1021,8 @@ function render() {
     rows.push(row("deploy", i, "Deploy " + d.count + " to " + esc(nameOf(d.territory)), true)))
   plan.attacks.forEach((a, i) =>
     rows.push(row("attack", i, "Attack " + esc(nameOf(a.to)) + " from " + esc(nameOf(a.from)) + " with " + a.count, true)))
+  plan.moves.forEach((m, i) =>
+    rows.push(row("move", i, "Move " + m.count + " from " + esc(nameOf(m.from)) + " to " + esc(nameOf(m.to)), true)))
   if (plan.protect) rows.push(row("protect", 0, "Protect " + esc(nameOf(plan.protect)), false))
   $("plan").innerHTML = rows.length ? rows.join("") : '<p class="hint">No orders yet. Tap one of your territories.</p>'
 
@@ -981,7 +1036,8 @@ function render() {
   else { s.textContent = "NOT SAVED — " + saveState.slice(6); s.className = "save bad" }
 
   $("selected").textContent = selected
-    ? nameOf(selected) + (left > 0 ? " — tap again to add a soldier" : " — tap a neighbour to attack")
+    ? nameOf(selected) +
+      (left > 0 ? " — tap again to add a soldier" : " — tap a neighbour to attack or reinforce")
     : "nothing selected"
   $("flash").textContent = flashMsg
   $("btn-protect").disabled = !selected || P.locked
@@ -1008,6 +1064,16 @@ $("atk-slider").addEventListener("input", () => {
   paintVerdict()
 })
 $("atk-ok").addEventListener("click", commitAttack)
+$("atk-select").addEventListener("click", () => {
+  const to = atkPending && atkPending.to
+  closeAttack()
+  if (to) {
+    selected = to
+    paint()
+    drawArrows()
+    render()
+  }
+})
 $("atk-cancel").addEventListener("click", closeAttack)
 
 // Cmd+Z / Ctrl+Z, because every order here is built one tap at a time and undo

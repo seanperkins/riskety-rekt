@@ -334,6 +334,7 @@ export function renderBoard(p: Projection): string {
       </div>
       <p id="atk-verdict" class="hint atk-verdict"></p>
       <div class="atk-actions">
+        <button id="atk-select" class="chip" hidden>Select instead</button>
         <button id="atk-cancel" class="chip">Cancel</button>
         <button id="atk-ok" class="chip ok">Okay</button>
       </div>

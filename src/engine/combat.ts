@@ -49,6 +49,31 @@ export function resolveCombat(
     events.push({ t: "protected", territory: t, byCount: picks[t]! })
   }
 
+  // 6a2 — reinforcements. Movers depart and arrive BEFORE any combat, so they
+  // defend the destination tonight and can die doing it -- that is what "send
+  // help" means to the person who ordered it. All departures are summed before
+  // any arrival lands, so two territories may swap garrisons in one night
+  // without the order of application mattering.
+  //
+  // Validation guaranteed both ends were owned by the mover LAST NIGHT and
+  // capped total departures at garrison - 1, so no origin empties and no move
+  // lands in enemy hands.
+  const departures: Record<TerritoryId, number> = {}
+  const arrivals: Record<TerritoryId, number> = {}
+  for (const o of sorted) {
+    for (const m of o.moves ?? []) {
+      departures[m.from] = (departures[m.from] ?? 0) + m.count
+      arrivals[m.to] = (arrivals[m.to] ?? 0) + m.count
+      events.push({ t: "move", faction: o.factionId, from: m.from, to: m.to, count: m.count })
+    }
+  }
+  for (const t of Object.keys(departures).sort()) {
+    garrisons[t] = (garrisons[t] ?? 0) - departures[t]!
+  }
+  for (const t of Object.keys(arrivals).sort()) {
+    garrisons[t] = (garrisons[t] ?? 0) + arrivals[t]!
+  }
+
   // Aggregate per direction so duplicate (from, to) legs merge into one movement.
   // A protected target voids the attack entirely: those troops never leave home.
   const byDirection = new Map<string, Movement>()
