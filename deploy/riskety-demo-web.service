@@ -1,0 +1,26 @@
+[Unit]
+Description=Riskety Rekt — the demo board (fake roster, separate database)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=riskety
+WorkingDirectory=/srv/riskety-rekt
+
+# Deliberately NOT the production EnvironmentFile. The roster table is keyed by
+# slack_user_id alone with no season column, so a fake player added for a demo
+# would be dealt into the real season by season:init. Separating the season id
+# is not enough -- the database file itself has to differ.
+Environment=TZ=America/New_York
+Environment=RR_DB_PATH=/srv/riskety-rekt/data/demo.db
+Environment=RR_SEASON_ID=demo
+Environment=RR_WEB_URL=https://demo.riskety.com
+Environment=PORT=3003
+ExecStart=/usr/bin/npm run web
+
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

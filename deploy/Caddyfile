@@ -20,6 +20,22 @@ www.riskety.com {
 	redir https://riskety.com{uri} permanent
 }
 
+# The demo board: a fake ten-player season for showing the game to people who
+# are not in it. Its own database FILE, not merely its own season id -- the
+# roster table is keyed by slack_user_id with no season column, so fake players
+# living in the production database would be dealt into the real season.
+demo.riskety.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3003
+	header {
+		Cache-Control "no-store"
+		X-Content-Type-Options "nosniff"
+		# A fake board with invented players has no business in a search index.
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+}
+
 riskety.com {
 	encode zstd gzip
 
