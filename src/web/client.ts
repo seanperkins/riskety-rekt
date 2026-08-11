@@ -88,16 +88,28 @@ function paint() {
     l.setStyle({
       fillColor: colorOf(owner(t.id)),
       color: isSel ? "#fff" : isMine ? "#e6edf3" : "#0b1a24",
-      weight: isSel ? 3 : isMine ? 2 : 1,
+      weight: isSel ? 3.5 : isMine ? 2 : 1,
       fillOpacity: isMine ? 0.9 : 0.55,
     })
   }
+  // The selected outline traces the real border, so it has to be drawn LAST.
+  // SVG has no z-index: a neighbour added after it paints its own edge over the
+  // shared boundary, and the highlight comes out broken along exactly the sides
+  // that touch another territory — which is most of them.
+  const sel = selected && layers[selected]
+  if (sel && sel.bringToFront) sel.bringToFront()
 }
 
-// Open fitted to your own ground, then let people zoom out. On a 107-territory
-// board the whole world is not where you act.
-const ours = P.territories.filter((t) => mine(t.id)).map((t) => layers[t.id]).filter(Boolean)
-if (ours.length) map.fitBounds(L.featureGroup(ours).getBounds().pad(0.6))
+// Open on the BOARD -- every playable territory, not the whole world and not
+// only your own ground.
+//
+// Your own holdings were too tight to read: on day one they are a handful of
+// scattered territories, so the map opened at a zoom where the front line was
+// off screen and there was no way to tell where you sat relative to anyone
+// else. The world is the opposite problem — most of it is grey backdrop
+// nobody can act on. The board is the thing being played.
+const played = P.territories.map((t) => layers[t.id]).filter(Boolean)
+if (played.length) map.fitBounds(L.featureGroup(played).getBounds(), { padding: [24, 24] })
 else map.setView([20, 0], 2)
 paint()
 

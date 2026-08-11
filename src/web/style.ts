@@ -255,6 +255,23 @@ body {
 
 /* --- player board ------------------------------------------------------- */
 #map { width: 100%; height: 100%; background: var(--sea); }
+
+/*
+ * Clicking a territory focuses its <path>, and the browser draws a focus ring
+ * around the element's BOUNDING BOX -- a rectangle the full width and height of
+ * the shape, which over a map reads as a selection bug rather than a highlight.
+ * Norway's box covers half of Scandinavia.
+ *
+ * Removed for pointer input only. Keyboard users get it back through
+ * :focus-visible, where the ring is the sole indication of where they are, and
+ * a rectangle is worth more than nothing. The mouse already has the stroke
+ * highlight, which follows the real border.
+ */
+.leaflet-interactive:focus { outline: none; }
+.leaflet-interactive:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .leaflet-container { background: var(--sea); font: inherit; }
 .leaflet-tooltip {
   background: var(--surface); color: var(--ink); border: 1px solid var(--rule);
