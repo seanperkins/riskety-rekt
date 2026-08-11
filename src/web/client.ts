@@ -79,9 +79,11 @@ const layers = {}
 
 // The rest of the world: one CANVAS layer, one shape.
 //
-// OFF by default while we find out what makes zooming feel slow. Add
-// ?backdrop=1 to draw it and compare the two directly -- same board, same
-// build, one variable.
+// ON by default; ?backdrop=0 removes it. It was switched off while we worked
+// out what made zooming feel slow, and the answer was that this is not it:
+// turning it off changed nothing, because the cost was zoom CYCLES rather than
+// geometry. Without it a 70-territory board floats in an empty sea and an ocean
+// is indistinguishable from a country nobody was dealt.
 //
 // It began as 451 separate SVG polygons -- one per ring across 194
 // territories, against 70 for the board itself -- so every zoom re-projected
@@ -89,7 +91,7 @@ const layers = {}
 // single multi-polygon on a canvas made that one draw call, which is free
 // because the backdrop is uniform and inert: no CSS, no hit testing, no focus
 // ring, which are the only reasons to prefer SVG.
-const wantBackdrop = new URLSearchParams(location.search).get("backdrop") === "1"
+const wantBackdrop = params.get("backdrop") !== "0"
 
 if (wantBackdrop) {
   map.createPane("backdrop")

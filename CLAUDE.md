@@ -176,4 +176,5 @@ What is left before a competitive season:
 | `docs/superpowers/reviews/2026-08-09-balance-run.md` | Superseded — the original policy/economy run |
 | `docs/superpowers/reviews/2026-08-10-balance-run-world.md` | **Current.** Balance on selected world boards, incl. the first 15-faction run |
 | `docs/superpowers/reviews/2026-08-10-balance-run-14day.md` | Superseded — the 21-vs-14 day measurement behind `SEASON_LENGTH` |
+| `docs/map-rendering.md` | The pane stack, what the shape build generates, and the rendering traps that cost a day |
 | `docs/superpowers/plans/` | Each carries a "Spec deltas" section recording where reality corrected the design |
