@@ -82,6 +82,13 @@ type Ring = [number, number][]
  * Override with RR_SHAPE_TOLERANCE to re-measure the size/detail curve.
  */
 const TOLERANCE = Number(process.env.RR_SHAPE_TOLERANCE ?? 0.15)
+/**
+ * The close-up resolution, shipped only for territories on the board.
+ *
+ * 0.15° is about 15 km, which disappears when the whole board fills the frame
+ * and turns every coastline into visible straight chords once you zoom in.
+ */
+const FINE_TOLERANCE = Number(process.env.RR_SHAPE_FINE_TOLERANCE ?? 0.04)
 /** Rings smaller than this are dropped: unrenderable specks, mostly islets. */
 const MIN_AREA = 0.02
 /**
@@ -553,6 +560,7 @@ function labelPoint(rings: Ring[]): [number, number] {
 }
 
 const shapes: Record<string, Ring[]> = {}
+const fine: Record<string, Ring[]> = {}
 const labels: Record<string, [number, number]> = {}
 const report: string[] = []
 
@@ -582,19 +590,37 @@ for (const t of WORLD.territories) {
   }
 
   const home = COORDS[t.id]
-  rings = rings
-    .flatMap((r) => splitAtAntimeridian(r))
-    .map((r) => simplify(r, TOLERANCE))
-    .filter((r) => r.length >= 3 && area(r) >= MIN_AREA)
-    .filter((r) => !isSliver(r))
-    // Drop rings that belong to somebody else's hemisphere. See
-    // MAX_RING_OFFSET_DEG.
-    .filter((r) => home === undefined || offsetDeg(ringCentre(r), home) <= MAX_RING_OFFSET_DEG)
-    .map((r) => r.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000] as [number, number]))
 
-  if (rings.length === 0) report.push(t.id)
-  shapes[t.id] = rings
-  if (rings.length > 0) labels[t.id] = labelPoint(rings)
+  /**
+   * The same pipeline at a given tolerance.
+   *
+   * Run twice, because one resolution cannot serve both ends of the zoom. At
+   * 0.15° the whole board is 2,800 points and reads correctly when it fills
+   * the frame; zoomed in, the same rings are visibly straight-edged, and a
+   * coastline made of 15 km chords looks like a bad tracing. At 0.04° it holds
+   * up close and costs several times the points -- which is why only the
+   * territories actually in play get the fine set.
+   */
+  const finish = (tol: number): Ring[] =>
+    rings
+      .flatMap((r) => splitAtAntimeridian(r))
+      .map((r) => simplify(r, tol))
+      .filter((r) => r.length >= 3 && area(r) >= MIN_AREA)
+      .filter((r) => !isSliver(r))
+      // Drop rings that belong to somebody else's hemisphere. See
+      // MAX_RING_OFFSET_DEG.
+      .filter((r) => home === undefined || offsetDeg(ringCentre(r), home) <= MAX_RING_OFFSET_DEG)
+      .map((r) =>
+        r.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000] as [number, number]),
+      )
+
+  const coarse = finish(TOLERANCE)
+  if (coarse.length === 0) report.push(t.id)
+  shapes[t.id] = coarse
+  // The label point comes from the COARSE rings, so it cannot shift when the
+  // map swaps resolution under it.
+  if (coarse.length > 0) labels[t.id] = labelPoint(coarse)
+  fine[t.id] = finish(FINE_TOLERANCE)
 }
 
 // ------------------------------------------------------------------ output --
@@ -645,6 +671,17 @@ export const SHAPES: Record<TerritoryId, [number, number][][]> = ${JSON.stringif
  * pays nothing for it.
  */
 export const LABELS: Record<TerritoryId, [number, number]> = ${JSON.stringify(labels)}
+
+/**
+ * The same territories at ${FINE_TOLERANCE}° instead of ${TOLERANCE}°.
+ *
+ * Served ONLY for the territories on a given board, and only once the map is
+ * zoomed in far enough for the difference to show. Shipping it for all 264
+ * would multiply the page weight for detail nobody can see at the opening fit.
+ *
+ * ${Object.values(fine).reduce((n, rs) => n + rs.reduce((m, r) => m + r.length, 0), 0).toLocaleString()} points.
+ */
+export const SHAPES_FINE: Record<TerritoryId, [number, number][][]> = ${JSON.stringify(fine)}
 `
 
 writeFileSync(new URL("../src/map/shapes.ts", import.meta.url), body)

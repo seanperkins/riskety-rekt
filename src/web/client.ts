@@ -486,13 +486,43 @@ function paint() {
 // off screen and there was no way to tell where you sat relative to anyone
 // else. The world is the opposite problem — most of it is grey backdrop
 // nobody can act on. The board is the thing being played.
+// ---- level of detail --------------------------------------------------------
+// Coarse rings while the whole board is in frame, fine rings once you are close
+// enough to see the difference.
+//
+// The board simplified at 0.15 degrees is about 15 km per chord. That vanishes
+// when 70 territories fill the screen and turns every coastline into visible
+// straight lines when you zoom in -- which is what makes a close view look
+// wrong even though nothing is misplaced. The fine set costs three times the
+// points, so it is only worth carrying at the zoom where it shows.
+//
+// Swapped on THRESHOLD CROSSING, not on every zoom: setLatLngs re-projects the
+// layer, so doing it per step would cost more than the detail is worth.
+const FINE_FROM_ZOOM = 5
+let usingFine = false
+
+function updateDetail() {
+  const want = map.getZoom() >= FINE_FROM_ZOOM
+  if (want === usingFine) return
+  usingFine = want
+  const src = want ? (P.shapesFine || P.shapes) : P.shapes
+  for (const t of P.territories) {
+    const l = layers[t.id]
+    const rings = src[t.id]
+    if (!l || !rings || !rings.length) continue
+    l.setLatLngs(rings.map((r) => [r.map(([lon, lat]) => [lat, lon])]))
+  }
+  // setLatLngs rebuilds the path, which drops the styling paint() applied.
+  paint()
+}
+
 // zoomend ONLY, and this is the map's only listener.
 //
 // A territory's pixel size depends on the SCALE alone, so nothing but a zoom
 // can change which counts fit: not panning, not hovering, not selecting. The
 // two calls that move the map -- fitBounds on load and flyToBounds when you
 // click a player -- are the only ones in the file.
-map.on("zoomend", updateCountVisibility)
+map.on("zoomend", () => { updateCountVisibility(); updateDetail() })
 
 const played = P.territories.map((t) => layers[t.id]).filter(Boolean)
 if (played.length) map.fitBounds(L.featureGroup(played).getBounds(), { padding: [24, 24] })
@@ -510,6 +540,7 @@ const snapParam = params.get("zoomsnap")
 map.options.zoomSnap = snapParam === null ? 0.25 : Number(snapParam)
 paint()
 updateCountVisibility()
+updateDetail()
 
 // ---- acting ----------------------------------------------------------------
 function onTap(id) {

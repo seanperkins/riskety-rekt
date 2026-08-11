@@ -191,3 +191,37 @@ describe("sea links on the board", () => {
     }
   })
 })
+
+describe("level of detail", () => {
+  const p = projectionFor({
+    state,
+    day: 1,
+    factionId: "f1",
+    plan: { deploys: [], attacks: [], protect: null },
+    wagers: [],
+    slate: [],
+    tickAt: new Date("2026-09-02T01:00:00Z"),
+    now: new Date("2026-09-01T12:00:00Z"),
+  })
+
+  it("carries a fine shape for every board territory", () => {
+    // The client swaps whole layers at a zoom threshold. A territory missing
+    // from the fine set would vanish the moment anyone zoomed in.
+    for (const t of p.territories) {
+      expect(p.shapesFine[t.id], t.id).toBeDefined()
+    }
+  })
+
+  it("gives the fine set more detail than the coarse one", () => {
+    const count = (r: Record<string, [number, number][][]>): number =>
+      Object.values(r).reduce((n, rings) => n + rings.reduce((m, x) => m + x.length, 0), 0)
+    expect(count(p.shapesFine)).toBeGreaterThan(count(p.shapes))
+  })
+
+  it("ships fine shapes for the board only, never the backdrop", () => {
+    // The backdrop is drawn at 45% opacity behind everything; nobody inspects
+    // its coastline, and it is by far the larger set.
+    const onBoard = new Set(p.territories.map((t) => t.id))
+    for (const id of Object.keys(p.shapesFine)) expect(onBoard.has(id), id).toBe(true)
+  })
+})

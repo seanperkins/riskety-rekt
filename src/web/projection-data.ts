@@ -1,5 +1,5 @@
 import { COORDS } from "../map/coords.js"
-import { LABELS, SHAPES } from "../map/shapes.js"
+import { LABELS, SHAPES, SHAPES_FINE } from "../map/shapes.js"
 import { SEA_LINKS } from "../map/world.js"
 import type { GameState } from "../engine/index.js"
 import type { FactionId } from "../engine/index.js"
@@ -60,6 +60,14 @@ export interface Projection {
    * explains an attack that otherwise looks impossible.
    */
   seaLinks: [string, string][]
+  /**
+   * The board's territories at close-up resolution, swapped in once the map is
+   * zoomed past the point where the coarse rings show their chords.
+   *
+   * Board only. The backdrop stays coarse at every zoom -- it is drawn at 45%
+   * opacity behind everything and nobody inspects its coastline.
+   */
+  shapesFine: Record<string, [number, number][][]>
   /** The viewer's alone. */
   reserve: number
   plan: OrderBody
@@ -113,6 +121,9 @@ export function projectionFor(args: {
         const c = COORDS[t.id]!
         return [t.id, p === undefined ? c : { lat: p[1], lon: p[0] }]
       }),
+    ),
+    shapesFine: Object.fromEntries(
+      state.map.territories.map((t) => [t.id, SHAPES_FINE[t.id] ?? SHAPES[t.id] ?? []]),
     ),
     seaLinks: SEA_LINKS.filter(([a, b]) => onBoard.has(a) && onBoard.has(b)).map(
       ([a, b]) => [a, b] as [string, string],
