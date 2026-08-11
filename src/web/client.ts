@@ -50,10 +50,14 @@ const map = L.map("map", {
   zoomControl: true,
   attributionControl: false,
   worldCopyJump: false,
+  // zoomSnap 0 ONLY for the opening fitBounds -- see below, where it is put
+  // back. Left at 0, every wheel notch is a distinct fractional zoom, so a
+  // trackpad's continuous stream starts a fresh animated zoom cycle every few
+  // milliseconds and each one interrupts the last: Leaflet stops the running
+  // animation, re-projects every layer, fires moveend, and starts again. That
+  // is the sluggishness, and it is unrelated to how much geometry is on the
+  // board -- which is why turning the backdrop off changed nothing.
   zoomSnap: 0,
-  // Wheel settings left at Leaflet's defaults on purpose. Raising
-  // wheelPxPerZoomLevel to soften a trackpad stopped wheel zoom responding at
-  // all, so the sensitivity is not the thing to turn.
   scrollWheelZoom: true,
   // The +/- buttons and the keyboard move in readable steps rather than whole
   // levels, since fractional zoom is available anyway.
@@ -481,6 +485,17 @@ map.on("zoomend", updateCountVisibility)
 const played = P.territories.map((t) => layers[t.id]).filter(Boolean)
 if (played.length) map.fitBounds(L.featureGroup(played).getBounds(), { padding: [24, 24] })
 else map.setView([20, 0], 2)
+
+// The opening fit is done, so hand interaction a snap grid. The fit needed
+// zoomSnap 0 to fill the frame exactly -- it is what took the board from 54%
+// of the width to 88% -- but keeping it costs a full zoom cycle per wheel
+// notch forever after. Set it back and the same gesture lands on a handful of
+// steps instead of dozens.
+//
+// Override with ?zoomsnap=N to compare: 0 is the old continuous behaviour, 1
+// is Leaflet's default.
+const snapParam = new URLSearchParams(location.search).get("zoomsnap")
+map.options.zoomSnap = snapParam === null ? 0.25 : Number(snapParam)
 paint()
 updateCountVisibility()
 
