@@ -1,4 +1,4 @@
-import { hashToken, newToken } from "../auth/token.js"
+import { MAX_LIVE_TOKENS, hashToken, newToken } from "../auth/token.js"
 import type { AuthStore, RosterStore } from "../store/types.js"
 
 /** How long a magic link is good for. Long enough to switch apps, no longer. */
@@ -66,6 +66,6 @@ export function handleLoginCommand(payload: LoginPayload, deps: LoginDeps): stri
     `Here's your link, <@${payload.userId}> — good for 10 minutes, single use.`,
     `${deps.webUrl}/login/${token}`,
     "",
-    "Running /login again replaces this link.",
+    `Run /login as often as you like — your last ${MAX_LIVE_TOKENS} links stay good.`,
   ].join("\n")
 }

@@ -41,10 +41,24 @@ same droplet as the app; if it ever leaks, hashed tokens mean the leak grants no
 logins. The same reasoning that applies to passwords applies here — a magic link
 *is* a credential.
 
-**Single-use, ten-minute TTL, and a new `/login` invalidates the previous
-token.** One live token per Slack user. A link forwarded or left sitting in a DM
-stops working the moment its owner logs in again, and token spam is capped at
-one row per person.
+**Single-use, ten-minute TTL, and up to five live tokens per person.** Minting
+the sixth evicts the oldest.
+
+*Amended 2026-08-11.* This was originally exactly one live token, enforced by a
+`UNIQUE` on `slack_user_id` — "a new `/login` invalidates the previous" as a
+property of the schema. In use that edge was sharper than the threat it
+answered: running `/login` twice before clicking either, or an operator minting
+a link on someone's behalf, silently killed the link the player was about to
+use, and it surfaced as the generic "that link is no longer good". What actually
+bounds exposure is the ten-minute TTL and single use, both unchanged; the cap
+only keeps the table from growing without bound. Migration 6 rebuilds the table
+without the constraint, carrying existing rows across so an outstanding link
+still works.
+
+Eviction is by insertion order (`rowid`) rather than `expires_at`: the TTL is a
+constant, so two links minted in the same millisecond share an expiry and have
+no tie-break. Expired rows are the oldest, so they are evicted first anyway and
+never crowd out a live link.
 
 **Consumption and session creation are one transaction.** The delete and the
 insert commit together, so a link opened twice — a preview fetch, a double tap —
@@ -120,10 +134,11 @@ One new migration — **appended, never editing a shipped one**:
 ```sql
 CREATE TABLE login_tokens (
   token_hash    TEXT PRIMARY KEY,
-  slack_user_id TEXT NOT NULL UNIQUE,   -- one live token per person
+  slack_user_id TEXT NOT NULL,
   faction_id    TEXT NOT NULL,
   expires_at    TEXT NOT NULL
 );
+CREATE INDEX login_tokens_by_user ON login_tokens (slack_user_id);
 
 CREATE TABLE sessions (
   token_hash TEXT PRIMARY KEY,
@@ -134,15 +149,15 @@ CREATE TABLE sessions (
 CREATE INDEX sessions_by_faction ON sessions (faction_id);
 ```
 
-`slack_user_id` is `UNIQUE` rather than indexed: it is what makes "a new login
-invalidates the previous token" a property of the schema instead of a step
-someone can forget.
+`slack_user_id` is indexed rather than `UNIQUE` — see the amendment above. The
+cap lives in `mintLoginToken`, which inserts and then evicts past
+`MAX_LIVE_TOKENS` in one transaction, so a reader never sees a user over it.
 
 Store methods, all taking `now: Date` as an argument like every other job in
 this codebase rather than reading a clock:
 
 ```ts
-mintLoginToken(slackUserId, factionId, hash, expiresAt): void  // replaces any existing
+mintLoginToken(slackUserId, factionId, hash, expiresAt): void  // keeps newest 5
 consumeLoginToken(hash, seasonId, sessionHash, expiresAt, now): FactionId | undefined
 sessionFaction(hash, seasonId, now): FactionId | undefined
 revokeSessions(factionId): number
@@ -157,7 +172,8 @@ without a browser. What is worth pinning is the **negative space** — the paths
 that must fail:
 
 - An expired token fails, and a token consumed once fails the second time.
-- A second `/login` invalidates the first token.
+- A second `/login` leaves the first token working; a sixth evicts the oldest,
+  and the cap is per user rather than global.
 - A session minted for one season is refused for another.
 - A missing or garbage cookie yields **no faction**, never a default one.
 - A raw token never appears in any log line the code emits.

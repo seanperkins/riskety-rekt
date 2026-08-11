@@ -1,5 +1,6 @@
 import { createRequire } from "node:module"
 import type { DatabaseSync as DatabaseSyncCtor } from "node:sqlite"
+import { MAX_LIVE_TOKENS } from "../auth/token.js"
 import type { Market, MarketId, Settlement } from "../engine/index.js"
 
 /**
@@ -797,15 +798,28 @@ export function openStore(
       tokenHash: string
       expiresAt: Date
     }): void {
-      // Delete-then-insert rather than an upsert on the unique column: the token
-      // hash is the PRIMARY KEY, so replacing a user's token changes the key,
-      // and an explicit delete says that plainly.
+      // Insert, then evict everything past the newest MAX_LIVE_TOKENS. One
+      // transaction, so a reader never sees a user over the cap.
+      //
+      // Recency is `rowid`, not `expires_at`. The TTL is a constant, so two
+      // links minted in the same millisecond carry the same expiry and there is
+      // no tie-break; rowid is the insertion sequence. SQLite assigns a new row
+      // max(rowid)+1 over the rows still present, so the newest row always
+      // sorts highest even after deletes recycle a value.
       this.transaction(() => {
-        db.prepare("DELETE FROM login_tokens WHERE slack_user_id = ?").run(row.slackUserId)
         db.prepare(
           `INSERT INTO login_tokens (token_hash, slack_user_id, faction_id, expires_at)
            VALUES (?, ?, ?, ?)`,
         ).run(row.tokenHash, row.slackUserId, row.factionId, row.expiresAt.toISOString())
+        db.prepare(
+          `DELETE FROM login_tokens
+            WHERE slack_user_id = ?
+              AND rowid NOT IN (
+                SELECT rowid FROM login_tokens
+                 WHERE slack_user_id = ?
+                 ORDER BY rowid DESC
+                 LIMIT ?)`,
+        ).run(row.slackUserId, row.slackUserId, MAX_LIVE_TOKENS)
       })
     },
 

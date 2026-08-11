@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { hashToken, newToken } from "../auth/token.js"
+import { MAX_LIVE_TOKENS, hashToken, newToken } from "../auth/token.js"
 import { openStore } from "./sqlite.js"
 
 const SEASON = { seasonId: "s1", startDate: "2026-09-01", lengthDays: 14 }
@@ -69,13 +69,50 @@ describe("login tokens", () => {
     store.close()
   })
 
-  it("invalidates the previous token when the same user logs in again", () => {
-    // Enforced by the UNIQUE on slack_user_id, not by remembering to delete.
+  it("leaves the previous token working when the same user logs in again", () => {
+    // The property the cap exists to give back: a second /login before you
+    // clicked the first does not strand you.
     const store = seeded()
     const first = mint(store)
     const second = mint(store)
-    expect(consume(store, first, "a")).toBeUndefined()
+    expect(consume(store, first, "a")).toBe("f1")
     expect(consume(store, second, "b")).toBe("f1")
+    store.close()
+  })
+
+  it(`keeps ${MAX_LIVE_TOKENS} live tokens at once`, () => {
+    const store = seeded()
+    const raws = Array.from({ length: MAX_LIVE_TOKENS }, () => mint(store))
+    raws.forEach((raw, i) => expect(consume(store, raw, `s${i}`)).toBe("f1"))
+    store.close()
+  })
+
+  it(`evicts the oldest when a ${MAX_LIVE_TOKENS + 1}th is minted`, () => {
+    const store = seeded()
+    const raws = Array.from({ length: MAX_LIVE_TOKENS + 1 }, () => mint(store))
+    expect(consume(store, raws[0]!, "evicted")).toBeUndefined()
+    raws.slice(1).forEach((raw, i) => expect(consume(store, raw, `s${i}`)).toBe("f1"))
+    store.close()
+  })
+
+  it("counts the cap per user, not globally", () => {
+    // One person minting their limit must not evict anybody else's link.
+    const store = seeded()
+    const theirs = mint(store, "U2", "f2")
+    for (let i = 0; i <= MAX_LIVE_TOKENS; i++) mint(store, "U1", "f1")
+    expect(consume(store, theirs, "sb")).toBe("f2")
+    store.close()
+  })
+
+  it("frees a slot when a token is consumed", () => {
+    // Eviction is by insertion order over the rows still present, so consuming
+    // one must not leave the next mint evicting a live token to make room.
+    const store = seeded()
+    const raws = Array.from({ length: MAX_LIVE_TOKENS }, () => mint(store))
+    expect(consume(store, raws[0]!, "used")).toBe("f1")
+    const fresh = mint(store)
+    for (const raw of raws.slice(1)) expect(consume(store, raw, raw)).toBe("f1")
+    expect(consume(store, fresh, "fresh")).toBe("f1")
     store.close()
   })
 

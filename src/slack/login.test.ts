@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { hashToken } from "../auth/token.js"
+import { MAX_LIVE_TOKENS, hashToken } from "../auth/token.js"
 import { openStore } from "../store/sqlite.js"
 import { handleLoginCommand } from "./login.js"
 
@@ -101,7 +101,7 @@ describe("handleLoginCommand", () => {
     store.close()
   })
 
-  it("a second login invalidates the first link", () => {
+  it("a second login leaves the first link working", () => {
     const store = seeded()
     const first = tokenIn(handleLoginCommand({ userId: "U01ABCDEF", teamId: "T1" }, deps(store)))!
     handleLoginCommand({ userId: "U01ABCDEF", teamId: "T1" }, deps(store))
@@ -113,7 +113,26 @@ describe("handleLoginCommand", () => {
         sessionExpiresAt: SEASON_END,
         now: NOW,
       }),
-    ).toBeUndefined()
+    ).toBe("f1")
+    store.close()
+  })
+
+  it(`a ${MAX_LIVE_TOKENS + 1}th login retires the oldest link`, () => {
+    const store = seeded()
+    const raws = Array.from(
+      { length: MAX_LIVE_TOKENS + 1 },
+      () => tokenIn(handleLoginCommand({ userId: "U01ABCDEF", teamId: "T1" }, deps(store)))!,
+    )
+    const use = (raw: string) =>
+      store.consumeLoginToken({
+        tokenHash: hashToken(raw),
+        seasonId: "s1",
+        sessionHash: hashToken(raw),
+        sessionExpiresAt: SEASON_END,
+        now: NOW,
+      })
+    expect(use(raws[0]!)).toBeUndefined()
+    expect(use(raws[MAX_LIVE_TOKENS]!)).toBe("f1")
     store.close()
   })
 })

@@ -237,6 +237,33 @@ export const MIGRATIONS: string[] = [
   -- rows written before this migration, which fall back to the slate price.
   ALTER TABLE order_wagers ADD COLUMN price REAL;
   `,
+  `
+  -- Up to MAX_LIVE_TOKENS links per person instead of exactly one.
+  --
+  -- The UNIQUE on slack_user_id made "a new /login kills the old link" a
+  -- property of the schema, which was the point -- but it also meant a second
+  -- /login run before clicking the first, or a link minted on someone's behalf,
+  -- silently killed a link they were about to use. The cap is what actually
+  -- bounds token spam; strict single-token buys nothing on top of a 10-minute
+  -- TTL and single use.
+  --
+  -- SQLite cannot drop a constraint, so the table is rebuilt and its rows
+  -- carried across -- a link outstanding at migration time still works.
+  CREATE TABLE login_tokens_v2 (
+    token_hash    TEXT PRIMARY KEY,
+    slack_user_id TEXT NOT NULL,
+    faction_id    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL
+  );
+
+  INSERT INTO login_tokens_v2 (token_hash, slack_user_id, faction_id, expires_at)
+    SELECT token_hash, slack_user_id, faction_id, expires_at FROM login_tokens;
+
+  DROP TABLE login_tokens;
+  ALTER TABLE login_tokens_v2 RENAME TO login_tokens;
+
+  CREATE INDEX login_tokens_by_user ON login_tokens (slack_user_id);
+  `,
 ]
 
 /** Apply any migrations the database has not seen. Safe to call on every boot. */

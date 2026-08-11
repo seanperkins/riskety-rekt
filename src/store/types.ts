@@ -241,7 +241,11 @@ export interface OrderStore {
  * the DM, the URL and the cookie. This layer never sees one.
  */
 export interface AuthStore {
-  /** Replaces any live token for that Slack user — one live token per person. */
+  /**
+   * Add a live token for that Slack user, keeping the newest `MAX_LIVE_TOKENS`
+   * and evicting the rest. Existing links keep working until they age out of
+   * the cap or expire.
+   */
   mintLoginToken(row: {
     slackUserId: string
     factionId: FactionId
