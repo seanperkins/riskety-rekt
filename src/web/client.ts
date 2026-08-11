@@ -61,17 +61,36 @@ const map = L.map("map", {
 })
 const layers = {}
 
-// The rest of the world, drawn first so every playable territory sits on top of
-// it. Inert: no click, no tooltip, no pointer events at all, so it can never
-// swallow a tap meant for a territory you actually own.
+// The rest of the world: one CANVAS layer, one shape.
+//
+// It was 451 separate SVG polygons -- one per ring across 194 territories --
+// against 70 for the board itself. Every zoom re-projected all of them, and
+// zooming felt sluggish because six sevenths of the work was scenery nobody
+// can click.
+//
+// Two changes, both free because the backdrop is uniform and inert: every ring
+// becomes one multi-polygon, and it renders to a canvas in its own pane
+// instead of the shared SVG. Canvas costs one draw call rather than 451 DOM
+// nodes the browser must lay out and style, and nothing here needs CSS, hit
+// testing or a focus ring.
+map.createPane("backdrop")
+map.getPane("backdrop").style.zIndex = 200
+map.getPane("backdrop").style.pointerEvents = "none"
+
+const backdropRings = []
 for (const id in (P.offBoard || {})) {
   for (const ring of P.offBoard[id]) {
-    L.polygon([ring.map(([lon, lat]) => [lat, lon])], {
-      stroke: true, weight: 0.5, color: "#16242f",
-      fillColor: "#22303c", fillOpacity: 0.45,
-      interactive: false,
-    }).addTo(map)
+    backdropRings.push([ring.map(([lon, lat]) => [lat, lon])])
   }
+}
+if (backdropRings.length) {
+  L.polygon(backdropRings, {
+    renderer: L.canvas({ pane: "backdrop", padding: 0.3 }),
+    pane: "backdrop",
+    stroke: true, weight: 0.5, color: "#16242f",
+    fillColor: "#22303c", fillOpacity: 0.45,
+    interactive: false,
+  }).addTo(map)
 }
 
 // ---- sea bridges ------------------------------------------------------------
