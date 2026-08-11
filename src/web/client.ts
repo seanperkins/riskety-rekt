@@ -51,6 +51,17 @@ const map = L.map("map", {
   attributionControl: false,
   worldCopyJump: false,
   zoomSnap: 0,
+  // Leaflet's wheel defaults are tuned for a notched mouse wheel: 60px per
+  // zoom level with a 40ms debounce. A trackpad emits a stream of small
+  // deltas instead, and a macOS pinch arrives as ctrl+wheel with very large
+  // ones -- together that reads as lurching rather than zooming. Halving the
+  // sensitivity and shortening the debounce turns the same gesture into
+  // continuous motion, which zoomSnap 0 already allows.
+  wheelPxPerZoomLevel: 120,
+  wheelDebounceTime: 20,
+  // The +/- buttons and the keyboard move in readable steps rather than
+  // whole levels, since fractional zoom is available anyway.
+  zoomDelta: 0.5,
 })
 const layers = {}
 
@@ -68,23 +79,68 @@ for (const id in (P.offBoard || {})) {
 }
 
 // ---- sea bridges ------------------------------------------------------------
-// Drawn over the backdrop but under the territories, so a bridge reads as
-// passing behind the land it connects rather than lying across it.
+// A dedicated pane BELOW the overlay pane, so bridges are behind every
+// territory no matter what bringToFront does later. Paint order alone was
+// already correct and still was not enough: territory fills are translucent,
+// so a line behind them showed straight through and read as lying on top.
 //
-// Without these, an attack from Tunisia to Sicily looks impossible: the two do
-// not touch, and nothing on the map says why they are adjacent.
-const seaLayer = []
+// The real fix is that a bridge now runs coast to COAST rather than centre to
+// centre, so it never passes over land at all. Without it an attack from
+// Tunisia to Sicily looks impossible -- the two do not touch, and nothing on
+// the map says why they are adjacent.
+map.createPane("bridges")
+map.getPane("bridges").style.zIndex = 350
+map.getPane("bridges").style.pointerEvents = "none"
+
+const inRings = (lon, lat, rings) => {
+  for (const ring of rings) {
+    let hit = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i]
+      const [xj, yj] = ring[j]
+      if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) hit = !hit
+    }
+    if (hit) return true
+  }
+  return false
+}
+
+// Walk the segment and find where it leaves one shore and reaches the other.
+// Sampling rather than solving for the intersection: a territory is a
+// multipolygon of simplified rings, and 120 steps puts the endpoint within a
+// pixel or two at any zoom anyone plays at.
+function overWater(a, b, ringsA, ringsB) {
+  const STEPS = 120
+  const at = (t) => [a.lon + (b.lon - a.lon) * t, a.lat + (b.lat - a.lat) * t]
+  let start = 0
+  for (let i = 0; i <= STEPS; i++) {
+    const [x, y] = at(i / STEPS)
+    if (!inRings(x, y, ringsA)) { start = i / STEPS; break }
+  }
+  let end = 1
+  for (let i = STEPS; i >= 0; i--) {
+    const [x, y] = at(i / STEPS)
+    if (!inRings(x, y, ringsB)) { end = i / STEPS; break }
+  }
+  if (!(end > start)) return null
+  const [x0, y0] = at(start)
+  const [x1, y1] = at(end)
+  return [[y0, x0], [y1, x1]]
+}
+
 for (const [a, b] of (P.seaLinks || [])) {
   const ca = P.centres[a]
   const cb = P.centres[b]
   if (!ca || !cb) continue
-  // The casing underneath makes the line legible over land and sea alike.
-  seaLayer.push(L.polyline([[ca.lat, ca.lon], [cb.lat, cb.lon]], {
-    color: "#0b1a24", weight: 5, opacity: 0.9, interactive: false,
-  }).addTo(map))
-  seaLayer.push(L.polyline([[ca.lat, ca.lon], [cb.lat, cb.lon]], {
-    color: "#e8c56a", weight: 2, opacity: 0.95, dashArray: "6 4", interactive: false,
-  }).addTo(map))
+  const line = overWater(ca, cb, P.shapes[a] || [], P.shapes[b] || []) ||
+    [[ca.lat, ca.lon], [cb.lat, cb.lon]]
+  // The casing underneath keeps the dashes legible against open water.
+  L.polyline(line, {
+    pane: "bridges", color: "#0b1a24", weight: 5, opacity: 0.85, interactive: false,
+  }).addTo(map)
+  L.polyline(line, {
+    pane: "bridges", color: "#e8c56a", weight: 2, opacity: 0.95, dashArray: "6 4", interactive: false,
+  }).addTo(map)
 }
 
 for (const t of P.territories) {
@@ -352,8 +408,19 @@ function paint() {
 // off screen and there was no way to tell where you sat relative to anyone
 // else. The world is the opposite problem — most of it is grey backdrop
 // nobody can act on. The board is the thing being played.
-map.on("zoomend", fitCounts)
-map.on("moveend", fitCounts)
+// Coalesced into a single frame. fitCounts measures 70 paths with
+// getBoundingClientRect, which forces a synchronous layout each time; running
+// it straight off zoomend and moveend meant doing that repeatedly during a
+// continuous trackpad zoom, which is exactly when the map must stay smooth.
+let fitQueued = false
+function queueFitCounts() {
+  if (fitQueued) return
+  fitQueued = true
+  requestAnimationFrame(() => { fitQueued = false; fitCounts() })
+}
+map.on("zoomend", queueFitCounts)
+map.on("moveend", queueFitCounts)
+map.on("zoom", queueFitCounts)
 
 const played = P.territories.map((t) => layers[t.id]).filter(Boolean)
 if (played.length) map.fitBounds(L.featureGroup(played).getBounds(), { padding: [24, 24] })
