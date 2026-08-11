@@ -41,6 +41,19 @@ const spent = () =>
 const map = L.map("map", { zoomControl: true, attributionControl: false, worldCopyJump: false })
 const layers = {}
 
+// The rest of the world, drawn first so every playable territory sits on top of
+// it. Inert: no click, no tooltip, no pointer events at all, so it can never
+// swallow a tap meant for a territory you actually own.
+for (const id in (P.offBoard || {})) {
+  for (const ring of P.offBoard[id]) {
+    L.polygon([ring.map(([lon, lat]) => [lat, lon])], {
+      stroke: true, weight: 0.5, color: "#16242f",
+      fillColor: "#22303c", fillOpacity: 0.45,
+      interactive: false,
+    }).addTo(map)
+  }
+}
+
 for (const t of P.territories) {
   const rings = P.shapes[t.id] || []
   if (!rings.length) continue

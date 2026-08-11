@@ -55,6 +55,35 @@ const MIN_AREA = 0.02
  */
 const MAX_RING_OFFSET_DEG = 35
 
+/**
+ * Slivers left behind by Voronoi clipping, which MIN_AREA cannot catch.
+ *
+ * Clipping a coastline by a half-plane occasionally leaves a ribbon a few
+ * hundredths of a degree tall and tens of degrees wide. Karelia had one 29°
+ * wide and 0.5° tall, which drew as a maroon bar straight across the map, and
+ * its *area* is ~14 square degrees — hundreds of times MIN_AREA. Area is the
+ * wrong test; shape is the test.
+ *
+ * The signature is elongation together with an absence of detail. Every real
+ * coastline ring simplified at TOLERANCE keeps many points, so a ring this
+ * stretched with a handful of vertices is an artifact of the cut rather than a
+ * piece of land. Measured across all 264 territories, exactly nine rings
+ * exceed this aspect ratio and all nine have six points or fewer.
+ */
+const MAX_SLIVER_ASPECT = 8
+const SLIVER_MAX_POINTS = 6
+
+function isSliver(ring: Ring): boolean {
+  if (ring.length > SLIVER_MAX_POINTS) return false
+  const xs = ring.map((p) => p[0])
+  const ys = ring.map((p) => p[1])
+  const w = Math.max(...xs) - Math.min(...xs)
+  const h = Math.max(...ys) - Math.min(...ys)
+  const short = Math.min(w, h)
+  if (short === 0) return true
+  return Math.max(w, h) / short > MAX_SLIVER_ASPECT
+}
+
 // ---------------------------------------------------------------- geometry --
 
 /** Ramer–Douglas–Peucker on an OPEN polyline. */
@@ -315,6 +344,7 @@ for (const t of WORLD.territories) {
     .flatMap((r) => splitAtAntimeridian(r))
     .map((r) => simplify(r, TOLERANCE))
     .filter((r) => r.length >= 3 && area(r) >= MIN_AREA)
+    .filter((r) => !isSliver(r))
     // Drop rings that belong to somebody else's hemisphere. See
     // MAX_RING_OFFSET_DEG.
     .filter((r) => home === undefined || offsetDeg(ringCentre(r), home) <= MAX_RING_OFFSET_DEG)

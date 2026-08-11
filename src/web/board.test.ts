@@ -115,3 +115,39 @@ describe("the stylesheet must not size Leaflet's own SVG", () => {
     }
   })
 })
+
+describe("the off-board backdrop", () => {
+  const p = projectionFor({
+    state,
+    day: 1,
+    factionId: "f1",
+    plan: { deploys: [], attacks: [], protect: null },
+    wagers: [],
+    slate: [],
+    tickAt: new Date("2026-09-02T01:00:00Z"),
+    now: new Date("2026-09-01T12:00:00Z"),
+  })
+
+  it("never repeats a territory that is on the board", () => {
+    const onBoard = new Set(p.territories.map((t) => t.id))
+    const overlap = Object.keys(p.offBoard).filter((id) => onBoard.has(id))
+    expect(overlap).toEqual([])
+  })
+
+  it("carries geometry and nothing else", () => {
+    // The backdrop is context, not state. It must never acquire an owner, a
+    // garrison or anything else derived from the game -- that is the whole
+    // reason it is a separate field rather than extra entries in `shapes`.
+    for (const rings of Object.values(p.offBoard)) {
+      expect(Array.isArray(rings)).toBe(true)
+      for (const ring of rings) {
+        expect(ring.length).toBeGreaterThanOrEqual(3)
+        for (const point of ring) expect(point).toHaveLength(2)
+      }
+    }
+  })
+
+  it("shows the rest of the world, not a handful of leftovers", () => {
+    expect(Object.keys(p.offBoard).length).toBeGreaterThan(p.territories.length)
+  })
+})

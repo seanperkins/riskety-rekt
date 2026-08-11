@@ -32,6 +32,18 @@ export interface Projection {
   regions: { id: string; name: string; bonus: number }[]
   shapes: Record<string, [number, number][][]>
   centres: Record<string, { lat: number; lon: number }>
+  /**
+   * Every territory NOT on this board, drawn as inert grey background.
+   *
+   * Context, not state: a board of 70 territories floating in an empty sea
+   * gives no sense of where it sits, and a player cannot tell an ocean from a
+   * country nobody was dealt. These carry no ownership, no garrison and no
+   * interaction — they exist so the world is legible.
+   *
+   * Safe by construction: SHAPES is static, public, generated from Natural
+   * Earth, and identical for every viewer. Nothing here is derived from state.
+   */
+  offBoard: Record<string, [number, number][][]>
   /** The viewer's alone. */
   reserve: number
   plan: OrderBody
@@ -56,6 +68,7 @@ export function projectionFor(args: {
 }): Projection {
   const { state, factionId } = args
   const msToTick = Math.max(0, args.tickAt.getTime() - args.now.getTime())
+  const onBoard = new Set(state.map.territories.map((t) => t.id))
   return {
     seasonId: state.seasonId,
     // The order day, NOT state.day. The state is last night's board; the player
@@ -78,6 +91,11 @@ export function projectionFor(args: {
       state.map.territories.map((t) => [t.id, SHAPES[t.id] ?? []]),
     ),
     centres: Object.fromEntries(state.map.territories.map((t) => [t.id, COORDS[t.id]!])),
+    offBoard: Object.fromEntries(
+      Object.entries(SHAPES).filter(
+        ([id, rings]) => rings.length > 0 && !onBoard.has(id),
+      ),
+    ),
     reserve: state.reserves[factionId] ?? 0,
     plan: args.plan,
     wagers: args.wagers,

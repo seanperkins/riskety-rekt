@@ -75,3 +75,43 @@ describe("SHAPES", () => {
     expect(points).toBeLessThan(20_000)
   })
 })
+
+describe("clipping artifacts", () => {
+  // Two faults that both drew as a bar across the map, and neither of which
+  // MIN_AREA can catch, because both have a large AREA and a degenerate SHAPE.
+  it("has no ring stretched into a sliver", () => {
+    // Karelia carried a ring 29 degrees wide and 0.5 tall with four points --
+    // roughly 14 square degrees, hundreds of times MIN_AREA. It rendered as a
+    // maroon bar straight across the board. Elongation plus an absence of
+    // detail is the signature of a half-plane cut, not of land.
+    const bad: string[] = []
+    for (const [id, rings] of Object.entries(SHAPES)) {
+      for (const ring of rings) {
+        if (ring.length > 6) continue
+        const xs = ring.map((p) => p[0])
+        const ys = ring.map((p) => p[1])
+        const w = Math.max(...xs) - Math.min(...xs)
+        const h = Math.max(...ys) - Math.min(...ys)
+        const short = Math.min(w, h)
+        const aspect = short === 0 ? Infinity : Math.max(w, h) / short
+        if (aspect > 8) bad.push(`${id} ${w.toFixed(1)}x${h.toFixed(1)}deg, ${ring.length}pts`)
+      }
+    }
+    expect(bad).toEqual([])
+  })
+
+  it("has no ring spanning the antimeridian", () => {
+    // Natural Earth stores Fiji as a single ring running -180..+180. Drawn
+    // literally that is a polygon wrapping the globe, painted as a bar at
+    // Fiji's latitude. Any ring wider than half the world is that bug.
+    const bad: string[] = []
+    for (const [id, rings] of Object.entries(SHAPES)) {
+      for (const ring of rings) {
+        const xs = ring.map((p) => p[0])
+        const span = Math.max(...xs) - Math.min(...xs)
+        if (span > 180) bad.push(`${id} spans ${span.toFixed(0)} degrees of longitude`)
+      }
+    }
+    expect(bad).toEqual([])
+  })
+})
