@@ -141,6 +141,7 @@ describe("the client script", () => {
   it("runs to completion against a real projection", () => {
     const mapEl = element("map")
     const factionRow = element("row")
+    const docEvents: string[] = []
     // Stable per id, so the wiring on a specific control can be asserted.
     const byId = new Map<string, Record<string, unknown>>([["map", mapEl]])
     const doc = {
@@ -152,6 +153,10 @@ describe("the client script", () => {
       querySelectorAll: (sel: string) => (sel.includes("data-faction") ? [factionRow] : [element()]),
       createElement: () => element(),
       body: element(),
+      __events: docEvents,
+      addEventListener(type: string) {
+        docEvents.push(type)
+      },
     }
     const win: Record<string, unknown> = {
       __RR__: projection(),
@@ -214,5 +219,6 @@ describe("the client script", () => {
       (byId.get("btn-undo")?.["__events"] ?? []) as string[],
       "undo is wired",
     ).toContain("click")
+    expect(docEvents, "Cmd+Z / Ctrl+Z reaches undo").toContain("keydown")
   })
 })

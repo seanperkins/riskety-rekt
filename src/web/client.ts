@@ -863,6 +863,21 @@ $("plan").addEventListener("click", (e) => {
 $("btn-protect").addEventListener("click", protect)
 $("btn-undo").addEventListener("click", undo)
 
+// Cmd+Z / Ctrl+Z, because every order here is built one tap at a time and undo
+// is the whole safety net. Shift+Cmd+Z is left alone rather than wired to a
+// redo that does not exist -- swallowing it would be worse than ignoring it.
+//
+// Guarded on the event target: if a text field ever lands in the rail, the
+// browser's own undo has to keep working inside it.
+document.addEventListener("keydown", (e) => {
+  const k = e.key || ""
+  if (k.toLowerCase() !== "z" || !(e.metaKey || e.ctrlKey) || e.shiftKey) return
+  const tag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : ""
+  if (tag === "input" || tag === "textarea" || (e.target && e.target.isContentEditable)) return
+  e.preventDefault()
+  undo()
+})
+
 P.loadedAt = Date.now()
 setInterval(() => { $("countdown").textContent = countdown() }, 30000)
 render()
