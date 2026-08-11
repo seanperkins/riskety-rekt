@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm test                                  # vitest run — 646 tests, none touch the network
+npm test                                  # vitest run — 658 tests, none touch the network
 npm test -- src/engine/combat.test.ts     # a single file
 npm test -- -t "largest surviving force"  # a single test by name
 npm run test:watch
@@ -25,7 +25,8 @@ export RR_DB_PATH=./riskety.db RR_SEASON_ID=season-1
 npm run roster:add -- U01ABCDEF f1 "Ada L."   # do this BEFORE season:init
 npm run season:init -- 2026-09-01 --seed 4711 # deals day 0 from the roster
 npm run publish-slate                         # the 08:00 job
-npm run poll-settlements                      # the 30-minute job
+npm run poll-settlements                      # the 30-minute settlement job
+npm run poll-prices                           # the 30-minute price job
 npm run tick                                  # the 21:00 job
 npm run order -- f1 --file order.json         # or --stdin; never a shell argument
 npm run wager -- f1 --file wager.json
@@ -98,6 +99,13 @@ exploitable. Full list with reasoning in `HANDOFF.md`; the ones most likely to b
 - **Mutual attacks: the smaller force dies, the larger continues at `a − 2·min`.**
   The symmetric rule let a 1-troop feint void a 100-troop assault, and the map
   froze within days.
+- **A wager is priced when it is PLACED, not at the tick.** The published slate
+  is frozen at 08:00 so a rerun cannot re-snapshot it, and that freeze is what
+  made a 20:59 wager on a nearly-decided market worth roughly +94% EV. Live
+  prices live in `market_prices`, refreshed every 30 minutes; `order_wagers`
+  records the price at save time and `escrow` prefers it. Re-staking re-prices,
+  or a player could take the morning's odds and switch sides once the outcome
+  was clear.
 - **Settlement is credit-only.** The stake left the reserve at escrow; "credit or
   debit" charges losers twice. Payout uses `round`, not `floor`.
 - **`protect` is filtered inside the engine**, on both `postedToday` and zero
@@ -149,11 +157,8 @@ that seems obviously right — it may already have been considered and declined.
 
 ## Not built
 
-**The wager economy** is the one thing that still clearly blocks a *competitive*
-season:
+What is left before a competitive season:
 
-- **The wager economy.** Late placement at the frozen 08:00 price is roughly
-  +94% EV. The fix is periodic price snapshots.
 - **Pluggable mechanics.** Draft at
   `docs/superpowers/specs/2026-08-10-pluggable-mechanics-design.md`. It changes
   `GameState` (`pending` → `moduleState`), which regenerates the golden file,

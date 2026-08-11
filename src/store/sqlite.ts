@@ -287,6 +287,21 @@ export function openStore(
       }))
     },
 
+    recordPrices(markets: Market[], at: Date): void {
+      // Upsert: the LATEST price wins. Settlements are the opposite -- first
+      // observation wins there, because an outcome is final and a price is not.
+      const stmt = db.prepare(
+        `INSERT INTO market_prices (market_id, price_yes, price_no, observed_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (market_id) DO UPDATE SET price_yes = excluded.price_yes,
+                                               price_no  = excluded.price_no,
+                                               observed_at = excluded.observed_at`,
+      )
+      this.transaction(() => {
+        for (const m of markets) stmt.run(m.id, m.priceYes, m.priceNo, at.toISOString())
+      })
+    },
+
     recordSettlement(marketId: MarketId, outcome: "yes" | "no", at: Date): boolean {
       const res = db
         .prepare(
@@ -540,15 +555,33 @@ export function openStore(
           .get(seasonId, day, wager.marketId, now.toISOString())
         if (stillOpen === undefined) return { ok: false, reason: "market-locked" }
 
+        // The price at the moment of placing, which is the whole fix for the
+        // stale-price exploit. Live price if the poller has one, otherwise the
+        // slate's 08:00 snapshot -- which is what every wager used before.
+        const priceRow = db
+          .prepare(
+            `SELECT COALESCE(p.price_yes, sm.price_yes) AS yes,
+                    COALESCE(p.price_no,  sm.price_no)  AS no
+               FROM slate_markets sm
+               LEFT JOIN market_prices p ON p.market_id = sm.market_id
+              WHERE sm.season_id = ? AND sm.day = ? AND sm.market_id = ?`,
+          )
+          .get(seasonId, day, wager.marketId) as { yes: number; no: number } | undefined
+        const price = wager.side === "yes" ? priceRow?.yes : priceRow?.no
+
         // first_staked_at is deliberately absent from the DO UPDATE list: it
         // anchors the ordering of the sequential-greedy reserve check, and
         // letting a re-stake move it would hand the player that lever.
         db.prepare(
           `INSERT INTO order_wagers
-             (season_id, day, faction_id, market_id, side, stake, first_staked_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+             (season_id, day, faction_id, market_id, side, stake, first_staked_at, price)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (season_id, day, faction_id, market_id)
-             DO UPDATE SET side = excluded.side, stake = excluded.stake`,
+             DO UPDATE SET side = excluded.side, stake = excluded.stake,
+                           -- Re-staking re-prices. Keeping the original price
+                           -- would let a player lock in the morning's odds and
+                           -- then change sides once the outcome was clear.
+                           price = excluded.price`,
         ).run(
           seasonId,
           day,
@@ -557,6 +590,7 @@ export function openStore(
           wager.side,
           wager.stake,
           now.toISOString(),
+          price ?? null,
         )
         return { ok: true }
       })
@@ -572,7 +606,7 @@ export function openStore(
     wagersFor(seasonId: string, day: number, factionId: FactionId): WagerRow[] {
       const rows = db
         .prepare(
-          `SELECT market_id, side, stake, first_staked_at
+          `SELECT market_id, side, stake, first_staked_at, price
              FROM order_wagers
             WHERE season_id = ? AND day = ? AND faction_id = ?
             ORDER BY first_staked_at, market_id`,
@@ -582,12 +616,14 @@ export function openStore(
         side: string
         stake: number
         first_staked_at: string
+        price: number | null
       }[]
       return rows.map((r) => ({
         marketId: r.market_id,
         side: r.side === "no" ? "no" : "yes",
         stake: Number(r.stake),
         firstStakedAt: r.first_staked_at,
+        ...(r.price === null ? {} : { price: Number(r.price) }),
       }))
     },
 
@@ -609,7 +645,7 @@ export function openStore(
       // survives a short reserve.
       const wagers = db
         .prepare(
-          `SELECT faction_id, market_id, side, stake
+          `SELECT faction_id, market_id, side, stake, price
              FROM order_wagers
             WHERE season_id = ? AND day = ?
               AND stake > 0 AND typeof(stake) = 'integer'
@@ -620,6 +656,7 @@ export function openStore(
         market_id: string
         side: string
         stake: number
+        price: number | null
       }[]
 
       const byFaction = new Map<FactionId, Order>()
@@ -647,6 +684,9 @@ export function openStore(
           marketId: row.market_id,
           side: row.side === "no" ? "no" : "yes",
           stake: Number(row.stake),
+          // Absent rather than null: exactOptionalPropertyTypes, and the engine
+          // falls back to the slate price when there is none.
+          ...(row.price === null ? {} : { price: Number(row.price) }),
         })
       }
 

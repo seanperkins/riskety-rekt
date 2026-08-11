@@ -166,7 +166,7 @@ describe("runTick — behaviour", () => {
         deploys: [],
         attacks: [],
         protect: null,
-        wagers: [{ marketId: "KX-1", side: "yes", stake: 3 }],
+        wagers: [{ marketId: "KX-1", side: "yes", stake: 3, price: 0.4 }],
       },
     ])
     expect(frozen?.context.slate.map((m) => m.id)).toEqual(["KX-1"])

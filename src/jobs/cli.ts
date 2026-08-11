@@ -3,6 +3,7 @@
  *
  *   tsx src/jobs/cli.ts publish-slate
  *   tsx src/jobs/cli.ts poll-settlements
+ *   tsx src/jobs/cli.ts poll-prices
  *   tsx src/jobs/cli.ts season-init <start-date> [--length N] [--seed N]
  *   tsx src/jobs/cli.ts tick
  *   tsx src/jobs/cli.ts recap <day> [--kind correction] [--force]
@@ -30,6 +31,7 @@ import { createKalshiAdapter } from "../adapters/kalshi/index.js"
 import { openStore } from "../store/sqlite.js"
 import { runPublishSlate } from "./publish-slate.js"
 import { runPollSettlements } from "./poll-settlements.js"
+import { runPollPrices } from "./poll-prices.js"
 import { runSeasonInit } from "./season-init.js"
 import { runTick } from "./tick.js"
 import { runRerun } from "./rerun.js"
@@ -306,6 +308,15 @@ try {
       ...(announce === undefined ? {} : { announce }),
     })
     if (out.status === "skipped") log(`skipped day ${out.day}: ${out.reason}`)
+  } else if (command === "poll-prices") {
+    const out = await runPollPrices({
+      store,
+      adapter: createKalshiAdapter({ onTruncate }),
+      seasonId: required("RR_SEASON_ID"),
+      now: new Date(),
+      log,
+    })
+    if (out.markets === 0) log("no slate today; nothing to price")
   } else if (command === "poll-settlements") {
     const out = await runPollSettlements({
       store,
@@ -318,7 +329,7 @@ try {
   } else {
     throw new UsageError(
       `unknown command: ${String(command)}\n` +
-        `expected one of: publish-slate, poll-settlements, season-init, tick, ` +
+        `expected one of: publish-slate, poll-settlements, poll-prices, season-init, tick, ` +
           `recap, tick-rerun, order, wager, roster-add, roster-list`,
     )
   }

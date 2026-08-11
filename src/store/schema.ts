@@ -215,6 +215,28 @@ export const MIGRATIONS: string[] = [
 
   CREATE INDEX sessions_by_faction ON sessions (faction_id);
   `,
+  `
+  -- Live prices, separate from slate_markets on purpose.
+  --
+  -- slate_markets is the PUBLISHED slate and stays frozen: publishSlate refuses
+  -- a second write precisely so a rerun at 20:00 cannot re-snapshot the day's
+  -- prices. But freezing is also what created the exploit -- a wager placed at
+  -- 20:59, when the outcome is nearly public, paid at the morning's odds for
+  -- roughly +94% EV.
+  --
+  -- So prices live here, refreshed every 30 minutes by poll-prices, and a wager
+  -- records the price it was PLACED at. The slate stays the slate; the odds move.
+  CREATE TABLE market_prices (
+    market_id   TEXT PRIMARY KEY,
+    price_yes   REAL NOT NULL,
+    price_no    REAL NOT NULL,
+    observed_at TEXT NOT NULL
+  );
+
+  -- The price for the chosen side at the moment the wager was saved. NULL for
+  -- rows written before this migration, which fall back to the slate price.
+  ALTER TABLE order_wagers ADD COLUMN price REAL;
+  `,
 ]
 
 /** Apply any migrations the database has not seen. Safe to call on every boot. */

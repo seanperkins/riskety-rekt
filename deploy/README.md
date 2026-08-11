@@ -1,6 +1,6 @@
 # Deployment — market jobs and the Slack bot
 
-Three timers and two long-running services, all on a single DigitalOcean droplet
+Four timers and two long-running services, all on a single DigitalOcean droplet
 alongside the SQLite file.
 
 ## Environment
@@ -42,7 +42,7 @@ into the browser bundle; `loadSlackEnv` asserts it at boot and refuses to start.
 sudo cp deploy/*.service deploy/*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now riskety-publish-slate.timer riskety-poll-settlements.timer \
-  riskety-tick.timer
+  riskety-poll-prices.timer riskety-tick.timer
 sudo systemctl enable --now riskety-slack.service riskety-web.service
 systemctl list-timers 'riskety-*'
 ```
@@ -266,3 +266,21 @@ at `season-init` and a faction added afterwards owns nothing, permanently.
 | `/day/N` | The night replayed |
 | `/map` | The debug board — no session needed, no player data |
 | `/vendor/leaflet.{js,css}` | Leaflet, served from an explicit two-entry allow-list |
+
+
+## Live prices
+
+`riskety-poll-prices.timer` runs every 30 minutes at `*:15/30`, offset from the
+settlement poller at `*:00/30` so the two do not contend for the write lock,
+and clear of the 21:00:30 tick.
+
+It exists because the published slate is frozen. `publishSlate` refuses a second
+write so a rerun cannot re-snapshot the day's prices — and that freeze is what
+made late betting free money: a wager placed at 20:59 on a market whose outcome
+was nearly public still paid at the morning's odds, worth roughly +94% EV.
+
+Prices now move in their own table and a wager records the price it was
+**placed** at. The published slate is still frozen; only the odds move.
+
+If the poller stops, prices go stale and wagers fall back to the last recorded
+price — the old behaviour, and no worse than it was.

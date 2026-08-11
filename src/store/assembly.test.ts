@@ -43,7 +43,7 @@ describe("assembleOrders", () => {
         deploys: [],
         attacks: [],
         protect: null,
-        wagers: [{ marketId: "KX-1", side: "yes", stake: 4 }],
+        wagers: [{ marketId: "KX-1", side: "yes", stake: 4, price: 0.4 }],
       },
     ])
     store.close()
@@ -82,7 +82,7 @@ describe("assembleOrders", () => {
     expect(orders[0]).toMatchObject({
       factionId: "f1",
       protect: "peru",
-      wagers: [{ marketId: "KX-1", side: "no", stake: 6 }],
+      wagers: [{ marketId: "KX-1", side: "no", stake: 6, price: 0.6 }],
     })
     store.close()
   })

@@ -156,7 +156,7 @@ describe("saveWager", () => {
     store.saveWager("s1", DAY, "f1", { ...W, side: "no", stake: 7 }, at(10))
     const rows = store.wagersFor("s1", DAY, "f1")
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toEqual({
+    expect(rows[0]).toMatchObject({
       marketId: "KX-1",
       side: "no",
       stake: 7,

@@ -1,0 +1,11 @@
+[Unit]
+Description=Riskety Rekt — refresh live market prices
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=riskety
+WorkingDirectory=/srv/riskety-rekt
+EnvironmentFile=/etc/riskety-rekt/env
+ExecStart=/usr/bin/npm run poll-prices

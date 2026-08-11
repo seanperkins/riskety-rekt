@@ -49,6 +49,12 @@ export interface SlateStore {
   slatePublished(seasonId: string, day: number): boolean
   loadSlate(seasonId: string, day: number): Market[]
 
+  /**
+   * Refresh live prices. Latest observation wins, unlike settlements where the
+   * first does — a price is a moving fact, an outcome is a final one.
+   */
+  recordPrices(markets: Market[], at: Date): void
+
   /** First observation wins. Returns false if an outcome was already recorded. */
   recordSettlement(marketId: MarketId, outcome: "yes" | "no", at: Date): boolean
   loadSettlements(marketIds: MarketId[]): Record<MarketId, Settlement>
@@ -175,6 +181,8 @@ export interface WagerRow {
   side: "yes" | "no"
   stake: number
   firstStakedAt: string
+  /** The price for this side when the wager was placed, if it was recorded. */
+  price?: number
 }
 
 /**

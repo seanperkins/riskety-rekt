@@ -91,6 +91,17 @@ export interface WagerOrder {
   marketId: MarketId
   side: WagerSide
   stake: number
+  /**
+   * The price for this side at the moment the wager was PLACED.
+   *
+   * Absent means "use the slate's price", which is what every wager did before
+   * prices moved during the day. Present is the fix for the stale-price
+   * exploit: the published slate is frozen at 08:00, so a wager placed at 20:59
+   * on a nearly-decided market used to pay at the morning's odds — roughly +94%
+   * EV. Pricing at placement removes the free money without unfreezing the
+   * slate, which exists so a rerun cannot re-snapshot the day.
+   */
+  price?: number
 }
 
 export interface Order {

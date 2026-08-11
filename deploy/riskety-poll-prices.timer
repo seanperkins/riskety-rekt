@@ -1,0 +1,11 @@
+[Unit]
+Description=Riskety Rekt — price refresh, every 30 minutes
+
+[Timer]
+# Offset from the settlement poller at *:00/30 so the two do not contend for
+# the write lock, and clear of the 21:00:30 tick.
+OnCalendar=*:15/30
+Persistent=false
+
+[Install]
+WantedBy=timers.target

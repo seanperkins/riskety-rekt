@@ -27,7 +27,14 @@ export function payout(stake: number, price: number): number {
   return Math.round((stake / p) * HOUSE_BONUS)
 }
 
-/** Move validated wagers into escrow, taking price from the slate by side. */
+/**
+ * Move validated wagers into escrow.
+ *
+ * Price comes from the WAGER when it carries one — the price at the moment it
+ * was placed — and from the slate otherwise. The slate is the 08:00 snapshot,
+ * so using it for a wager placed at 20:59 is what made late betting on a
+ * nearly-decided market worth roughly +94% EV.
+ */
 export function escrow(order: Order, slate: Market[], day: number, seq: number): PendingWager[] {
   const byId = new Map(slate.map((m) => [m.id, m]))
   return order.wagers.map((w, i) => {
@@ -38,7 +45,7 @@ export function escrow(order: Order, slate: Market[], day: number, seq: number):
       marketId: w.marketId,
       side: w.side,
       stake: w.stake,
-      price: w.side === "yes" ? m.priceYes : m.priceNo,
+      price: w.price ?? (w.side === "yes" ? m.priceYes : m.priceNo),
       placedOnDay: day,
     }
   })
