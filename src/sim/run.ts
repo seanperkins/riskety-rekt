@@ -8,7 +8,8 @@ import {
 } from "../engine/index.js"
 import { SEASON_LENGTH } from "../config.js"
 import { POLICIES } from "./policies.js"
-import { makeRng, shuffle, type Rng } from "../rng.js"
+import { makeRng, type Rng } from "../rng.js"
+import { clusteredOrder } from "../map/deal.js"
 import { selectSubMap } from "../map/select.js"
 import { WORLD } from "../map/world.js"
 import type {
@@ -113,10 +114,9 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
   let state = createSeason(
     `sim-${seed}`,
     factions,
-    shuffle(
-      map.territories.map((t) => t.id),
-      rng,
-    ),
+    // The same deal season-init uses. Two things that drift apart until the
+    // measurement describes a game nobody plays.
+    clusteredOrder(map, factions.length, rng),
     map,
   )
   const seatIds = seats.map((s) => s.id)

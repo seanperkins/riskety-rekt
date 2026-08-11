@@ -2,10 +2,11 @@ import { createSeason } from "../engine/index.js"
 import type { Faction, GameMap } from "../engine/index.js"
 import { ENGINE_VERSION } from "../engine/index.js"
 import { MAX_FACTIONS, MIN_FACTIONS } from "../config.js"
+import { clusteredOrder } from "../map/deal.js"
 import { selectSubMap } from "../map/select.js"
 import { WORLD } from "../map/world.js"
 import { checkDeal } from "../season.js"
-import { makeRng, shuffle } from "../rng.js"
+import { makeRng } from "../rng.js"
 import type { RosterStore, SeasonStore, StateStore, Transactional } from "../store/types.js"
 
 /**
@@ -114,10 +115,10 @@ export function runSeasonInit(deps: SeasonInitDeps): InitOutcome {
     color: PALETTE[i]!,
   }))
 
-  const territoryIds = shuffle(
-    map.territories.map((t) => t.id),
-    rng,
-  )
+  // Contiguous holdings rather than a plain shuffle. createSeason deals
+  // ids[i] to factions[i % n], so the order alone decides the assignment --
+  // the engine is untouched by this.
+  const territoryIds = clusteredOrder(map, factions.length, rng)
   // Outside the transaction on purpose: createSeason throws if the dealt set is
   // not the map's territory set, and a throw before BEGIN leaves nothing to
   // roll back.
