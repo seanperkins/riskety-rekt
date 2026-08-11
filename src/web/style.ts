@@ -306,7 +306,32 @@ body {
 .atk-arrow { color: var(--accent); font-size: 15px; }
 
 .atk-pick { display: flex; align-items: center; gap: 8px; }
-.atk-pick input[type="range"] { flex: 1; accent-color: var(--accent); }
+.atk-track { position: relative; flex: 1; display: flex; }
+.atk-pick input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+/* The capture threshold: a notch on the track with the number under it, like a
+   surveyor's mark. Positioned by left%, computed from the slider's own range. */
+.atk-need {
+  position: absolute;
+  top: 100%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.atk-need i {
+  display: block;
+  width: 2px; height: 5px;
+  background: var(--accent);
+}
+.atk-need b {
+  font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--accent);
+}
+
+.atk-verdict { margin: 2px 0 0; text-align: center; }
+.atk-verdict.takes { color: var(--accent); }
 .atk-pick output {
   min-width: 26px;
   text-align: right;
@@ -314,6 +339,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.atk-pick { padding-bottom: 12px; }
 .atk-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .chip.ok { border-color: var(--accent); color: var(--accent); font-weight: 650; }
 .chip.ok:hover, .chip.ok:focus-visible { background: var(--accent); color: var(--ground); }

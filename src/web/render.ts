@@ -325,10 +325,14 @@ export function renderBoard(p: Projection): string {
         <span class="atk-side"><b id="atk-to"></b><span class="hint" id="atk-to-g"></span></span>
       </div>
       <div class="atk-pick">
-        <input id="atk-slider" type="range" min="0" value="1" step="1">
+        <span class="atk-track">
+          <input id="atk-slider" type="range" min="0" value="1" step="1">
+          <span id="atk-need" class="atk-need" hidden><i></i><b></b></span>
+        </span>
         <output id="atk-n" for="atk-slider">1</output>
         <span class="hint">soldiers</span>
       </div>
+      <p id="atk-verdict" class="hint atk-verdict"></p>
       <div class="atk-actions">
         <button id="atk-cancel" class="chip">Cancel</button>
         <button id="atk-ok" class="chip ok">Okay</button>

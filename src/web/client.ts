@@ -684,8 +684,41 @@ function openAttack(from, to) {
   $("atk-to").textContent = nameOf(to)
   $("atk-to-g").textContent = (P.garrisons[to] ?? 0) + " defending"
   $("atk-n").textContent = slider.value
+
+  // The tick: the smallest force that TAKES the territory. The engine holds a
+  // target on total <= defense, so defense + 1 captures and the casualties
+  // total exactly the defense. Marked as "if nothing changes": resolution is
+  // simultaneous, so tonight's enemy deploys or a rival attack on the same
+  // territory move the real number, and the engine is the only judge.
+  atkPending.need = (P.garrisons[to] ?? 0) + 1
+  const need = atkPending.need
+  const min = Number(slider.min)
+  const tick = $("atk-need")
+  if (need <= max) {
+    const frac = max === min ? 1 : (need - min) / (max - min)
+    tick.style.left = (frac * 100).toFixed(1) + "%"
+    tick.querySelector("b").textContent = String(need)
+    tick.hidden = false
+  } else {
+    tick.hidden = true
+  }
+  paintVerdict()
   el.hidden = false
   slider.focus()
+}
+
+// Below the slider, in words, so the tick never has to be decoded: taking,
+// weakening, or calling it off.
+function paintVerdict() {
+  const v = $("atk-verdict")
+  if (!v || !atkPending) return
+  const n = Math.floor(Number($("atk-slider").value))
+  const need = atkPending.need
+  const d = P.garrisons[atkPending.to] ?? 0
+  if (n <= 0) v.textContent = "No attack."
+  else if (n >= need) v.textContent = "Takes it with " + (n - d) + " if nothing changes tonight."
+  else v.textContent = "Falls short — weakens the garrison to " + (d - n) + "."
+  v.classList.toggle("takes", n >= need)
 }
 
 function closeAttack() {
@@ -905,7 +938,10 @@ $("plan").addEventListener("click", (e) => {
 })
 $("btn-protect").addEventListener("click", protect)
 $("btn-undo").addEventListener("click", undo)
-$("atk-slider").addEventListener("input", () => { $("atk-n").textContent = $("atk-slider").value })
+$("atk-slider").addEventListener("input", () => {
+  $("atk-n").textContent = $("atk-slider").value
+  paintVerdict()
+})
 $("atk-ok").addEventListener("click", commitAttack)
 $("atk-cancel").addEventListener("click", closeAttack)
 
