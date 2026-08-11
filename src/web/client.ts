@@ -672,12 +672,35 @@ function deployTo(id) {
 // without changing anything.
 let atkPending = null
 
+// What an origin can still send at TARGET, mirroring the engine's own rule:
+// the aggregate of attacks from one origin is capped at its POST-DEPLOY
+// garrison minus one, so tonight's deploys into a launch point raise the
+// ceiling and every other attack already planned from it lowers it. The
+// engine enforces this at the tick regardless -- an over-committed second
+// attack is rejected there, publicly, in the recap. This mirror exists so the
+// panel cannot draw an order that is already doomed: it used to cap each
+// attack independently at garrison - 1, which let 7 + 7 leave a garrison of 8
+// on paper and die at the tick.
+function originCap(from, target) {
+  const deployed = plan.deploys
+    .filter((d) => d.territory === from)
+    .reduce((n, d) => n + d.count, 0)
+  const others = plan.attacks
+    .filter((a) => a.from === from && a.to !== target)
+    .reduce((n, a) => n + a.count, 0)
+  return Math.max(0, (P.garrisons[from] ?? 0) + deployed - 1 - others)
+}
+
 function openAttack(from, to) {
   const el = $("atk")
   if (!el) return
   atkPending = { from: from, to: to }
-  const max = Math.max(1, (P.garrisons[from] ?? 0) - 1)
+  const max = originCap(from, to)
   const existing = plan.attacks.find((a) => a.from === from && a.to === to)
+  if (max <= 0 && !existing) {
+    atkPending = null
+    return flash("Nothing left in " + nameOf(from) + " to attack with.")
+  }
   const slider = $("atk-slider")
   slider.max = String(max)
   // 0 is a real choice when an attack already exists: it means call it off.
@@ -845,9 +868,13 @@ function adjust(kind, i, delta) {
     if (!entry) return
     if (delta === 0) list.splice(i, 1)
     else {
-      // A deploy cannot grow past what is left in the reserve; an attack is the
-      // engine's business, as everything else here is.
+      // A deploy cannot grow past what is left in the reserve, and an attack
+      // cannot grow past what its origin can still send -- the same per-origin
+      // cap the engine applies at the tick.
       if (delta > 0 && kind === "deploy" && unspent() <= 0) return flash("No soldiers left.")
+      if (delta > 0 && kind === "attack" && entry.count >= originCap(entry.from, entry.to)) {
+        return flash("Nothing left in " + nameOf(entry.from) + " to send.")
+      }
       entry.count += delta
       if (entry.count <= 0) list.splice(i, 1)
     }
