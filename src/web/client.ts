@@ -243,21 +243,20 @@ for (const r of P.regions) {
     // the same number of pixels at every zoom instead of growing as you zoom in.
     icon: L.divIcon({
       className: "rbadge rb-" + side,
-      html: '<span class="rb-n"' + (sole ? ' style="background:' + colorOf(sole) + '"' : "") +
-        '>+' + r.bonus + '</span><span class="rb-name">' + esc(r.name) + '</span>',
-      // NO iconSize and NO iconAnchor. Leaflet writes both as INLINE styles,
-      // which beat the stylesheet: iconSize [0,0] gave the badge width:0 and
-      // height:0, so the text overflowed and was visible while the element
-      // itself had no hit area at all -- it could not be hovered. Left unset,
-      // Leaflet writes nothing and the CSS sizes and positions it.
+      // aria-label carries the name that CSS hides, so the badge still reads
+      // as more than a bare number to a screen reader.
+      html: '<span class="rb-in" data-region="' + esc(r.id) + '"' +
+        ' aria-label="' + esc(r.name) + ', +' + r.bonus + ' for the whole region">' +
+        '<span class="rb-n"' + (sole ? ' style="background:' + colorOf(sole) + '"' : "") +
+        '>+' + r.bonus + '</span><span class="rb-name">' + esc(r.name) + '</span></span>',
+      // iconSize NULL, not omitted. DivIcon DEFAULTS to [12, 12] and writes it
+      // as an inline width/height, which beats the stylesheet -- the badge came
+      // out 12px square with its text overflowing, visible but with almost no
+      // hit area. Explicit null makes Leaflet write nothing at all.
+      iconSize: null,
+      iconAnchor: null,
     }),
   }).addTo(map)
-
-  const el = badge.getElement()
-  if (el) {
-    el.addEventListener("mouseenter", () => setHighlight("region", r.id))
-    el.addEventListener("mouseleave", () => setHighlight(null))
-  }
 }
 
 function setHighlight(kind, id) {
@@ -283,6 +282,19 @@ function syncRailHighlight() {
     row.classList.toggle("lit", on)
   }
 }
+
+// Region hover by DELEGATION on the map container rather than a listener per
+// badge. Leaflet owns those icon elements and may recreate them; mouseover and
+// mouseout bubble, so one pair of listeners on a node we own cannot go stale.
+const mapEl = document.getElementById("map")
+mapEl.addEventListener("mouseover", (e) => {
+  const el = e.target && e.target.closest && e.target.closest("[data-region]")
+  if (el) setHighlight("region", el.getAttribute("data-region"))
+})
+mapEl.addEventListener("mouseout", (e) => {
+  const el = e.target && e.target.closest && e.target.closest("[data-region]")
+  if (el) setHighlight(null)
+})
 
 // Hovering a player lights everything they hold.
 for (const row of document.querySelectorAll("[data-faction]")) {

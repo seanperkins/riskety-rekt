@@ -282,9 +282,19 @@ body {
 /* The badge IS interactive -- hovering it lights its region. Safe because a
    badge sits outside its region's bounding box, so it covers no territory
    whose tap it could steal. */
-.rbadge { pointer-events: auto; cursor: default; }
-.rbadge:hover .rb-n { border-color: #ffd479; }
-.rbadge:hover .rb-name { color: #ffd479; }
+.rbadge { pointer-events: none; }
+/* The inner span carries the hit area, so it is exactly the badge's ink --
+   the outer element is positioned by a transform and would otherwise present
+   a box larger than what is drawn. */
+.rb-in {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: auto;
+  cursor: default;
+}
+.rb-in:hover .rb-n { border-color: #ffd479; }
+.rb-in:hover .rb-name { color: #ffd479; }
 
 .gcount {
   display: grid;
@@ -333,6 +343,18 @@ body {
   color: #f2e2b8;
   font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/*
+ * The region's NAME is hidden until its badge is hovered.
+ *
+ * Twelve names across a board is more type than map, and the number is the
+ * part being compared -- what a region pays is the decision, its name is only
+ * how you refer to it afterwards. Revealing on hover puts the label exactly
+ * where attention already is, and the badge is the hover target for lighting
+ * the region anyway, so one gesture does both.
+ */
+.rb-name { display: none; }
+.rb-in:hover .rb-name { display: inline; }
 
 .rb-name {
   font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
