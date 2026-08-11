@@ -68,9 +68,18 @@ systemctl daemon-reload
 say "installing Caddy config"
 cp "$APP/deploy/Caddyfile" /etc/caddy/Caddyfile
 install -d -o caddy -g caddy /var/log/caddy
+
 # Validate before reloading: a bad Caddyfile on reload leaves the OLD config
-# serving, which is quiet enough to miss.
+# serving, which is quiet enough to miss entirely.
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+# `caddy validate` PROVISIONS the config rather than merely parsing it -- it
+# opens log writers and starts certificate maintenance, then tears it down. Run
+# as root, that leaves /var/log/caddy/riskety.log owned root:root 0600, and the
+# service runs as `caddy` and dies on "permission denied" opening its own log.
+# Hand the whole directory back after validating, not before.
+chown -R caddy:caddy /var/log/caddy
+
 systemctl reload caddy || systemctl restart caddy
 
 # ---- nightly database backup -------------------------------------------------
