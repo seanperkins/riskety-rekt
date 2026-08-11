@@ -1,5 +1,5 @@
 import { COORDS } from "../map/coords.js"
-import { SHAPES } from "../map/shapes.js"
+import { LABELS, SHAPES } from "../map/shapes.js"
 import { SEA_LINKS } from "../map/world.js"
 import type { GameState } from "../engine/index.js"
 import type { FactionId } from "../engine/index.js"
@@ -33,6 +33,12 @@ export interface Projection {
   regions: { id: string; name: string; bonus: number }[]
   shapes: Record<string, [number, number][][]>
   centres: Record<string, { lat: number; lon: number }>
+  /**
+   * Where to draw a territory's garrison count: the point furthest inside its
+   * own coastline, computed at build time. `centres` is the hand-entered
+   * country centroid and drifts visibly off the drawn shape when zoomed in.
+   */
+  labels: Record<string, { lat: number; lon: number }>
   /**
    * Every territory NOT on this board, drawn as inert grey background.
    *
@@ -101,6 +107,13 @@ export function projectionFor(args: {
       state.map.territories.map((t) => [t.id, SHAPES[t.id] ?? []]),
     ),
     centres: Object.fromEntries(state.map.territories.map((t) => [t.id, COORDS[t.id]!])),
+    labels: Object.fromEntries(
+      state.map.territories.map((t) => {
+        const p = LABELS[t.id]
+        const c = COORDS[t.id]!
+        return [t.id, p === undefined ? c : { lat: p[1], lon: p[0] }]
+      }),
+    ),
     seaLinks: SEA_LINKS.filter(([a, b]) => onBoard.has(a) && onBoard.has(b)).map(
       ([a, b]) => [a, b] as [string, string],
     ),

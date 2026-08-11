@@ -119,7 +119,8 @@ function tooltip(id) {
 // territory under it.
 const countMarkers = {}
 for (const t of P.territories) {
-  const c = P.centres[t.id]
+  // The label point, not the country centroid -- see Projection.labels.
+  const c = (P.labels || {})[t.id] || P.centres[t.id]
   if (!c) continue
   const m = L.marker([c.lat, c.lon], {
     interactive: false,

@@ -472,7 +472,88 @@ for (const [country, claimants] of claimantsOf) {
   for (const [id, rings] of got) province.set(id, rings)
 }
 
+/**
+ * The point inside a territory furthest from its own coastline.
+ *
+ * Garrison counts were drawn at the hand-entered COORDS centroid, which is an
+ * approximate centre of the COUNTRY rather than of the drawn shape. Zoomed out
+ * that passes; zoomed in the number visibly drifts off its territory, and for
+ * Tyrol and Cyprus it sat outside the polygon altogether. A mean of the
+ * vertices is no better — on a crescent like Norway the mean is in the sea.
+ *
+ * So: pole of inaccessibility, by grid refinement. Sample the bounding box,
+ * keep the sample furthest INSIDE, then resample a shrinking window around it.
+ * Six passes is well past the point where the answer stops moving at the
+ * resolution anyone renders at, and this runs once at build time.
+ */
+function labelPoint(rings: Ring[]): [number, number] {
+  const all = rings.filter((r) => r.length >= 3)
+  if (all.length === 0) return [0, 0]
+  // The largest ring only. A territory's label belongs on its mainland, not
+  // averaged between the mainland and an island chain.
+  const ring = all.reduce((a, b) => (area(a) >= area(b) ? a : b))
+
+  const xs = ring.map((p) => p[0])
+  const ys = ring.map((p) => p[1])
+  let x0 = Math.min(...xs)
+  let x1 = Math.max(...xs)
+  let y0 = Math.min(...ys)
+  let y1 = Math.max(...ys)
+
+  const inside = (px: number, py: number): boolean => {
+    let hit = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i]!
+      const [xj, yj] = ring[j]!
+      if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) hit = !hit
+    }
+    return hit
+  }
+
+  // Distance to the nearest edge, negative outside — so one comparison ranks
+  // "inside and far from the coast" above everything else.
+  const clearance = (px: number, py: number): number => {
+    let best = Infinity
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i]!
+      const [xj, yj] = ring[j]!
+      const dx = xj - xi
+      const dy = yj - yi
+      const len = dx * dx + dy * dy
+      const t = len === 0 ? 0 : Math.max(0, Math.min(1, ((px - xi) * dx + (py - yi) * dy) / len))
+      best = Math.min(best, Math.hypot(px - (xi + t * dx), py - (yi + t * dy)))
+    }
+    return inside(px, py) ? best : -best
+  }
+
+  let best: [number, number] = [(x0 + x1) / 2, (y0 + y1) / 2]
+  let bestScore = -Infinity
+  for (let pass = 0; pass < 6; pass++) {
+    const steps = 12
+    for (let i = 0; i <= steps; i++) {
+      for (let j = 0; j <= steps; j++) {
+        const px = x0 + ((x1 - x0) * i) / steps
+        const py = y0 + ((y1 - y0) * j) / steps
+        const score = clearance(px, py)
+        if (score > bestScore) {
+          bestScore = score
+          best = [px, py]
+        }
+      }
+    }
+    // Shrink the window around the winner and look again.
+    const wx = (x1 - x0) / 4
+    const wy = (y1 - y0) / 4
+    x0 = best[0] - wx
+    x1 = best[0] + wx
+    y0 = best[1] - wy
+    y1 = best[1] + wy
+  }
+  return [Math.round(best[0] * 1000) / 1000, Math.round(best[1] * 1000) / 1000]
+}
+
 const shapes: Record<string, Ring[]> = {}
+const labels: Record<string, [number, number]> = {}
 const report: string[] = []
 
 for (const t of WORLD.territories) {
@@ -513,6 +594,7 @@ for (const t of WORLD.territories) {
 
   if (rings.length === 0) report.push(t.id)
   shapes[t.id] = rings
+  if (rings.length > 0) labels[t.id] = labelPoint(rings)
 }
 
 // ------------------------------------------------------------------ output --
@@ -549,6 +631,20 @@ const body = `import type { TerritoryId } from "../engine/index.js"
  * ${Object.keys(shapes).length} territories, ${points.toLocaleString()} points.
  */
 export const SHAPES: Record<TerritoryId, [number, number][][]> = ${JSON.stringify(shapes)}
+
+/**
+ * Where to write a territory's garrison count: the point inside its largest
+ * ring furthest from that ring's own coastline.
+ *
+ * NOT the COORDS centroid, which is an approximate centre of the country and
+ * drifts visibly off the drawn shape once you zoom in — Tyrol's and Cyprus's
+ * sat outside their polygons entirely. NOT the mean of the vertices either: on
+ * a crescent like Norway the mean is in the sea.
+ *
+ * Pole of inaccessibility by grid refinement, computed here so the browser
+ * pays nothing for it.
+ */
+export const LABELS: Record<TerritoryId, [number, number]> = ${JSON.stringify(labels)}
 `
 
 writeFileSync(new URL("../src/map/shapes.ts", import.meta.url), body)

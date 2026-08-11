@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { COORDS } from "./coords.js"
-import { SHAPES } from "./shapes.js"
+import { LABELS, SHAPES } from "./shapes.js"
 import { WORLD } from "./world.js"
 
 /** Mean position of a ring, with longitude wrap handled via unit vectors. */
@@ -113,5 +113,37 @@ describe("clipping artifacts", () => {
       }
     }
     expect(bad).toEqual([])
+  })
+})
+
+describe("label points", () => {
+  const inRing = (lon: number, lat: number, ring: [number, number][]): boolean => {
+    let hit = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i]!
+      const [xj, yj] = ring[j]!
+      if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) hit = !hit
+    }
+    return hit
+  }
+
+  it("puts every garrison count inside its own territory", () => {
+    // The hand-entered COORDS centroid is a centre of the COUNTRY, and 12 of
+    // 264 fall outside the drawn shape -- visible the moment anyone zooms in,
+    // as a number floating in the sea.
+    const outside: string[] = []
+    for (const [id, rings] of Object.entries(SHAPES)) {
+      if (rings.length === 0) continue
+      const p = LABELS[id]
+      if (p === undefined || !rings.some((r) => inRing(p[0], p[1], r))) outside.push(id)
+    }
+    expect(outside).toEqual([])
+  })
+
+  it("has a label for every territory that has a shape", () => {
+    for (const [id, rings] of Object.entries(SHAPES)) {
+      if (rings.length === 0) continue
+      expect(LABELS[id], id).toBeDefined()
+    }
   })
 })

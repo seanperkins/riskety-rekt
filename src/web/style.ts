@@ -405,8 +405,12 @@ body {
 
 .leaflet-interactive:focus { outline: none; }
 .leaflet-interactive:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  /* An SVG outline is always the element's bounding BOX, so it cannot be made
+     to follow a coastline. Suppress it and highlight the shape itself, which
+     is what a mouse user already sees on selection. */
+  outline: none;
+  stroke: var(--accent);
+  stroke-width: 3.5;
 }
 .leaflet-container { background: var(--sea); font: inherit; }
 .leaflet-tooltip {
