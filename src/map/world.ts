@@ -474,7 +474,7 @@ const REGIONS: { id: string; name: string }[] = [
  * A link needed for a landmass's OWN contiguity ships with that landmass rather
  * than waiting for the rest, so every commit leaves the world valid.
  */
-const SEA_LINKS: [string, string][] = [
+export const SEA_LINKS: readonly (readonly [string, string])[] = [
   ["madagascar", "mozambique"], // the Mozambique Channel
   ["ireland", "wales"], // the Irish Sea
   ["ireland", "scotland"], // the North Channel

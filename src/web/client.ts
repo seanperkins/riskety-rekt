@@ -64,6 +64,26 @@ for (const id in (P.offBoard || {})) {
   }
 }
 
+// ---- sea bridges ------------------------------------------------------------
+// Drawn over the backdrop but under the territories, so a bridge reads as
+// passing behind the land it connects rather than lying across it.
+//
+// Without these, an attack from Tunisia to Sicily looks impossible: the two do
+// not touch, and nothing on the map says why they are adjacent.
+const seaLayer = []
+for (const [a, b] of (P.seaLinks || [])) {
+  const ca = P.centres[a]
+  const cb = P.centres[b]
+  if (!ca || !cb) continue
+  // The casing underneath makes the line legible over land and sea alike.
+  seaLayer.push(L.polyline([[ca.lat, ca.lon], [cb.lat, cb.lon]], {
+    color: "#0b1a24", weight: 5, opacity: 0.9, interactive: false,
+  }).addTo(map))
+  seaLayer.push(L.polyline([[ca.lat, ca.lon], [cb.lat, cb.lon]], {
+    color: "#e8c56a", weight: 2, opacity: 0.95, dashArray: "6 4", interactive: false,
+  }).addTo(map))
+}
+
 for (const t of P.territories) {
   const rings = P.shapes[t.id] || []
   if (!rings.length) continue
@@ -89,6 +109,72 @@ function tooltip(id) {
   return esc(nameOf(id)) + " — " + g + (f ? " · " + esc(f.name) : " · unclaimed")
 }
 
+// ---- garrison counts --------------------------------------------------------
+// The number on the territory, which is the single most-consulted fact on the
+// board: every attack decision is a comparison of two of them. It was tooltip
+// only, so comparing your border to the one facing it meant hovering each in
+// turn and remembering.
+//
+// interactive:false throughout — a label must never eat the tap meant for the
+// territory under it.
+const countMarkers = {}
+for (const t of P.territories) {
+  const c = P.centres[t.id]
+  if (!c) continue
+  const m = L.marker([c.lat, c.lon], {
+    interactive: false,
+    keyboard: false,
+    icon: L.divIcon({ className: "gcount", html: "0", iconSize: [26, 16], iconAnchor: [13, 8] }),
+  }).addTo(map)
+  countMarkers[t.id] = m
+}
+
+function paintCounts() {
+  for (const t of P.territories) {
+    const m = countMarkers[t.id]
+    if (!m) continue
+    const el = m.getElement()
+    if (!el) continue
+    el.textContent = String(P.garrisons[t.id] ?? 0)
+    el.className = "gcount" + (mine(t.id) ? " own" : "")
+  }
+}
+
+// ---- region bonuses ---------------------------------------------------------
+// A badge per region showing what holding all of it pays. The bonus is computed
+// per board — a region's worth depends on which of its neighbours were selected
+// — so it cannot be learned once and remembered across seasons, which is
+// exactly why it belongs on the map rather than in a rulebook.
+const regionOf = {}
+for (const t of P.territories) (regionOf[t.region] = regionOf[t.region] || []).push(t.id)
+
+for (const r of P.regions) {
+  const ids = regionOf[r.id] || []
+  if (!ids.length) continue
+  let lat = 0, lon = 0, n = 0
+  for (const id of ids) {
+    const c = P.centres[id]
+    if (!c) continue
+    lat += c.lat; lon += c.lon; n++
+  }
+  if (!n) continue
+  // Whoever holds every territory in the region owns the bonus; the badge says
+  // so by taking their colour.
+  const holders = new Set(ids.map((id) => owner(id)))
+  const sole = holders.size === 1 ? [...holders][0] : null
+  L.marker([lat / n, lon / n], {
+    interactive: false,
+    keyboard: false,
+    icon: L.divIcon({
+      className: "rbadge",
+      html: '<span class="rb-n"' + (sole ? ' style="background:' + colorOf(sole) + '"' : "") +
+        '>+' + r.bonus + '</span><span class="rb-name">' + esc(r.name) + '</span>',
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    }),
+  }).addTo(map)
+}
+
 function paint() {
   for (const t of P.territories) {
     const l = layers[t.id]
@@ -108,6 +194,7 @@ function paint() {
   // that touch another territory — which is most of them.
   const sel = selected && layers[selected]
   if (sel && sel.bringToFront) sel.bringToFront()
+  paintCounts()
 }
 
 // Open on the BOARD -- every playable territory, not the whole world and not

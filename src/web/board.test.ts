@@ -151,3 +151,43 @@ describe("the off-board backdrop", () => {
     expect(Object.keys(p.offBoard).length).toBeGreaterThan(p.territories.length)
   })
 })
+
+describe("sea links on the board", () => {
+  const p = projectionFor({
+    state,
+    day: 1,
+    factionId: "f1",
+    plan: { deploys: [], attacks: [], protect: null },
+    wagers: [],
+    slate: [],
+    tickAt: new Date("2026-09-02T01:00:00Z"),
+    now: new Date("2026-09-01T12:00:00Z"),
+  })
+
+  it("only reports links whose BOTH ends are on this board", () => {
+    // A bridge to a territory nobody was dealt would draw a line into the grey
+    // backdrop, promising a crossing that cannot be made.
+    const onBoard = new Set(p.territories.map((t) => t.id))
+    for (const [a, b] of p.seaLinks) {
+      expect(onBoard.has(a), `${a} in ${a}|${b}`).toBe(true)
+      expect(onBoard.has(b), `${b} in ${a}|${b}`).toBe(true)
+    }
+  })
+
+  it("reports only pairs that really are neighbours", () => {
+    // Drawn, a sea link claims an attack is legal. If it disagreed with the
+    // adjacency the engine validates against, the map would be lying.
+    const nbr = new Map(p.territories.map((t) => [t.id, t.neighbors]))
+    for (const [a, b] of p.seaLinks) {
+      expect(nbr.get(a), `${a}|${b}`).toContain(b)
+      expect(nbr.get(b), `${b}|${a}`).toContain(a)
+    }
+  })
+
+  it("has a centre for both ends, since the line is drawn between them", () => {
+    for (const [a, b] of p.seaLinks) {
+      expect(p.centres[a], a).toBeDefined()
+      expect(p.centres[b], b).toBeDefined()
+    }
+  })
+})

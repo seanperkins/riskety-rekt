@@ -267,6 +267,60 @@ body {
  * a rectangle is worth more than nothing. The mouse already has the stroke
  * highlight, which follows the real border.
  */
+/*
+ * Garrison counts and region badges. Both sit over the map, and NEITHER may
+ * take a pointer event -- a label that swallows the tap meant for the territory
+ * beneath it is worse than no label.
+ *
+ * Readability comes from a paint-order stroke rather than a text-shadow halo:
+ * the number lands on ten different faction colours plus the grey backdrop, and
+ * a shadow tuned for one of them fails on the others.
+ */
+.gcount, .rbadge { pointer-events: none; }
+
+.gcount {
+  display: grid;
+  place-items: center;
+  font: 700 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #fff;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 3px rgba(6, 14, 20, 0.85);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Your own territories read a shade brighter, so your line is findable. */
+.gcount.own { color: #fff; -webkit-text-stroke: 3px rgba(0, 0, 0, 0.9); font-size: 13px; }
+
+.rbadge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.rb-n {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(11, 26, 36, 0.9);
+  border: 1px solid rgba(232, 197, 106, 0.75);
+  color: #f2e2b8;
+  font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.rb-name {
+  font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(242, 226, 184, 0.85);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 3px rgba(6, 14, 20, 0.8);
+}
+
 .leaflet-interactive:focus { outline: none; }
 .leaflet-interactive:focus-visible {
   outline: 2px solid var(--accent);

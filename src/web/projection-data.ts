@@ -1,5 +1,6 @@
 import { COORDS } from "../map/coords.js"
 import { SHAPES } from "../map/shapes.js"
+import { SEA_LINKS } from "../map/world.js"
 import type { GameState } from "../engine/index.js"
 import type { FactionId } from "../engine/index.js"
 import type { OrderBody, WagerRow } from "../store/types.js"
@@ -44,6 +45,15 @@ export interface Projection {
    * Earth, and identical for every viewer. Nothing here is derived from state.
    */
   offBoard: Record<string, [number, number][][]>
+  /**
+   * Borders that cross water, as ordered pairs of board territories.
+   *
+   * `neighbors` merges land borders and sea links into one list, so by the time
+   * the map reaches a player there is no way to tell that Tunisia and Sicily are
+   * adjacent across the Sicilian narrows rather than by land. Drawn, a sea link
+   * explains an attack that otherwise looks impossible.
+   */
+  seaLinks: [string, string][]
   /** The viewer's alone. */
   reserve: number
   plan: OrderBody
@@ -91,6 +101,9 @@ export function projectionFor(args: {
       state.map.territories.map((t) => [t.id, SHAPES[t.id] ?? []]),
     ),
     centres: Object.fromEntries(state.map.territories.map((t) => [t.id, COORDS[t.id]!])),
+    seaLinks: SEA_LINKS.filter(([a, b]) => onBoard.has(a) && onBoard.has(b)).map(
+      ([a, b]) => [a, b] as [string, string],
+    ),
     offBoard: Object.fromEntries(
       Object.entries(SHAPES).filter(
         ([id, rings]) => rings.length > 0 && !onBoard.has(id),
