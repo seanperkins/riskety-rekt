@@ -405,6 +405,13 @@ for (const r of P.regions) {
 }
 }
 
+// Is this territory lit by the current hover -- a region badge or a player row?
+const lit = (id) =>
+  highlight !== null &&
+  (highlight.kind === "region"
+    ? byId[id] && byId[id].region === highlight.id
+    : owner(id) === highlight.id)
+
 function paint() {
   const front = []
   for (const t of P.territories) {
