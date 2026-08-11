@@ -420,10 +420,10 @@ body {
  * relative to the board's middle, so labels radiate outward and rim regions
  * put theirs in open water.
  */
-.rbadge.rb-n { transform: translate(-50%, calc(-100% - 6px)); }
-.rbadge.rb-s { transform: translate(-50%, 6px); }
-.rbadge.rb-e { transform: translate(6px, -50%); }
-.rbadge.rb-w { transform: translate(calc(-100% - 6px), -50%); }
+.rbadge.side-n { transform: translate(-50%, calc(-100% - 6px)); }
+.rbadge.side-s { transform: translate(-50%, 6px); }
+.rbadge.side-e { transform: translate(6px, -50%); }
+.rbadge.side-w { transform: translate(calc(-100% - 6px), -50%); }
 
 .rb-n {
   display: inline-grid;

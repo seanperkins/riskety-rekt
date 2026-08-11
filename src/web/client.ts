@@ -389,7 +389,11 @@ for (const r of P.regions) {
     interactive: true,
     keyboard: false,
     icon: L.divIcon({
-      className: "rbadge rb-" + pick.side,
+      // side-n, NOT rb-n: the number chip's class IS rb-n, so a badge placed on
+      // its region's north side used to collide with it and drew the chip's
+      // border on the whole badge -- a second, larger gold box behind the real
+      // one, on exactly the north-placed badges and no others.
+      className: "rbadge side-" + pick.side,
       // aria-label carries the name that CSS hides, so the badge still reads
       // as more than a bare number to a screen reader.
       html: '<span class="rb-in" data-region="' + esc(r.id) + '"' +
