@@ -331,8 +331,6 @@ export function renderBoard(p: Projection): string {
     </div>
     <p class="hint" id="flash"></p>
 
-    ${standings(p)}
-
     <h2 class="h2">Your orders <span id="save" class="save ok">saved</span></h2>
     <div id="plan"></div>
 
@@ -340,6 +338,8 @@ export function renderBoard(p: Projection): string {
     <table class="t"><tbody>
       <tr><td>unspent</td><td class="n" id="reserve">${esc(p.reserve)}</td></tr>
     </tbody></table>
+
+    ${standings(p)}
 
     <p class="note">Tap one of your territories to select it, then tap a
       neighbour to attack. Orders save as you make them and lock at 21:00.
