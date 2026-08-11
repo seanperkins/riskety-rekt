@@ -1,5 +1,9 @@
 # Balance run — 2026-08-09, engine v1.0.0
 
+> **Superseded 2026-08-10.** Measured on the 42-territory `RISK_MAP`, which no season
+> uses — the board is now selected from the world and sized to the roster. See
+> `2026-08-10-balance-run-world.md`.
+
 2,000 seasons per roster, 21 days each, seeds 1..2000.
 
 Run twice: first against the original policy set, then against a competitive set

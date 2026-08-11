@@ -160,6 +160,7 @@ Three specs also block a real season, each its own piece of work:
 |---|---|
 | `docs/superpowers/specs/2026-08-09-riskety-rekt-design.md` | The spec. Every rule, and why it is that rule. |
 | `HANDOFF.md` | Current state and the full list of rules a newcomer gets wrong |
-| `docs/superpowers/reviews/2026-08-09-balance-run.md` | What 2,000 simulated seasons say about the economy |
-| `docs/superpowers/reviews/2026-08-10-balance-run-14day.md` | The 21-vs-14 day measurement behind `SEASON_LENGTH` |
+| `docs/superpowers/reviews/2026-08-09-balance-run.md` | Superseded — the original policy/economy run |
+| `docs/superpowers/reviews/2026-08-10-balance-run-world.md` | **Current.** Balance on selected world boards, incl. the first 15-faction run |
+| `docs/superpowers/reviews/2026-08-10-balance-run-14day.md` | Superseded — the 21-vs-14 day measurement behind `SEASON_LENGTH` |
 | `docs/superpowers/plans/` | Each carries a "Spec deltas" section recording where reality corrected the design |
