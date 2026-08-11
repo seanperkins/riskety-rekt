@@ -1,12 +1,13 @@
 import { App } from "@slack/bolt"
 import type { App as AppType } from "@slack/bolt"
-import type { ApprovalStore, RosterStore } from "../store/types.js"
+import type { ApprovalStore, AuthStore, RosterStore } from "../store/types.js"
 import type { SlackEnv } from "./env.js"
 import { handleMessageEvent, handleReactionEvent, type IngestDeps } from "./handlers.js"
+import { handleLoginCommand } from "./login.js"
 
 export interface SlackAppDeps {
   env: SlackEnv
-  store: ApprovalStore & RosterStore
+  store: ApprovalStore & RosterStore & AuthStore
   log: (msg: string) => void
 }
 
@@ -47,6 +48,19 @@ export function createSlackApp(deps: SlackAppDeps): AppType {
   // handlers accept a narrow structural shape whose every field is optional and
   // validated before use. Do not widen the handler signatures to Bolt's types —
   // that would put @slack/bolt in the import graph of every test in this plan.
+  // A slash command, not an event. Bolt verifies the same signature and hands
+  // over a trusted user_id; the handler is pure and returns the reply text.
+  app.command("/login", async ({ command, ack, respond }) => {
+    await ack()
+    const text = handleLoginCommand(
+      { userId: command.user_id, teamId: command.team_id },
+      { store: deps.store, webUrl: deps.env.webUrl, now: new Date(), log: deps.log },
+    )
+    // Ephemeral: only the invoker ever sees it, even when /login is run in a
+    // public channel.
+    await respond({ text, response_type: "ephemeral" })
+  })
+
   app.event("message", async ({ body, event }) => {
     handleMessageEvent(
       { eventId: body.event_id, teamId: body.team_id, event: event as never },

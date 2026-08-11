@@ -1,6 +1,6 @@
 # Deployment — market jobs and the Slack bot
 
-Three timers and one long-running service, all on a single DigitalOcean droplet
+Three timers and two long-running services, all on a single DigitalOcean droplet
 alongside the SQLite file.
 
 ## Environment
@@ -11,7 +11,19 @@ alongside the SQLite file.
 TZ=America/New_York
 RR_DB_PATH=/srv/riskety-rekt/data/riskety.db
 RR_SEASON_ID=season-1
+RR_WEB_URL=https://rr.example.com
 ```
+
+`RR_WEB_URL` is the public origin of the web app, with **no trailing slash** —
+the Slack bot builds `/login` links from it. Get it wrong and every magic link
+404s.
+
+The web app reads `RR_DB_PATH` and `RR_SEASON_ID` like the jobs, and listens on
+`PORT` (default 3002; the Slack bot holds 3001).
+
+**Session cookies are `Secure`, so the app does not work over plain HTTP.**
+Caddy terminates TLS in production; a local run works because browsers exempt
+`localhost`.
 
 `TZ` matters. systemd `OnCalendar` resolves against the system timezone, and
 `08:00:00` must mean 08:00 in New York or the slate is snapshotted at the wrong
@@ -31,6 +43,7 @@ sudo cp deploy/*.service deploy/*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now riskety-publish-slate.timer riskety-poll-settlements.timer \
   riskety-tick.timer
+sudo systemctl enable --now riskety-slack.service riskety-web.service
 systemctl list-timers 'riskety-*'
 ```
 
@@ -222,3 +235,34 @@ Caddy needs to route `/slack/events` to port 3001.
   poster's elimination veto for that day.
 
 - `journalctl -u riskety-slack -n 50`
+
+
+## The web app
+
+`npm run web`, port 3002. Caddy routes the public origin to it, alongside the
+existing `/slack/events` route to 3001.
+
+Players sign in with the `/login` slash command, which needs a Slack app
+configuration:
+
+- A **slash command** `/login` pointing at the bot's public URL, with the
+  `commands` scope.
+- `chat:write`, which the recap already needs.
+
+The reply is ephemeral, so only the person who ran it sees the link. Links last
+ten minutes and work once; running `/login` again invalidates the previous one.
+
+Somebody who is not on the roster gets a reply carrying the exact
+`roster:add` command with their Slack id already filled in — self-service
+joining is deliberately not offered, because the board is sized to the roster
+at `season-init` and a faction added afterwards owns nothing, permanently.
+
+### Routes
+
+| Route | What it is |
+|---|---|
+| `/` | The player board. Signed out, a sign-in page that says nothing about the game. |
+| `/wagers` | Today's slate |
+| `/day/N` | The night replayed |
+| `/map` | The debug board — no session needed, no player data |
+| `/vendor/leaflet.{js,css}` | Leaflet, served from an explicit two-entry allow-list |

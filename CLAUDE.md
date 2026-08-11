@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm test                                  # vitest run — 499 tests, none touch the network
+npm test                                  # vitest run — 646 tests, none touch the network
 npm test -- src/engine/combat.test.ts     # a single file
 npm test -- -t "largest surviving force"  # a single test by name
 npm run test:watch
@@ -32,6 +32,8 @@ npm run wager -- f1 --file wager.json
 npm run recap -- 5 --force                    # re-post a recap the ledger suppressed
 npm run tick:rerun -- 5 --confirm             # replay day 5 onward from tick_context
 npm run slack                                 # long-running events bot, PORT default 3001
+npm run web                                   # the player app, PORT default 3002
+npm run build:shapes                          # regenerate src/map/shapes.ts from Natural Earth
 ```
 
 **Exit codes are three-valued**: 0 success or a deliberate skip, 1 a system
@@ -125,6 +127,17 @@ that seems obviously right — it may already have been considered and declined.
   Web API client. Keep the rest of `src/slack/` pure — that is what keeps the
   suite offline. Block Kit types are declared structurally rather than imported
   for the same reason.
+- **`factionId` never comes from a request.** `sessionFactionFor` is the only
+  way a request acquires one, and it reads nothing but the session cookie — no
+  body, no query string, no other cookie.
+- **Login tokens are stored hashed.** The raw value exists in the DM, the URL
+  and the cookie — never in the database and never in a log line.
+- **The player page contains only the viewer's projection.** No other faction's
+  deploys, attacks or `protect` pick is serialised into the HTML at all. Not
+  hidden with CSS — absent. `src/web/board.test.ts` parses it back out and
+  asserts it.
+- **`src/map/shapes.ts` is generated.** Edit `scripts/build-shapes.ts` and
+  re-run `npm run build:shapes`; never hand-edit the data.
 - **`noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` are both on.**
   Expect `!` and `?? 0` at territory and faction lookups; pass optional fields by
   spreading a conditional object, never as an explicit `undefined`.
@@ -136,18 +149,11 @@ that seems obviously right — it may already have been considered and declined.
 
 ## Not built
 
-**The web app.** Until it exists, order entry is CLI-only — and the operator can
-read every faction's deploys, attacks and `protect` picks straight out of SQLite.
-A competitive season does not start on the CLI path.
-
-Three specs also block a real season, each its own piece of work:
+**The wager economy** is the one thing that still clearly blocks a *competitive*
+season:
 
 - **The wager economy.** Late placement at the frozen 08:00 price is roughly
-  +94% EV. The fix is periodic price snapshots. This is the one that most
-  clearly blocks competitive play.
-- **The map.** ~105 territories across ~15 variable-size continents.
-  `season-init` correctly refuses a 15-member roster on the 42-territory default
-  via `checkDeal`, so a full-headcount season cannot be dealt until it exists.
+  +94% EV. The fix is periodic price snapshots.
 - **Pluggable mechanics.** Draft at
   `docs/superpowers/specs/2026-08-10-pluggable-mechanics-design.md`. It changes
   `GameState` (`pending` → `moduleState`), which regenerates the golden file,

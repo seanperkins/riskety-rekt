@@ -186,6 +186,35 @@ export const MIGRATIONS: string[] = [
      SET close_time = strftime('%Y-%m-%dT%H:%M:%fZ', close_time)
    WHERE close_time NOT LIKE '____-__-__T__:__:__.___Z';
   `,
+  `
+  -- Login tokens. Stored HASHED, never raw: the database sits on the same
+  -- droplet as the app, and a magic link IS a credential.
+  --
+  -- slack_user_id is UNIQUE rather than merely indexed, which is what makes
+  -- "a new /login invalidates the previous token" a property of the schema
+  -- instead of a step someone can forget.
+  CREATE TABLE login_tokens (
+    token_hash    TEXT PRIMARY KEY,
+    slack_user_id TEXT NOT NULL UNIQUE,
+    faction_id    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL
+  );
+
+  -- Sessions expire at the season's end, so nobody is bounced mid-week and
+  -- certainly not at 20:55 against a hard 21:00 deadline.
+  --
+  -- season_id is on the row because a factionId only means something within a
+  -- season; a session carried across one would point at a faction that no
+  -- longer exists.
+  CREATE TABLE sessions (
+    token_hash TEXT PRIMARY KEY,
+    faction_id TEXT NOT NULL,
+    season_id  TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
+
+  CREATE INDEX sessions_by_faction ON sessions (faction_id);
+  `,
 ]
 
 /** Apply any migrations the database has not seen. Safe to call on every boot. */

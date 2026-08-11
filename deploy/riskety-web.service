@@ -1,0 +1,16 @@
+[Unit]
+Description=Riskety Rekt — the web app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=riskety
+WorkingDirectory=/srv/riskety-rekt
+EnvironmentFile=/etc/riskety-rekt/env
+ExecStart=/usr/bin/npm run web
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

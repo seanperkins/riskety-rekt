@@ -3,6 +3,7 @@ export interface SlackEnv {
   botToken: string
   teamId: string
   channelId: string
+  webUrl: string
 }
 
 type Env = Record<string, string | undefined>
@@ -43,5 +44,7 @@ export function loadSlackEnv(env: Env = process.env): SlackEnv {
     botToken: required(env, "SLACK_BOT_TOKEN"),
     teamId: required(env, "SLACK_TEAM_ID"),
     channelId: required(env, "SLACK_CHANNEL_ID"),
+    // The origin the /login link is built from. No trailing slash.
+    webUrl: required(env, "RR_WEB_URL"),
   }
 }
