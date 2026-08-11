@@ -3,6 +3,7 @@ import { ENGINE_VERSION, RISK_MAP, createSeason } from "../engine/index.js"
 import type { Faction } from "../engine/index.js"
 import { projectionFor } from "./projection-data.js"
 import { renderBoard } from "./render.js"
+import { STYLE } from "./style.js"
 
 const factions: Faction[] = ["f1", "f2", "f3"].map((id) => ({
   id,
@@ -89,5 +90,28 @@ describe("the projection", () => {
     // any string field would end the block early and turn the rest into markup.
     const html = renderBoard(project())
     expect(html).not.toMatch(/window\.__RR__ = .*<\/script>.*<\/script>\s*<script src/s)
+  })
+})
+
+describe("the stylesheet must not size Leaflet's own SVG", () => {
+  // A regression that no DOM assertion catches. `.stage svg` as a DESCENDANT
+  // selector also matched Leaflet's overlay SVG, whose parent pane is an
+  // absolutely positioned 0x0 element -- so the board rendered as a 0x0 SVG
+  // and was blank on screen, while every path inside still reported a correct
+  // bounding box. Scripted checks passed; a human saw nothing.
+  it("scopes the .stage svg rule to a direct child", () => {
+    // Strip comments first: the explanation above this rule mentions the very
+    // pattern being asserted against.
+    const css = STYLE.replace(/\/\*[\s\S]*?\*\//g, "")
+    expect(css).toContain(".stage > svg")
+    expect(css).not.toMatch(/\.stage\s+svg\s*\{/)
+  })
+
+  it("sets no width or height on a leaflet class", () => {
+    // Leaflet computes both from the container and rewrites them on every zoom.
+    const css = STYLE.replace(/\/\*[\s\S]*?\*\//g, "")
+    for (const [, block] of css.matchAll(/\.leaflet-[\w-]*[^{]*\{([^}]*)\}/g)) {
+      expect(block).not.toMatch(/(^|;)\s*(width|height)\s*:/)
+    }
   })
 })

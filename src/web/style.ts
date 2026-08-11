@@ -102,7 +102,19 @@ body {
   min-height: 0;
 }
 
-.stage svg {
+/*
+ * Direct child ONLY. This sizes the debug map's hand-built SVG, which /map
+ * renders straight into .stage.
+ *
+ * As a descendant selector it also matched Leaflet's overlay SVG on the player
+ * board, and that SVG's parent -- .leaflet-overlay-pane -- is an absolutely
+ * positioned 0x0 element. 100% of nothing is nothing, so the whole board
+ * collapsed to an invisible 0x0 SVG while every path inside it still reported
+ * a correct bounding box, because SVG geometry does not depend on the outer
+ * element's layout size. The board looked fine to script and was blank to a
+ * human. Leaflet sizes and positions its own SVG; nothing here may touch it.
+ */
+.stage > svg {
   display: block;
   width: 100%;
   height: 100%;
