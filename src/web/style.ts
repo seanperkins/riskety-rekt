@@ -422,7 +422,7 @@ body {
 
 /* Hovering a row lights that faction's territories on the map, so the row
    needs to look reachable and to echo the highlight colour used out there. */
-.standings tbody tr { cursor: default; }
+.standings tbody tr { cursor: pointer; }
 .standings tbody tr:hover,
 .standings tbody tr:focus-visible,
 .standings tbody tr.lit {

@@ -51,16 +51,12 @@ const map = L.map("map", {
   attributionControl: false,
   worldCopyJump: false,
   zoomSnap: 0,
-  // Leaflet's wheel defaults are tuned for a notched mouse wheel: 60px per
-  // zoom level with a 40ms debounce. A trackpad emits a stream of small
-  // deltas instead, and a macOS pinch arrives as ctrl+wheel with very large
-  // ones -- together that reads as lurching rather than zooming. Halving the
-  // sensitivity and shortening the debounce turns the same gesture into
-  // continuous motion, which zoomSnap 0 already allows.
-  wheelPxPerZoomLevel: 120,
-  wheelDebounceTime: 20,
-  // The +/- buttons and the keyboard move in readable steps rather than
-  // whole levels, since fractional zoom is available anyway.
+  // Wheel settings left at Leaflet's defaults on purpose. Raising
+  // wheelPxPerZoomLevel to soften a trackpad stopped wheel zoom responding at
+  // all, so the sensitivity is not the thing to turn.
+  scrollWheelZoom: true,
+  // The +/- buttons and the keyboard move in readable steps rather than whole
+  // levels, since fractional zoom is available anyway.
   zoomDelta: 0.5,
 })
 const layers = {}
@@ -352,15 +348,35 @@ mapEl.addEventListener("mouseout", (e) => {
   if (el) setHighlight(null)
 })
 
-// Hovering a player lights everything they hold.
+// Hovering a player lights everything they hold; clicking flies to it.
+function zoomToFaction(id) {
+  const theirs = P.territories
+    .filter((t) => owner(t.id) === id)
+    .map((t) => layers[t.id])
+    .filter(Boolean)
+  if (!theirs.length) return
+  // Padded well past the holding itself: a faction's territories are the
+  // question, but the answer is usually who is next to them, and a bounds
+  // hugging their coastline shows the ground without the threat.
+  map.flyToBounds(L.featureGroup(theirs).getBounds(), {
+    padding: [70, 70],
+    duration: 0.5,
+  })
+}
+
 for (const row of document.querySelectorAll("[data-faction]")) {
   const id = row.getAttribute("data-faction")
   row.addEventListener("mouseenter", () => setHighlight("faction", id))
   row.addEventListener("mouseleave", () => setHighlight(null))
-  // Keyboard reaches the same state; the rows are focusable for this.
+  row.addEventListener("click", () => zoomToFaction(id))
+  // Keyboard reaches the same states; the rows are focusable for this.
   row.setAttribute("tabindex", "0")
+  row.setAttribute("role", "button")
   row.addEventListener("focus", () => setHighlight("faction", id))
   row.addEventListener("blur", () => setHighlight(null))
+  row.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); zoomToFaction(id) }
+  })
 }
 
 const lit = (id) =>
