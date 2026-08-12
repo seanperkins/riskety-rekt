@@ -9,6 +9,18 @@ export interface RawKalshiMarket {
   ticker?: unknown
   event_ticker?: unknown
   title?: unknown
+  /**
+   * The threshold, and often the only place it appears.
+   *
+   * A Kalshi title is the SERIES question — "Bitcoin price on Aug 12, 2026?",
+   * "BTC price up in next 15 mins?" — and the strike lives here: "$63,500 or
+   * above", "Target Price: $63,324.20". Without it a player is staking soldiers
+   * on a question with no number in it.
+   *
+   * `yes_sub_title` rather than `subtitle`: sampled across a live slate, every
+   * market carried the former and two of four had `subtitle: null`.
+   */
+  yes_sub_title?: unknown
   status?: unknown
   result?: unknown
   open_time?: unknown

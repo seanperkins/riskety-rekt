@@ -51,6 +51,33 @@ export function parseDecimal(v: unknown): number {
  * Block Kit `plain_text` for Slack, JSX for the web, entity escaping for SVG --
  * and escaping here would both double-encode and hide the real requirement.
  */
+/**
+ * The question a player actually has to answer: title plus the strike.
+ *
+ * A Kalshi `title` is the SERIES question and frequently states no number at
+ * all — "BTC price up in next 15 mins?", "Bitcoin price on Aug 12, 2026?" — and
+ * the threshold lives in `yes_sub_title` ("Target Price: $63,324.20", "$63,500
+ * or above"). Publishing the title alone asks people to stake soldiers on a
+ * question with the number missing, which is what shipped until a player asked
+ * what price the Bitcoin market meant.
+ *
+ * Range markets state the bound in both fields, so the subtitle is skipped when
+ * the title already carries the same digits. Comparing DIGITS ONLY is what
+ * makes that work: the two fields disagree on commas and separators
+ * ("7,725 to 7,749.9999" versus "between 7725 and 7749.9999"), so any
+ * comparison of the text itself would append a duplicate every time.
+ */
+export function questionOf(title: unknown, subtitle: unknown): string | null {
+  const base = capQuestion(title)
+  if (base === null) return null
+  const sub = typeof subtitle === "string" ? subtitle.replace(/\s+/g, " ").trim() : ""
+  if (sub === "") return base
+  const digits = (s: string) => s.replace(/[^0-9.]/g, "")
+  const subDigits = digits(sub)
+  if (subDigits !== "" && digits(base).includes(subDigits)) return base
+  return capQuestion(`${base} — ${sub}`)
+}
+
 export function capQuestion(v: unknown): string | null {
   if (typeof v !== "string") return null
   const s = v.replace(/\s+/g, " ").trim()
@@ -108,7 +135,7 @@ export function toCandidate(
   }
 
   const id = typeof m.ticker === "string" ? m.ticker.trim() : ""
-  const question = capQuestion(m.title)
+  const question = questionOf(m.title, m.yes_sub_title)
   if (id.length === 0 || question === null) return { ok: false, reason: "malformed" }
   if (!TICKER.test(id)) return { ok: false, reason: "bad-ticker" }
   if (!isIsoInstant(m.close_time)) return { ok: false, reason: "malformed" }

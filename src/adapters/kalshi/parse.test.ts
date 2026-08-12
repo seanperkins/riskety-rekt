@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { PRICE_MAX, PRICE_MIN, VOLUME_FLOOR } from "../../config.js"
-import { capQuestion, parseDecimal, seriesOf, toCandidate, toSettlement } from "./parse.js"
+import { PRICE_MAX, PRICE_MIN, QUESTION_MAX_CHARS, VOLUME_FLOOR } from "../../config.js"
+import { capQuestion, parseDecimal, questionOf, seriesOf, toCandidate, toSettlement } from "./parse.js"
 import type { CandidateWindow } from "../types.js"
 
 const WINDOW: CandidateWindow = {
@@ -94,6 +94,48 @@ describe("parseDecimal", () => {
   it("returns NaN for non-finite numbers", () => {
     expect(parseDecimal(Number.NaN)).toBeNaN()
     expect(parseDecimal(Number.POSITIVE_INFINITY)).toBeNaN()
+  })
+})
+
+describe("questionOf — the title alone is not a question", () => {
+  it("appends the strike, because the title does not carry it", () => {
+    // Sampled live: the title is the SERIES question and the number lives in
+    // yes_sub_title. Without it a player stakes soldiers on "BTC price up in
+    // next 15 mins?" with no target to reason about.
+    expect(questionOf("BTC price up in next 15 mins?", "Target Price: $63,324.20")).toBe(
+      "BTC price up in next 15 mins? — Target Price: $63,324.20",
+    )
+    expect(questionOf("Bitcoin price on Aug 12, 2026?", "$63,500 or above")).toBe(
+      "Bitcoin price on Aug 12, 2026? — $63,500 or above",
+    )
+  })
+
+  it("does not repeat a threshold the title already states", () => {
+    // Range markets put it in both. Commas and separators differ between the
+    // two fields, so the comparison ignores everything but the digits.
+    expect(
+      questionOf(
+        "Will the S&P 500 be between 7725 and 7749.9999 on Aug 12, 2026 at 4pm EDT?",
+        "7,725 to 7,749.9999",
+      ),
+    ).toBe("Will the S&P 500 be between 7725 and 7749.9999 on Aug 12, 2026 at 4pm EDT?")
+  })
+
+  it("falls back to the title when there is no subtitle", () => {
+    expect(questionOf("Who wins?", undefined)).toBe("Who wins?")
+    expect(questionOf("Who wins?", "")).toBe("Who wins?")
+    expect(questionOf("Who wins?", null)).toBe("Who wins?")
+  })
+
+  it("returns null for a title that is not usable", () => {
+    expect(questionOf(undefined, "$5")).toBeNull()
+    expect(questionOf("", "$5")).toBeNull()
+  })
+
+  it("caps the joined string, not just the title", () => {
+    const out = questionOf("x".repeat(190), "Target Price: $1.00")
+    expect(out).not.toBeNull()
+    expect(out!.length).toBeLessThanOrEqual(QUESTION_MAX_CHARS)
   })
 })
 
