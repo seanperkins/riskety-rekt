@@ -3,6 +3,7 @@ import type { LatLon } from "../map/coords.js"
 import { edges, focusRegion, project, regionStats } from "./projection.js"
 import { CLIENT } from "./client.js"
 import { REPLAY } from "./replay.js"
+import { WAGERS } from "./wagers-client.js"
 import { STYLE } from "./style.js"
 import type { Projection } from "./projection-data.js"
 import type { Replay } from "./replay-data.js"
@@ -581,23 +582,51 @@ export function renderWagers(p: Projection, now: Date): string {
     .map((m) => {
       const mine = staked.get(m.id)
       const closed = new Date(m.closeTime).getTime() <= now.getTime()
-      const state = closed
-        ? `<span class="save bad">closed</span>`
-        : `<span class="n">${esc(new Date(m.closeTime).toUTCString().slice(17, 22))} UTC</span>`
-      return `<tr><td>${esc(m.question)}<br>
-        <span class="hint">yes ${esc(m.priceYes)} · no ${esc(m.priceNo)}${
-          mine === undefined ? "" : ` · <b>you: ${esc(mine.stake)} on ${esc(mine.side)}</b>`
-        }</span></td><td class="n">${state}</td></tr>`
+      const at = esc(new Date(m.closeTime).toUTCString().slice(17, 22))
+      // A closed market renders as a statement, not a control. Offering a
+      // stepper the server would refuse is worse than offering nothing.
+      const control = closed
+        ? `<p class="hint"><span class="save bad">closed</span>${
+            mine === undefined ? "" : ` · you staked ${esc(mine.stake)} on ${esc(mine.side)}`
+          }</p>`
+        : `<div class="bet" data-market="${esc(m.id)}">
+      <div class="chips">
+        <button class="chip side" data-side="yes"${mine?.side === "yes" ? ' aria-pressed="true"' : ""}>yes ${esc(m.priceYes)}</button>
+        <button class="chip side" data-side="no"${mine?.side === "no" ? ' aria-pressed="true"' : ""}>no ${esc(m.priceNo)}</button>
+      </div>
+      <div class="stakerow">
+        <button class="chip step" data-delta="-1" aria-label="one fewer">−</button>
+        <output class="stake">${esc(mine?.stake ?? 0)}</output>
+        <button class="chip step" data-delta="1" aria-label="one more">+</button>
+        <span class="hint bet-state"></span>
+      </div>
+    </div>`
+      return `<tr><td>${esc(m.question)}
+        <span class="hint">closes ${at} UTC</span>
+        ${control}</td></tr>`
     })
     .join("")
 
   return page(
     "Riskety Rekt — wagers",
-    `<div class="wrap"><div class="stage" style="display:grid;place-items:center">
-      <p class="hint">Stakes leave your reserve when the tick runs.</p></div>
+    `<div class="wrap"><div class="stage" style="display:grid;place-items:center;padding:26px">
+      <div class="doc" style="max-width:46ch">
+        <h1>How a wager works</h1>
+        <p class="lede">Pick a side, set a stake, and it saves as you go.</p>
+        <p>Your soldiers stay in the reserve until the tick runs — a stake is a
+          commitment, not a payment. Win and they come back with interest; lose and
+          they are gone.</p>
+        <p>The price is fixed at the moment you place the wager, so later drift in
+          the odds does not change what you are owed. Change your stake and it
+          re-prices at the odds showing then.</p>
+        <p><strong>One wager per market.</strong> Backing both sides would be a
+          guaranteed profit, so picking the other side replaces your bet rather
+          than adding a second.</p>
+      </div>
+    </div>
     <aside class="rail">
       <h1 class="title">Wagers</h1>
-      <p class="sub">Day ${esc(p.day)} · one wager per market</p>
+      <p class="sub">Day ${esc(p.day)} · <span id="reserve">${esc(p.reserve)}</span> in reserve</p>
       <h2 class="h2">Today's slate</h2>
       <table class="t"><tbody>${
         rows === "" ? `<tr><td class="hint">No slate published yet.</td></tr>` : rows
@@ -606,7 +635,9 @@ export function renderWagers(p: Projection, now: Date): string {
         outcome is public — whichever comes first. That is usually well before
         21:00, so a wager is not something you can leave until the evening.
         <a href="/">Board</a> · <a href="/rules">How this works</a></p>
-    </aside></div>`,
+    </aside></div>
+<script>window.__RRW__ = ${JSON.stringify({ reserve: p.reserve }).replace(/</g, "\\u003c")}</script>
+<script>${WAGERS}</script>`,
   )
 }
 

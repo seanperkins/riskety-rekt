@@ -1,4 +1,4 @@
-import { PRICE_MAX, PRICE_MIN, QUESTION_MAX_CHARS } from "../../config.js"
+import { MIN_MARKET_HOURS, PRICE_MAX, PRICE_MIN, QUESTION_MAX_CHARS } from "../../config.js"
 import type { Settlement } from "../../engine/index.js"
 import type { Candidate, CandidateWindow } from "../types.js"
 import type { RawKalshiMarket } from "./raw.js"
@@ -7,6 +7,7 @@ export type DropReason =
   | "multivariate"
   | "malformed"
   | "close-window"
+  | "short-lived"
   | "volume"
   | "price-range"
   | "crossed-book"
@@ -151,6 +152,18 @@ export function toCandidate(
   // Strictly inside: a market closing at exactly the 21:00 order lock is excluded.
   if (closeMs <= window.opensAfter.getTime() || closeMs >= window.closesBefore.getTime()) {
     return { ok: false, reason: "close-window" }
+  }
+
+  // A market that opened and closes inside one day is not a day's wager: by the
+  // time a player reads the morning slate it has already happened. Kalshi's
+  // 15-minute crypto ladders are the case this exists for.
+  //
+  // A missing or unparseable open_time does NOT disqualify. Absence is not
+  // evidence, and a field Kalshi stops sending must not silently empty the
+  // slate every morning.
+  const openMs = Date.parse(typeof m.open_time === "string" ? m.open_time : "")
+  if (Number.isFinite(openMs) && closeMs - openMs < MIN_MARKET_HOURS * 3_600_000) {
+    return { ok: false, reason: "short-lived" }
   }
 
   if (volume < volumeFloor) return { ok: false, reason: "volume" }

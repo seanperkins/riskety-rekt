@@ -299,6 +299,19 @@ body {
   .lit-own, .lit-hit, .lit-taken, .lit-shield { animation: none; }
 }
 
+/* ---- placing a wager ---- */
+.bet { margin: 6px 0 2px; }
+.bet .chips { margin: 4px 0 4px; }
+.bet .side { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* The chosen side, not a hover state: it is the saved bet, so it reads as
+   selected even when the pointer is elsewhere. */
+.bet .side[aria-pressed="true"] { background: var(--accent); border-color: var(--accent);
+  color: var(--ground); font-weight: 650; }
+.stakerow { display: flex; align-items: center; gap: 6px; }
+.stakerow .stake { min-width: 26px; text-align: center; font-weight: 650;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.bet-state { margin-left: 2px; }
+
 .rp-controls { margin-top: 10px; }
 .chip.on { background: var(--accent); border-color: var(--accent); color: var(--ground); font-weight: 650; }
 /* Tall enough to hold context either side of the playing beat: a peephole that

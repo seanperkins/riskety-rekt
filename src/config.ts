@@ -79,6 +79,20 @@ export const WINDOW_OPEN_HOUR = 9
 export const WINDOW_CLOSE_HOUR = 21
 
 /**
+ * How long a market must have existed to be worth a day's wager.
+ *
+ * Kalshi runs ladders of 15-minute crypto markets — "BTC price up in next 15
+ * mins?" — and they are a bad fit for this game whatever their volume. The
+ * slate is published at 08:00 and the tick is at 21:00, so a market that opens
+ * and closes inside that gap is one a player could not have reasoned about when
+ * they read the slate: by the time they look, it has already happened.
+ *
+ * Four hours, against measured lifetimes of 0.25h for the ladders and 17.5–25h
+ * for daily markets — far from either edge, so it is not a tuned number.
+ */
+export const MIN_MARKET_HOURS = 4
+
+/**
  * Price band for slate eligibility. Must equal the engine's payout clamp, or a
  * market could be published at a price the engine then silently clamps away.
  * src/config.test.ts asserts the equality.

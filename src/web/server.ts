@@ -21,7 +21,7 @@ import { projectionFor } from "./projection-data.js"
 import { replayFor } from "./replay-data.js"
 import { esc, page, renderBoard, renderMap, renderReplay, renderRules, renderWagers } from "./render.js"
 import { sessionFactionFor } from "./session.js"
-import { parseOrderBody } from "../jobs/order-entry.js"
+import { parseOrderBody, parseWagers } from "../jobs/order-entry.js"
 
 export interface WebDeps {
   port: number
@@ -211,6 +211,11 @@ export function createWebServer(deps: WebDeps): Server {
 
     if (req.method === "POST" && new URL(req.url ?? "/", "http://localhost").pathname === "/api/plan") {
       savePlan(req, res, deps)
+      return
+    }
+
+    if (req.method === "POST" && new URL(req.url ?? "/", "http://localhost").pathname === "/api/wager") {
+      saveWagerRequest(req, res, deps)
       return
     }
 
@@ -482,6 +487,70 @@ function savePlan(
       return json(422, { ok: false, reason: "the veto module is off this season" })
     }
     const out = deps.store.saveOrder(deps.seasonId, day, faction, body, now)
+    return json(out.ok ? 200 : 409, out.ok ? { ok: true } : { ok: false, reason: out.reason })
+  })
+}
+
+/**
+ * Place or change one wager.
+ *
+ * A separate endpoint from /api/plan, because a wager is not part of the plan:
+ * deploys and attacks stay editable until 21:00, while a wager locks at its own
+ * market's close time -- often hours earlier. Folding them together would give
+ * one save button two different deadlines.
+ *
+ * `factionId` comes from the session and nowhere else, exactly as it does for a
+ * plan. Everything else is untrusted and goes through the same `parseWagers`
+ * the CLI uses, so the two entry points cannot drift on what a wager may be.
+ */
+function saveWagerRequest(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+  deps: WebDeps,
+): void {
+  const now = new Date()
+  const faction = sessionFactionFor(req, { store: deps.store, seasonId: deps.seasonId, now })
+  const json = (code: number, body: unknown): void => {
+    res.writeHead(code, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    })
+    res.end(JSON.stringify(body))
+  }
+  if (faction === undefined) return json(401, { ok: false, reason: "not signed in" })
+
+  const season = deps.store.season(deps.seasonId)
+  if (season === undefined) return json(503, { ok: false, reason: "no season" })
+  if (!(season.modules ?? ["markets", "irl", "veto"]).includes("markets")) {
+    return json(422, { ok: false, reason: "the markets module is off this season" })
+  }
+  const day = Math.max(1, currentDay(season, now))
+
+  let raw = ""
+  req.on("data", (c: Buffer) => {
+    raw += c
+    if (raw.length > 16_000) req.destroy()
+  })
+  req.on("end", () => {
+    let wagers
+    try {
+      wagers = parseWagers(raw)
+    } catch (err) {
+      return json(400, { ok: false, reason: err instanceof Error ? err.message : "bad wager" })
+    }
+    const one = wagers[0]
+    if (wagers.length !== 1 || one === undefined) {
+      return json(400, { ok: false, reason: "post exactly one wager" })
+    }
+    // The market has to be on TODAY'S slate. Without this a stale page could
+    // stake soldiers on yesterday's market, and the engine would reject it at
+    // the tick -- silently, hours later.
+    if (!deps.store.loadSlate(deps.seasonId, day).some((m) => m.id === one.marketId)) {
+      return json(422, { ok: false, reason: "not on today's slate" })
+    }
+    const out = deps.store.saveWager(deps.seasonId, day, faction, one, now)
+    // 409 for a refusal the player can act on -- a closed market, a day already
+    // resolved -- so the page can name the market and the reason.
     return json(out.ok ? 200 : 409, out.ok ? { ok: true } : { ok: false, reason: out.reason })
   })
 }

@@ -97,6 +97,31 @@ describe("parseDecimal", () => {
   })
 })
 
+describe("short-lived markets", () => {
+  // Kalshi runs ladders of 15-minute crypto markets. Measured on a live slate:
+  // 0.25h of life against 17.5-25h for the daily ones, so the two are cleanly
+  // separable. They are a bad daily wager -- the whole market opens and closes
+  // inside the gap between the 08:00 slate and the 21:00 tick, so a player who
+  // read the slate in the morning is staking on something that had not started.
+  const long = { ...GOOD, open_time: "2026-08-09T21:30:00Z" } // 24h
+
+  it("drops a market whose whole life is shorter than the game's day", () => {
+    const r = toCandidate({ ...GOOD, open_time: "2026-08-10T21:15:00Z" }, WINDOW, 1000)
+    expect(r).toEqual({ ok: false, reason: "short-lived" })
+  })
+
+  it("keeps a market that has been open since yesterday", () => {
+    expect(toCandidate(long, WINDOW, 1000).ok).toBe(true)
+  })
+
+  it("keeps a market whose open_time is missing or unreadable", () => {
+    // Absence is not disqualifying: a field Kalshi stops sending must not
+    // silently empty the slate.
+    expect(toCandidate({ ...GOOD, open_time: undefined }, WINDOW, 1000).ok).toBe(true)
+    expect(toCandidate({ ...GOOD, open_time: "not a date" }, WINDOW, 1000).ok).toBe(true)
+  })
+})
+
 describe("questionOf — the title alone is not a question", () => {
   it("appends the strike, because the title does not carry it", () => {
     // Sampled live: the title is the SERIES question and the number lives in
@@ -424,6 +449,25 @@ describe("recorded fixtures", () => {
     }
   })
 
+  it("is entirely short-lived, which is what a same-day window looks like", () => {
+    // Not an accident of sampling. Run late in the ET day, the only markets
+    // still closing before 21:00 are Kalshi's 15-minute crypto ladders -- so
+    // this fixture accepts nothing, and IS the short-lived path.
+    const results = body.markets.map((m) => toCandidate(m, wide, VOLUME_FLOOR))
+    expect(results.filter((r) => r.ok)).toHaveLength(0)
+    expect(results.some((r) => !r.ok && r.reason === "short-lived")).toBe(true)
+  })
+})
+
+describe("recorded fixtures — the next-day window an 08:00 publish actually sees", () => {
+  const body = JSON.parse(
+    readFileSync(new URL("./__fixtures__/candidates-nextday.json", import.meta.url), "utf8"),
+  ) as { markets: unknown[] }
+  const wide: CandidateWindow = {
+    opensAfter: new Date("2000-01-01T00:00:00Z"),
+    closesBefore: new Date("2100-01-01T00:00:00Z"),
+  }
+
   it("accepts some markets and rejects others -- the fixture spans outcomes", () => {
     // A fixture where everything passes, or everything fails, silently stops
     // testing the filters it was recorded to test.
@@ -433,9 +477,27 @@ describe("recorded fixtures", () => {
     expect(accepted).toBeGreaterThan(0)
     expect(reasons.has("multivariate")).toBe(true)
     expect(reasons.has("volume")).toBe(true)
-    // Not asserting "price-range": the untraded ladder rungs that would carry
-    // it are also untraded, and the volume check runs first.
     expect(reasons.size).toBeGreaterThanOrEqual(2)
+  })
+
+  it("keeps real day-length markets — the rule must not empty the slate", () => {
+    // The whole risk of MIN_MARKET_HOURS: a filter that drops the junk and the
+    // day's actual markets with it. Measured live, it drops none of these.
+    const results = body.markets.map((m) => toCandidate(m, wide, VOLUME_FLOOR))
+    expect(results.some((r) => !r.ok && r.reason === "short-lived")).toBe(false)
+  })
+
+  it("never produces a malformed Candidate from a real payload", () => {
+    for (const raw of body.markets) {
+      const r = toCandidate(raw, wide, 0)
+      if (!r.ok) continue
+      const c = r.candidate
+      expect(Number.isFinite(c.priceYes)).toBe(true)
+      expect(Number.isFinite(c.priceNo)).toBe(true)
+      expect(c.question.length).toBeGreaterThan(0)
+      expect(c.question.length).toBeLessThanOrEqual(200)
+      expect(c.id.length).toBeGreaterThan(0)
+    }
   })
 
   it("drops every multivariate combo market in the fixture", () => {
