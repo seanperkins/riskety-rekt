@@ -131,6 +131,30 @@ describe("the stylesheet must not size Leaflet's own SVG", () => {
       expect(block).not.toMatch(/(^|;)\s*(width|height)\s*:/)
     }
   })
+
+  // The narrow layout gives .stage its height, and .stage's own rule sets
+  // min-height: 0 for grid shrinking. At equal specificity the later rule wins,
+  // so ORDER is load-bearing: the media query used to come first and lost, and
+  // the stage computed to 0px on every viewport under 860px. Leaflet still
+  // initialised and still drew all 44 paths into the zero-height box -- the same
+  // silent failure as the rule above, reached through the cascade rather than a
+  // selector, and equally invisible to a scripted check that only reads geometry.
+  it("declares the narrow-layout stage height AFTER .stage's min-height", () => {
+    const css = STYLE.replace(/\/\*[\s\S]*?\*\//g, "")
+    const base = css.search(/\.stage\s*\{[^}]*min-height/)
+    const media = css.search(/@media[^{]*max-width:\s*860px/)
+    expect(base, ".stage min-height rule must exist").toBeGreaterThan(-1)
+    expect(media, "the 860px media query must exist").toBeGreaterThan(-1)
+    expect(media).toBeGreaterThan(base)
+  })
+
+  it("gives the narrow stage a definite height, not just a min-height", () => {
+    // #map is height: 100%, and a percentage resolves against the parent's
+    // HEIGHT. Against auto it collapses to zero however tall min-height is.
+    const css = STYLE.replace(/\/\*[\s\S]*?\*\//g, "")
+    const block = css.match(/@media[^{]*max-width:\s*860px[^{]*\{([\s\S]*?)\n\}/)?.[1] ?? ""
+    expect(block).toMatch(/\.stage\s*\{[^}]*(^|[^-])height:\s*\d/m)
+  })
 })
 
 describe("the off-board backdrop", () => {

@@ -86,20 +86,38 @@ body {
   height: 100vh;
 }
 
+.stage {
+  background: var(--sea);
+  overflow: hidden;
+  /* Grid items floor at min-content; without this a wide board forces the
+     column wider than the viewport instead of shrinking. Desktop only -- the
+     narrow layout overrides it below with a definite height. */
+  min-height: 0;
+}
+
+/*
+ * Narrow layout: map stacked above the rail. This block MUST come after the
+ * .stage rule above, and it must set height, not min-height.
+ *
+ * It used to sit before it and set min-height: 70vh, which lost the cascade to
+ * min-height: 0 at equal specificity -- so on every phone-sized viewport the
+ * stage computed to 0px and the board was invisible. Leaflet still initialised
+ * and still drew all 44 paths into the zero-height box, which is why nothing
+ * looked broken to script: the same trap the .stage > svg comment further down
+ * describes, arriving through the cascade instead of through a selector.
+ *
+ * height rather than min-height because #map is height: 100%, and a percentage
+ * height resolves against the parent's height -- against auto it collapses to
+ * zero however tall min-height makes the box.
+ */
 @media (max-width: 860px) {
   .wrap {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
   }
   .stage {
-    min-height: 70vh;
+    height: 70vh;
   }
-}
-
-.stage {
-  background: var(--sea);
-  overflow: hidden;
-  min-height: 0;
 }
 
 /*
