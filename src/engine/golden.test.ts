@@ -41,13 +41,12 @@ const market = (day: number, priceYes: number): Market => ({
 })
 
 /**
- * A scripted 10-day season exercising every branch that matters: deploys,
- * one-sided attacks, a mutual attack (field battle), a coalition attack,
- * wagers that win, lose and roll over, and IRL grants with both timing bonuses.
- *
- * It does NOT exercise protections: no faction reaches zero territories in ten
- * days, so no order can legally carry a protect pick. combat.test.ts covers
- * that path directly.
+ * A scripted season exercising every branch that matters: deploys, one-sided
+ * attacks, a mutual attack (field battle), a coalition attack, wagers that
+ * win, lose and roll over, IRL grants with both timing bonuses — and, in
+ * phase 2, a faction hunted to ELIMINATION followed by its parity veto. The
+ * tick-runner review found the original golden season never exercised
+ * protections, so it could not catch a veto regression; this one can.
  */
 function scriptedSeason(): GameState {
   let state = createSeason("golden", factions, DEALT)
@@ -113,14 +112,90 @@ function scriptedSeason(): GameState {
     state = resolve(state, orders, context)
   }
 
+  // Phase 2: the coalition hunts f4 to elimination. Attacks are computed
+  // from the live state (every owned territory adjacent to an f4 holding
+  // attacks with its spare garrison), so the script needs no hand-written
+  // adjacency chains and stays deterministic.
+  const neighborsOf = new Map(state.map.territories.map((t) => [t.id, t.neighbors]))
+  const phase2Ctx = (day: number, postedToday: string[]): DailyContext => ({
+    slate: [],
+    settlements: {},
+    approvals: [],
+    postedToday,
+    tickInstant: `2026-01-${String(day).padStart(2, "0")}T21:00:00.000Z`,
+    modules: ["markets", "irl", "veto"],
+    rules: [],
+  })
+
+  while (territoriesOf(state, "f4").length > 0 && state.day < 24) {
+    const day = state.day + 1
+    const f4Held = new Set(territoriesOf(state, "f4"))
+    const orders: Order[] = factions.map((f) => {
+      const mine = territoriesOf(state, f.id)
+      const reserve = state.reserves[f.id] ?? 0
+      if (f.id === "f4" || mine.length === 0) {
+        return {
+          factionId: f.id,
+          deploys: mine[0] && reserve > 0 ? [{ territory: mine[0], count: reserve }] : [],
+          attacks: [],
+          wagers: [],
+          protect: null,
+        }
+      }
+      // Deploy to the first frontline territory so the assault keeps scaling
+      // past f4's growing home garrison.
+      const frontline = mine.filter((t) => neighborsOf.get(t)!.some((n) => f4Held.has(n)))
+      const deployTo = frontline[0] ?? mine[0]!
+      const attacks: Order["attacks"] = []
+      for (const t of frontline) {
+        const spare = (state.garrisons[t] ?? 0) + (t === deployTo ? reserve : 0) - 1
+        if (spare < 3) continue
+        const target = neighborsOf.get(t)!.filter((n) => f4Held.has(n)).sort()[0]!
+        attacks.push({ from: t, to: target, count: spare })
+      }
+      return {
+        factionId: f.id,
+        deploys: reserve > 0 ? [{ territory: deployTo, count: reserve }] : [],
+        attacks,
+        wagers: [],
+        protect: null,
+      }
+    })
+    state = resolve(state, orders, phase2Ctx(day, ["f1", "f2"]))
+  }
+  if (territoriesOf(state, "f4").length > 0) {
+    throw new Error("golden phase 2 failed to eliminate f4 — the script drifted")
+  }
+
+  // Finale: eliminated f4 posts and vetoes the territory f1 assaults. The
+  // golden file finally carries `protected` events.
+  {
+    const day = state.day + 1
+    const f1Held = territoriesOf(state, "f1")
+    const target = f1Held
+      .flatMap((t) => neighborsOf.get(t)!.map((n) => [t, n] as const))
+      .filter(([, n]) => state.ownership[n] === "f2")
+      .sort(([a1, n1], [a2, n2]) => a1.localeCompare(a2) || n1.localeCompare(n2))[0]
+    if (!target) throw new Error("golden finale: f1 has no f2 neighbor to assault")
+    const [from, to] = target
+    const orders: Order[] = factions.map((f) => ({
+      factionId: f.id,
+      deploys: [],
+      attacks:
+        f.id === "f1" ? [{ from, to, count: Math.max(1, (state.garrisons[from] ?? 0) - 1) }] : [],
+      wagers: [],
+      protect: f.id === "f4" ? to : null,
+    }))
+    state = resolve(state, orders, {
+      ...phase2Ctx(day, ["f1", "f2", "f4"]),
+    })
+  }
+
   return state
 }
 
 describe("golden-file replay", () => {
-  // Skipped between the moduleState pipeline landing and the DELIBERATE
-  // regeneration + diff-read that re-enables it (plan Task 10). Do not
-  // regenerate casually to turn it green — read the diff first.
-  it.skip("reproduces a recorded engine season exactly", () => {
+  it("reproduces a recorded engine season exactly", () => {
     const actual = scriptedSeason()
     if (!existsSync(GOLDEN)) {
       mkdirSync(dirname(GOLDEN), { recursive: true })
@@ -135,9 +210,10 @@ describe("golden-file replay", () => {
     expect(scriptedSeason()).toEqual(scriptedSeason())
   })
 
-  it("actually exercised combat, wagers and grants", () => {
+  it("actually exercised combat, wagers, grants, elimination and the veto", () => {
     const s = scriptedSeason()
-    expect(s.day).toBe(10)
+    expect(territoriesOf(s, "f4")).toHaveLength(0)
+    expect(s.log.some((e) => e.t === "protected")).toBe(true)
     // The log only carries the final tick, so re-run the interesting days.
     let mid = createSeason("golden", factions, DEALT)
     const ctx: DailyContext = { slate: [], approvals: [], postedToday: [], settlements: {}, tickInstant: "2026-01-01T21:00:00.000Z", modules: ["markets", "irl", "veto"], rules: [] }

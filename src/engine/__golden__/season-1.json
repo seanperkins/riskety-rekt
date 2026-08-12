@@ -1,6 +1,6 @@
 {
   "seasonId": "golden",
-  "day": 10,
+  "day": 20,
   "map": {
     "regions": [
       {
@@ -527,39 +527,39 @@
     "quebec": "f1",
     "western_united_states": "f2",
     "eastern_united_states": "f3",
-    "central_america": "f4",
+    "central_america": "f3",
     "greenland": "f1",
     "venezuela": "f2",
     "peru": "f3",
-    "brazil": "f4",
+    "brazil": "f1",
     "argentina": "f1",
     "iceland": "f2",
     "scandinavia": "f3",
-    "ukraine": "f4",
+    "ukraine": "f2",
     "great_britain": "f1",
     "northern_europe": "f2",
     "western_europe": "f3",
-    "southern_europe": "f4",
+    "southern_europe": "f2",
     "north_africa": "f1",
     "egypt": "f2",
     "congo": "f3",
-    "east_africa": "f4",
+    "east_africa": "f3",
     "south_africa": "f1",
     "madagascar": "f2",
     "middle_east": "f3",
-    "afghanistan": "f4",
+    "afghanistan": "f2",
     "ural": "f1",
     "siberia": "f2",
     "yakutsk": "f3",
-    "irkutsk": "f4",
+    "irkutsk": "f2",
     "kamchatka": "f1",
     "mongolia": "f2",
     "japan": "f3",
-    "china": "f4",
+    "china": "f2",
     "india": "f1",
     "siam": "f2",
     "indonesia": "f3",
-    "new_guinea": "f4",
+    "new_guinea": "f2",
     "western_australia": "f1",
     "eastern_australia": "f2"
   },
@@ -570,63 +570,55 @@
     "ontario": 1,
     "quebec": 2,
     "western_united_states": 2,
-    "eastern_united_states": 2,
-    "central_america": 2,
+    "eastern_united_states": 1,
+    "central_america": 4,
     "greenland": 2,
     "venezuela": 2,
     "peru": 2,
-    "brazil": 2,
-    "argentina": 2,
+    "brazil": 7,
+    "argentina": 1,
     "iceland": 2,
     "scandinavia": 2,
-    "ukraine": 2,
+    "ukraine": 1,
     "great_britain": 2,
     "northern_europe": 2,
     "western_europe": 2,
-    "southern_europe": 2,
+    "southern_europe": 1,
     "north_africa": 2,
-    "egypt": 2,
-    "congo": 2,
-    "east_africa": 2,
+    "egypt": 1,
+    "congo": 1,
+    "east_africa": 4,
     "south_africa": 2,
     "madagascar": 2,
-    "middle_east": 2,
-    "afghanistan": 67,
+    "middle_east": 4,
+    "afghanistan": 4,
     "ural": 2,
     "siberia": 2,
-    "yakutsk": 2,
-    "irkutsk": 2,
-    "kamchatka": 2,
-    "mongolia": 2,
+    "yakutsk": 6,
+    "irkutsk": 5,
+    "kamchatka": 5,
+    "mongolia": 1,
     "japan": 2,
-    "china": 2,
-    "india": 2,
+    "china": 1,
+    "india": 4,
     "siam": 2,
     "indonesia": 2,
-    "new_guinea": 2,
+    "new_guinea": 79,
     "western_australia": 2,
-    "eastern_australia": 74
+    "eastern_australia": 1
   },
   "reserves": {
-    "f1": 8,
-    "f2": 8,
-    "f3": 5,
+    "f1": 12,
+    "f2": 15,
+    "f3": 12,
     "f4": 5
   },
-  "pending": [],
+  "moduleState": {
+    "markets": {
+      "pending": []
+    }
+  },
   "log": [
-    {
-      "t": "irl",
-      "faction": "f1",
-      "actions": 1,
-      "bonus": 1
-    },
-    {
-      "t": "irl",
-      "faction": "f2",
-      "actions": 2,
-      "bonus": 1
-    },
     {
       "t": "income",
       "faction": "f1",
@@ -635,41 +627,24 @@
     {
       "t": "income",
       "faction": "f2",
-      "amount": 5
+      "amount": 8
     },
     {
       "t": "income",
       "faction": "f3",
-      "amount": 5
+      "amount": 6
     },
     {
-      "t": "income",
-      "faction": "f4",
-      "amount": 5
+      "t": "protected",
+      "territory": "venezuela",
+      "byCount": 1
     },
     {
-      "t": "deploy",
+      "t": "rejected",
       "faction": "f1",
-      "territory": "alaska",
-      "count": 8
-    },
-    {
-      "t": "deploy",
-      "faction": "f2",
-      "territory": "eastern_australia",
-      "count": 8
-    },
-    {
-      "t": "deploy",
-      "faction": "f3",
-      "territory": "alberta",
-      "count": 5
-    },
-    {
-      "t": "deploy",
-      "faction": "f4",
-      "territory": "afghanistan",
-      "count": 13
+      "field": "attacks",
+      "reason": "protected",
+      "ref": "attack:brazil|venezuela"
     }
   ],
   "engineVersion": "1.0.0"
