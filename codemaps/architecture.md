@@ -1,111 +1,106 @@
-> Generated: 2026-08-10 | Token-lean format for LLM context
-> STALE (2026-08-11): predates the pluggable-mechanics module system — the
-> pipeline is now grant/claims/allocate/locks/validate/combat/advance, pending
-> lives in moduleState.markets, and mechanics are src/engine/modules/. Trust
-> CLAUDE.md and the code until /update-codemaps regenerates this file.
+> Generated: 2026-08-11 | Token-lean format for LLM context
 
 # Architecture
 
 Risk-like conquest game, one tick per day at 21:00 ET. TypeScript, ESM, Node 22+
-(`node:sqlite`), no bundler. `tsx` runs everything; nothing is compiled.
+(`node:sqlite`), no bundler. `tsx` runs everything; nothing is compiled. The
+client-side exception: Leaflet, served statically from `node_modules` by an
+explicit two-file allow-list — it never touches the server, the store, or tests.
 
 | | |
 |---|---|
-| Runtime deps | `@slack/bolt`, `@slack/web-api` (only `src/slack/app.ts` and `src/slack/post.ts` import them) |
+| Runtime deps | `@slack/bolt`, `@slack/web-api` (only `src/slack/app.ts` / `post.ts` import them), `leaflet` (browser only) |
 | Dev deps | `typescript`, `tsx`, `vitest`, `fast-check`, `@types/node` |
-| Tests | 33 files, 368 tests, `vitest run`, **zero network** |
+| Tests | 72 files, 759 tests, `vitest run`, **zero network** (`test/no-network.ts` replaces `fetch`) |
 | Strictness | `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride` |
-| Storage | SQLite via `node:sqlite`, WAL, one file, `PRAGMA user_version` migrations |
+| Storage | SQLite via `node:sqlite`, WAL, one file, `PRAGMA user_version` migrations (7 shipped, append-only) |
 
 ## Module graph
 
 ```
-src/config.ts ──────────── constants (season, slate, prices, HTTP)
-src/time.ts ────────────── ET date/instant helpers, Slack ts → ISO
+src/config.ts ──── constants (season, slate, prices, HTTP)
+src/time.ts ────── ET date/instant helpers, Slack ts → ISO
+src/season.ts ──── currentDay, tickInstant, checkDeal (THE day clock — calendar-derived)
 
-src/engine/     PURE. imports nothing outside itself. no I/O, clock, randomness
+src/engine/       PURE. imports nothing outside itself. no I/O, clock, randomness
+  └── modules/    markets, irl, veto — Mechanic hooks (see engine.md)
      ▲
-     │ types only
-     ├── src/sim/        synthetic seasons; the only consumer that calls resolve()
-     ├── src/slate/      selectSlate(candidates) → Market[]
-     ├── src/adapters/   Candidate/MarketAdapter; kalshi/ is the only HTTP code
-     ├── src/store/      SQLite: slates, settlements, roster, posts, reactions
-     ├── src/slack/      Bolt ingress, approval derivation, Block Kit renderers
-     └── src/jobs/       publish-slate, poll-settlements, post-recap, CLI
+     ├── src/sim/       synthetic seasons; drives resolve() thousands of times
+     ├── src/slate/     selectSlate(candidates) → Market[]
+     ├── src/adapters/  Candidate/MarketAdapter; kalshi/ is the only HTTP code
+     ├── src/map/       WORLD (264 territories), selectSubMap, clusteredOrder, shapes (generated)
+     ├── src/store/     SQLite: everything below, one openStore(path)
+     ├── src/slack/     Bolt ingress, approval derivation, /login, Block Kit renderers
+     ├── src/jobs/      season-init, publish-slate, pollers, tick, rerun, recap, modules-set, CLI
+     ├── src/web/       the player app: board, wagers, day replay, sessions
+     └── src/auth/      login tokens (hashed at rest)
 ```
 
-Dependency rules, enforced by `src/engine/types.test.ts`:
+Dependency rules, enforced by `src/engine/types.test.ts` (recursive scan):
 
-- `src/engine/**` may import only from `src/engine/`.
-- No `Date.now()`, `Math.random()`, `new Date()` anywhere in the engine.
+- `src/engine/**` (incl. `modules/`) imports only relative paths resolving
+  inside `src/engine/` — bare specifiers rejected before resolution.
+- No `Date.now()`, `Math.random()`, `new Date(` anywhere in the engine.
 - Time and randomness enter as arguments: `createSeason` takes a pre-shuffled
-  territory list; the tick takes a `DailyContext`.
+  territory list; the tick takes a `DailyContext` carrying `tickInstant`.
 
-Purity is why `src/sim` can run 2,000 seasons in ~2s, and the sim is the only
+Purity is why `src/sim` can run thousands of seasons, and the sim is the only
 evidence the economy is not broken.
 
 ## Data flow — one game day
 
 ```
-08:00  publish-slate ──► Kalshi /markets ──► selectSlate ──► slate_markets
-                                                        └──► Slack #channel (optional)
-
+08:00   publish-slate ──► Kalshi /markets ──► selectSlate ──► slate_markets
+                                                         └──► Slack #channel (optional)
 all day  Slack events ──► handlers ──► posts / reactions / slack_events (dedupe)
-
-:00/:30  poll-settlements ──► Kalshi /markets?tickers ──► settlements (first write wins)
-
-21:00  TICK (NOT BUILT — Plan 4)
-       loadState + loadOrders + loadSlate
-       dailyApprovals(store, seasonId, day) → { approvals, postedToday }
-       loadSettlements(slate ids)
-       resolve(state, orders, context) ──► saveState ──► runPostRecap
+         /login ──► login_tokens (hashed) ──► web session cookie
+         web /api/plan + CLI order/wager ──► orders / order_wagers (priced at save)
+:00/:30  poll-settlements ──► settlements (first write wins)
+         poll-prices ──► market_prices (live prices; slate stays frozen)
+21:00   TICK — one transaction: guards → assemble orders/context →
+        resolve(state, orders, context) → saveState → saveTickContext
+        then (outside the transaction) postRecap via the recaps ledger
 ```
 
 **The tick never touches the network.** Both external systems are cached to
-SQLite hours earlier, so a Kalshi or Slack outage at 20:59 cannot stall a season.
-The recap runs *after* the state save, so a Slack failure cannot double-run a tick.
+SQLite hours earlier; a Kalshi or Slack outage at 20:59 cannot stall the season.
+The recap runs after the state save, so a Slack failure cannot double-run a tick.
+
+**Every component derives the day from the calendar** via `currentDay` in
+`src/season.ts`. A state-derived clock shears permanently after one missed tick.
+
+**Modules**: a season's mechanics (`markets`, `irl`, `veto`) live in
+`seasons.modules`, are frozen into each day's `tick_context`, and gate every
+surface — pollers skip (exit 0), `/wagers` 404s, order fields reject — when off.
+Mid-season changes go through `modules:set`, refused while escrow > 0.
 
 ## Simulator (`src/sim/`)
 
 | Symbol | File | Note |
 |---|---|---|
-| `makeRng(seed)` | `policies.ts` | xorshift32; seasons replay exactly |
 | `POLICIES` | `policies.ts` | Turtle, Blitz, Consolidator, Hunter, Gambler, Slacker, GymRat, Arbitrageur |
-| `runSeason(names, seed)` | `run.ts` | 21 days, synthetic 1-market slate, coin weighted to `priceYes` |
-| `runMany(names, seasons)` | `run.ts` | → `Report { seasons, wins, day3LeaderWinRate, meanFinalTerritories }` |
-| `SEASON_DAYS = 21` | `run.ts` | |
+| `runSeason(names, seed, {modules?})` | `run.ts` | 14 days, selected world sub-map, synthetic 1-market slate |
+| `runMany(names, seasons)` | `run.ts` | → `Report { seasons, seats, wins, day3LeaderWinRate, … }` |
+| `seatsFor(names)` | `run.ts` | repeated policies get `Blitz#1`/`Blitz#2` seat ids |
+| `simInstant(day, hour)` | `run.ts` | synthetic calendar; close (18:00) strictly before tick (21:00) — load-bearing for claim seniority |
 
-Default CLI roster: `Turtle, Blitz, GymRat, Slacker, Gambler, Arbitrageur`, 2,000 seasons.
-Season winner tiebreak: territories → `garrisons + reserves` → continent bonuses → id.
-Escrowed `pending` is deliberately excluded from the troop tiebreak.
-
-`Arbitrageur` probes the four known exploits; if its win rate moves off ~0.1%,
-something regressed.
+Winner tiebreak: territories → garrisons + reserves (escrow excluded) → region
+bonuses → id. `Arbitrageur` probes the known exploits; its win rate leaving ~0%
+means a regression. Current balance record:
+`docs/superpowers/reviews/2026-08-11-balance-run-modules.md`.
 
 ## Commands
 
-```bash
-npm test          # vitest run — 368 tests
-npm run typecheck # tsc --noEmit
-npm run sim [-- Policy ...]
-npm run sample:kalshi              # re-derive VOLUME_FLOOR from live data
-npm run season:init -- YYYY-MM-DD [length]
-npm run publish-slate | poll-settlements
-npm run roster:add -- U01ABCDEF f1 "Ada L." | npm run roster:list
-npm run slack                      # long-running events bot, PORT default 3001
-```
-
-Required env: `RR_DB_PATH`, `RR_SEASON_ID`. Slack adds `SLACK_SIGNING_SECRET`,
-`SLACK_BOT_TOKEN`, `SLACK_TEAM_ID`, `SLACK_CHANNEL_ID` — empty string counts as absent.
+See CLAUDE.md (authoritative). Env: `RR_DB_PATH`, `RR_SEASON_ID`; Slack adds the
+four `SLACK_*` vars; `""` counts as unset. Exit codes are three-valued: 0
+success/deliberate skip, 1 system failure (systemd retries), 2 operator mistake
+or rejected write. Tick refusals exit 0 — the condition never clears with time.
 
 ## Not built
 
-The 21:00 tick runner and the web UI (Plan 4). Nothing in the repo calls
-`resolve()` outside `src/sim/`. `runPostRecap` exists but has no caller.
-Design: `docs/superpowers/specs/2026-08-10-tick-runner-and-orders-design.md`.
+The rule catalogue + voting (second half of
+`docs/superpowers/specs/2026-08-10-pluggable-mechanics-design.md`): `Rule` with
+`needs`, three traced rules, `rule_offers`/`rule_reactions`, the Slack vote
+branch, the per-rule bounded-swing gate.
 
-Store methods Plan 4 must add against the same database: `loadState`, `saveState`,
-`loadOrders`, `saveOrder`, `claimTick`.
-
-See `codemaps/engine.md`, `codemaps/data.md`, `codemaps/integrations.md`,
-`codemaps/jobs.md`.
+See `codemaps/engine.md`, `data.md`, `jobs.md`, `integrations.md`, `web.md`.

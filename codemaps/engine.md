@@ -1,15 +1,9 @@
-> Generated: 2026-08-10 | Token-lean format for LLM context
-> STALE (2026-08-11): predates the pluggable-mechanics module system — the
-> pipeline is now grant/claims/allocate/locks/validate/combat/advance, pending
-> lives in moduleState.markets, and mechanics are src/engine/modules/. Trust
-> CLAUDE.md and the code until /update-codemaps regenerates this file.
+> Generated: 2026-08-11 | Token-lean format for LLM context
 
 # Engine (`src/engine/`)
 
 Pure. Zero imports outside the folder, no I/O, no clock, no randomness, input
-state never mutated. `ENGINE_VERSION = "1.0.0"`.
-
-Barrel: `src/engine/index.ts` re-exports every symbol below plus `export * from "./types.js"`.
+state never mutated. `ENGINE_VERSION = "1.0.0"`. Barrel: `index.ts`.
 
 ## The tick
 
@@ -17,103 +11,108 @@ Barrel: `src/engine/index.ts` re-exports every symbol below plus `export * from 
 resolve(state: GameState, orders: Order[], context: DailyContext): GameState
 ```
 
-Seven steps, `src/engine/resolve.ts`:
+Pipeline, `src/engine/resolve.ts` — fixed order, mechanics never reorder it:
 
 | # | Step | Detail |
 |---|---|---|
-| 1 | Settle matured wagers | `settleAll` — **credit only** |
-| 2 | IRL grants | `irlGrants(context.approvals)` |
-| 3 | Territory income | `territoryIncome`, 0 for eliminated factions |
-| — | **Validate** | `validateOrder` against the *post-income* reserve |
-| 4 | Deploys | garrison += count, reserve −= count |
-| 5 | Escrow new wagers | reserve −= total stake |
-| 6 | Combat | `resolveCombat` against post-deploy garrisons |
-| 7 | Season-end check | caller's job, not the engine's |
+| 1 | grant | core `territoryIncome` (0 for eliminated), then every active module's `grant` hook, ONCE — settlement payouts live inside markets' grant |
+| 2 | claims | `validateOrder` (shape/legality only) + module `validate` hooks; then the claim list: one core claim per deploy (`lockedAt = ctx.tickInstant`) plus every `spend` hook's claims |
+| 3 | allocate | ALL claims by ascending **parsed** `lockedAt` (ties: mechanic id — core is `""` — then index); a claim that no longer fits DROPS with a `rejected` event carrying `ref`; honored deploys LAND here |
+| 4 | locks | union of `lock` hooks (`LockResult[]`); engine logs each first-seen territory's event; attacks into locked territories void in combat — no cap, no fee |
+| 5 | movement validation | inside `resolveCombat`, against POST-ALLOCATION garrisons: moves per line (fee-free, moves-first), attacks **merged by (from,to) then capped** — each movement consumes `count + attackDepartureCost` from the shared `garrison − 1` ledger; over-cap merged movements reject whole |
+| 6 | combat | reinforcements → field battles → simultaneous attacks, parameterized by the merged dial |
+| 7 | advance | each stateful module returns its complete next `moduleState[id]`, seeing ITS OWN honored claims |
 
-Validation runs after 1–3 on purpose: income earned this tick is spendable this
-tick. Validating against yesterday's reserve rejects every deploy from a faction
-that started at zero. Faction and order iteration is sorted by id throughout so
-replay is deterministic. Throws if any reserve ends negative.
+Why this order (all panel-reviewed, all pinned by tests):
 
-## Files
+- **Allocation before movement validation**: caps derive from post-deploy
+  garrisons; a deploy dropped after validation leaves an attack legal for
+  troops that never arrived (phantom troops).
+- **Seniority is the deploy-inflation fix**: a wager locks at its market's
+  close (strictly < tick, pinned `WINDOW_CLOSE_HOUR === TICK_HOUR` in
+  `config.test.ts`), so a 20:59 deploy can no longer evict a locked wager.
+- **Locks before caps**: a voided attack must not crowd out a valid one.
+- Malformed hook returns (negative/fractional amount, unknown faction,
+  unparseable `lockedAt`) THROW — the tick refuses.
+- Faction/order/mechanic iteration is id-sorted throughout; replay is exact.
 
-| File | Exports | Rules encoded |
+## The Mechanic contract (`mechanics.ts`, `registry.ts`, `modules/`)
+
+```ts
+Mechanic { id, grant?, spend?, validate?, lock?, combatDials?, advance?, escrowed? }
+Contribution { faction, amount, event }          // amount: non-negative int
+SpendClaim   { faction, amount, lockedAt, ref, event? }  // event logged only when honored
+LockResult   { territory, event? }               // veto: protected+byCount; a whole-map lock omits events
+CombatDials  { attackDepartureCost }             // sum across mechanics, clamp 0..MAX_DEPARTURE_COST(2)
+```
+
+`validateModules(enabled, MODULE_REGISTRY)`: unknown/duplicate ids refused,
+`veto` without `irl` refused (hardcoded, no `requires` field), `advance`
+without `escrowed` refused (the one-sided invariant can't see uncounted escrow).
+
+| Module | Hooks | State |
 |---|---|---|
-| `types.ts` | all core types, `ENGINE_VERSION` | see `codemaps/data.md` |
-| `map.ts` | `RISK_MAP` | 42 territories, 6 continents (na 5, sa 2, eu 5, af 3, as 7, au 2) |
-| `setup.ts` | `createSeason`, `territoriesOf`, `continentBonusesFor` | day-0 deal: round-robin over a **pre-shuffled** id list, 2 troops each, reserves 0 |
-| `income.ts` | `territoryIncome` | `max(5, floor(t/2)) + continent bonuses`; **0 territories → 0** |
-| `irl.ts` | `irlGrants`, `IrlGrant` | ≤2 actions @ +1; Early Bird (first **post**) and Under the Wire (last approval); max one bonus per player |
-| `wagers.ts` | `payout`, `escrow`, `settleAll`, `HOUSE_BONUS`, `REFUND_AFTER_TICKS`, `PRICE_FLOOR/CEIL` | |
-| `validate.ts` | `validateOrder` | field-level rejection, never throws on player data |
-| `casualties.ts` | `allocateCasualties`, `Force` | |
-| `combat.ts` | `resolveCombat` | protections → field battles → simultaneous attacks |
+| `markets` | grant (settlements, losses log at amount 0), spend (`lockedAt` = slate close), advance (keep unsettled + append HONORED escrow only), escrowed | `{ pending: PendingWager[] }` |
+| `irl` | grant (`irlGrants`: ≤2 actions @ +1, Early Bird + Under the Wire, one bonus/player) | — |
+| `veto` | lock (parity over eliminated POSTERS), validate (protect legality) | — |
 
-## Wagers
+Module-owned helpers (`modules/index.ts`): `marketsStateOf` (validating
+parser), `marketIdsOf` (jobs' settlement set), `pendingWagersOf` (sim's read
+view). "Owner-only access" = only module code interprets the slot, wherever
+called from. `moduleState` is rebuilt from ACTIVE modules each tick, so a
+disabled module's slot drops at the next tick; re-enable starts fresh.
+
+## Combat (`combat.ts`)
+
+```
+void    locked targets drop first: rejected{reason:"protected", ref} — no cap, no fee
+moves   per line vs shared ledger; then all departures sum before any arrival lands
+merge   attacks by (from,to); cap each movement: count + fee ≤ remaining(garrison − 1)
+6b      field battles on mutual edges: smaller dies, larger continues at a − 2·min
+6c      departure: garrison −= committed + fee (fee troops are casualties)
+6d      per target (post-departure defense): total ≤ defense → all attackers die;
+        else allocateCasualties (exactly D, largest-remainder), top survivor takes it,
+        losing factions' survivors withdraw home (ALIVE — not casualties)
+```
+
+Event accounting (feeds the two-sided invariant):
+
+- EVERY departed movement emits its `attack` event — one annihilated in a
+  field battle keeps zero strength so its `fee` stays in the log.
+- `attack.lost` = target-combat casualties only (per-faction split across legs
+  largest-remainder by leg size); field-battle deaths live in
+  `fieldBattle.aLost/bLost` exclusively.
+- `attack.defenderLost` logs ONCE per contested territory, on the surviving
+  arrival with the lexicographically-first `from` (else legs × defense).
+
+## Wagers (`wagers.ts`)
 
 ```
 HOUSE_BONUS = 1.1   REFUND_AFTER_TICKS = 2   PRICE_FLOOR = 0.1   PRICE_CEIL = 0.9
-payout(stake, price) = round(stake / clamp(price) * 1.1)
-wagerId = `${day}-${factionId}-${seq}`
+payout(stake, price) = round(stake / clamp(price) * 1.1)     // round, not floor
 ```
 
-- `round`, not `floor`: under `floor` the +10% edge only existed above `10p`;
-  below that it was negative-EV, worst case ≈ −45% just above p=0.55.
-- Settlement is **credit-only**. The stake left the reserve at escrow; a loss
-  returns nothing. "Credit or debit" charges losers twice.
-- Unsettled ≥2 ticks → stake refunded. Maturity counts ticks, not hours, so DST
-  cannot move the boundary.
-- Price comes from the slate by side at escrow time (`priceYes` / `priceNo`).
-- The clamp equals the slate's price filter (`src/config.test.ts` asserts it), so
-  it can only fire on a filter bug.
+Settlement is **credit-only** (the stake left at escrow); unsettled ≥2 ticks
+refunds; `wagerSettle` events carry `stake` so accounting can classify
+win (`payout − stake` created) / refund (net zero) / loss (`stake` destroyed).
+Price comes from the WAGER when present (placement price), else the slate.
 
-## Order validation (`validateOrder`)
+## Order validation (`validate.ts`)
 
-Rejection is per line item — a bad entry is dropped, the rest of the order stands.
-Whole-order rejection would be a griefing lever. Emits `{ t: "rejected" }` events.
-
-| Field | Checks |
-|---|---|
-| `deploys` | safe non-zero int; owns territory; running total ≤ reserve |
-| `attacks` | safe non-zero int; owns origin; target not friendly; target adjacent; per-origin total ≤ `postDeployGarrison − 1` |
-| `wagers` | safe non-zero int; side ∈ yes/no; market on today's slate; **at most one wager per market**; total ≤ `reserve − deploys` |
-| `protect` | only if `territoriesOf(state, f).length === 0`; must be a real territory |
-
-**One wager per market per faction is not a convenience limit.** Staking `k·p`
-YES and `k·(1−p)` NO returns `1.1k` on an outlay of `k` regardless of outcome —
-a risk-free +10%/day compounding to 7.4× over a season.
-
-## Combat (`resolveCombat`)
-
-```
-6a  protections   protect ∧ posted ∧ 0 territories → pick; odd pick count = protected
-6b  field battles  mutual edges: smaller force dies, larger continues at a − 2·min
-6c  departure      every committed troop leaves the origin, including field-battle dead
-6d  targets        allied legs merge per faction; if total ≤ defense all attackers die
-                   else allocateCasualties, top survivor takes the territory,
-                   other factions' survivors withdraw to their origins
-```
-
-- Duplicate `(from, to)` legs merge into one movement. A protected target voids
-  the attack entirely — those troops never leave home.
-- **A territory defends with its post-departure garrison.** Troops ordered out
-  have left.
-- Mutual attack rule replaced "both lose `min(a,b)`, neither changes hands",
-  which let a 1-troop feint void a 100-troop assault and froze the map.
-- `allocateCasualties`: total casualties equal **exactly** `defense`, split
-  pro-rata by largest-remainder rounding, ties on lower faction id. Applying the
-  full defense to each attacker independently lets a 4-troop garrison kill 8 and
-  breaks conservation.
-- **Both halves of the protect gate live here on purpose.** The golden file only
-  pins what crosses the engine boundary, so filtering `protect` in the tick
-  runner would let a regression replay green forever. The veto gates on
-  `postedToday`, not `approvals` — gating on approval would give living factions
-  a reason to withhold the 👍 from someone whose veto they fear.
+Shape and legality only; field-level rejection, never throws on player data.
+Deploys: count + ownership. Moves/attacks: count, ownership, adjacency, target
+side. Wagers: count, side, slate membership, **one wager per market** (the
+both-sides hedge is risk-free +10%/day). NOT here anymore: reserve budgeting
+(→ allocation), movement caps (→ combat), protect legality (→ veto module).
 
 ## Tests
 
-`golden.test.ts` replays `__golden__/season-1.json` — a **fixed order script**,
-not sim policies, so tuning a policy cannot break the engine's regression test.
-It exercises no protections (nobody reaches zero territories in the scripted ten
-days); `combat.test.ts` covers that path. `invariants.test.ts` and
-`fast-check` property tests cover conservation.
+`golden.test.ts` replays `__golden__/season-1.json` from a fixed order script —
+20 days, phase 2 hunts f4 to ELIMINATION and the finale exercises the parity
+veto, so `protected` and voided-attack events are pinned. `invariants.test.ts`:
+garrisons/reserves ≥ 0 (with a dial-active variant and `moves` in the
+arbitrary), the one-sided creation bound, and the **two-sided accounting
+equality** `totalOf(next) === totalOf(before) + created − destroyed` with
+`totalOf` summing garrisons + reserves + each module's `escrowed`.
+`modules/dial.test.ts` carries the review panel's worked cases;
+`modules/matrix.test.ts` the isolation matrix and hook-refusal paths.

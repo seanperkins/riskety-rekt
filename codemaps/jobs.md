@@ -1,127 +1,98 @@
-> Generated: 2026-08-10 | Token-lean format for LLM context
+> Generated: 2026-08-11 | Token-lean format for LLM context
 
 # Jobs (`src/jobs/`) and deployment
 
-Every job takes its clock as a `now: Date` dependency, so tests pin the day
-without touching a real clock.
+Every job takes its clock as `now: Date`. Exit codes are three-valued: 0
+success or deliberate skip, 1 system failure (systemd retries), 2 operator
+mistake or a write the rules rejected. **Tick refusals exit 0** — the condition
+never clears with time; non-zero would restart-loop all night.
 
 | Job | Cadence | Entry |
 |---|---|---|
+| `runSeasonInit` | once | `season-init.ts` — roster → deal day 0; validates modules |
 | `runPublishSlate` | 08:00 daily | `publish-slate.ts` |
 | `runPollSettlements` | every 30 min | `poll-settlements.ts` |
-| `runPostRecap` | after the tick | `post-recap.ts` — **built, no caller yet** |
+| `runPollPrices` | every 30 min | `poll-prices.ts` — reuses `getCandidates`, writes `market_prices` |
+| `runTick` | 21:00 daily | `tick.ts` |
+| `runRerun` | operator | `rerun.ts` — replay from `tick_context` |
+| `runModulesSet` | operator | `modules-set.ts` — mid-season module change |
+| `runPostRecap` | after the tick | `post-recap.ts`, via the `recaps` claim-then-post ledger |
 
-## publish-slate
+## tick (`runTick`)
 
-```ts
-PublishDeps { store: SlateStore, adapter: MarketAdapter, seasonId, now, log?, announce? }
-PublishOutcome = { status: "published", day, count }
-               | { status: "skipped", day, reason: SkipReason }
-SkipReason = "before-season" | "after-season" | "final-day" | "already-published"
-```
+Guards, in load-bearing order: `no-deal` refusal (before everything) →
+`missing-days` refusal (BEFORE the after-season skip, or a missed final day
+confiscates day-13 wagers) → before-season / after-season / already-run skips →
+before-cutoff (a 14:00 manual run must not resolve an open day). Then ONE
+transaction: `stateExists` re-check (concurrency belt) → `assembleOrders` +
+`loadSlate` + `dailyApprovals` → settlements for slate ∪ `marketIdsOf(previous)`
+(prior pending markets are not on today's slate) → context
+`{…, tickInstant: tickInstant(season, day).toISOString(), modules: season.modules, rules: []}`
+→ `resolve` → `saveState` → `saveTickContext`. No lock table — see CLAUDE.md.
 
-Flow: `store.season()` (throws if unknown) → `day = etDaysBetween(startDate, etDate(now))`
-→ skip guards → `slatePublished` check → `getCandidates(window)` → `selectSlate`
-→ `store.publishSlate` → optional `announce`.
+## rerun (`runRerun`)
 
-- `day >= lengthDays` skips as `final-day`: day-N wagers escrow at tick N and
-  settle at tick N+1, which for the last day never runs.
-- `slatePublished` is checked **before** fetching — a double-fired timer should
-  neither spend a round trip nor be in a position to see fresher prices. The
-  write returning `false` is the second guard, for a lost race.
-- An adapter failure **throws and writes nothing**. Recording an empty slate
-  burns the day permanently; throwing lets a systemd retry minutes later still
-  deliver one. An empty slate is only written after a *successful* fetch that
-  yielded nothing eligible.
-- `announce` runs only after the slate is persisted, and its failure is logged,
-  never thrown — a Slack outage must not cost the day its slate, and a slate
-  announced but not stored would be a lie.
-- `slate.length < SLATE_MIN` logs and continues.
+Replays `day .. min(calendarDay − 1, lengthDays)` against recorded contexts;
+one transaction with `deleteStatesFrom` after reading every context into
+memory. Engine-version mismatch is logged and proceeded, never refused.
+`--assemble-missing` builds a live context for a day that never ticked.
 
-Running it late in the ET day legitimately publishes nothing. Judge it by an
-08:00 run.
+**`backfillContext`**: frozen rows written before the module system lack
+`tickInstant`/`modules`/`rules`. Synthesized as exactly: the calendar
+`tickInstant` (startDate is immutable), the LITERAL `["markets","irl","veto"]`
+(**never the season row** — rerun re-saves contexts, and a row read would
+launder a mid-season module change into frozen history), and `[]`. Nothing
+else is ever defaulted.
 
-## poll-settlements
+## modules-set (`runModulesSet`)
 
-```ts
-PollDeps { store, adapter, seasonId, now, log? }
-PollResult { checked, recorded, stillOpen }
-```
+Validates against `MODULE_REGISTRY` (unknown ids, veto-without-irl → refused,
+exit 2 at the CLI). Disabling a module is refused while `escrowed(own) > 0` —
+the gate is the escrow, not slot presence (`{pending: []}` is idle). A
+permitted disable needs no slot surgery: `resolve` rebuilds `moduleState` from
+active modules, so the slot drops at the next tick and re-enable starts fresh.
+Applied between ticks; visible in the NEXT day's frozen context only.
 
-`marketsAwaitingSettlement(seasonId, now, SETTLEMENT_HORIZON_DAYS)` →
-`adapter.getSettlements` → `recordSettlement` for each unambiguous yes/no.
+## publish-slate / pollers
 
-**Never throws.** A Kalshi outage leaves markets unsettled, the next run retries,
-and a wager unsettled for two ticks is refunded by the engine. That chain is the
-entire reason the 21:00 tick is allowed to be offline.
+- All three **skip deliberately (exit 0) when `markets` is off**, touching no
+  network (tested against an adapter that throws on contact).
+- publish-slate: skip guards → `slatePublished` check BEFORE fetching →
+  `getCandidates(window)` → `selectSlate` → `publishSlate` → optional
+  `announce` (failure logged, never thrown). Adapter failure throws and writes
+  nothing — an empty slate is only recorded after a successful fetch. Late-day
+  runs legitimately publish nothing; judge by an 08:00 run.
+- poll-settlements: never throws; unsettled markets retry next run; a wager
+  unsettled two ticks refunds. This chain is why the tick may be offline.
+- poll-prices: refreshes `market_prices`; the published slate stays frozen —
+  `order_wagers.price` snapshots the placement price (the stale-price fix).
 
-## post-recap
+## order entry (`order-entry.ts`)
 
-```ts
-PostRecapDeps { poster: Poster, state: GameState, previous: GameState,
-                lengthDays, correction?, log? }
-```
-
-Deliberately separate from resolution and never called by `resolve()`. Plan 4's
-tick runner saves state **first**, then calls this, so a Slack outage can neither
-stall nor double-run a tick. `correction` is spread conditionally rather than
-passed as `undefined` — `exactOptionalPropertyTypes` is on.
+`npm run order|wager -- f1 --file x.json` (or `--stdin`; never a shell arg).
+`parseOrderBody` bounds counts and list sizes. Writes go through the store's
+`orderGate` (day range, 21:00 deadline, day-already-resolved, per-market
+`stillOpen` lock, `markets-off`).
 
 ## CLI (`src/jobs/cli.ts`)
 
 ```
-tsx src/jobs/cli.ts publish-slate | poll-settlements
-                    season-init <YYYY-MM-DD> [length]
-                    roster-add <slack-user-id> <faction-id> <display name>
-                    roster-list
+season-init <YYYY-MM-DD> [--length N] [--seed N]   modules-set <id...>
+tick   recap <day> [--force]   tick-rerun <day> [--confirm] [--assemble-missing]
+order|wager <faction> --file|--stdin   roster-add | roster-list
+publish-slate | poll-prices | poll-settlements
 ```
 
-Env: `RR_DB_PATH`, `RR_SEASON_ID` (both required; `""` counts as unset).
-Exit 0 on success or a deliberate skip, 1 on failure worth a systemd retry.
-
-- **Never call `process.exit()` with the database open** — it skips the `finally`
-  block and leaves a WAL file behind on every bad invocation. Set `exitCode`,
-  fall through, `store.close()`, then exit.
-- `announce` is wired only when `SLACK_BOT_TOKEN` is non-empty, so an
-  unconfigured workspace can still publish to the database.
-- `onTruncate` prints a WARNING rather than failing: a truncated candidate walk
-  still yields a playable slate, but must never pass silently — the first live
-  sampling run returned exactly `MAX_PAGES × 1000` markets on seven consecutive
-  days and looked entirely like real data.
-
-## Slack bot (`src/slack/cli.ts`)
-
-Long-running. Reads `RR_DB_PATH` plus the four `SLACK_*` variables; any missing
-one exits 1 at boot with a single operator-readable line, no stack trace. Env is
-loaded **before** the store is opened so a misconfigured service leaves no WAL
-file. Calls `app.init()` (deferred in `createSlackApp`) then `app.start(PORT)`,
-default 3001. SIGINT/SIGTERM stop the app, close the store, exit 0.
+Flags parse by name (`flags.ts`), never by position. **Never
+`process.exit()` with the store open** — set `exitCode`, fall through, close.
 
 ## systemd (`deploy/`)
 
-| Unit | Schedule / mode |
-|---|---|
-| `riskety-publish-slate.timer` | `OnCalendar=*-*-* 08:00:00` |
-| `riskety-publish-slate.service` | `Restart=on-failure`, `RestartSec=300` |
-| `riskety-poll-settlements.timer` | `OnCalendar=*:00/30` |
-| `riskety-poll-settlements.service` | oneshot |
-| `riskety-slack.service` | `Restart=always`, `RestartSec=5`, `Environment=PORT=3001` |
-
-All three read `EnvironmentFile=/etc/riskety-rekt/env`,
-`WorkingDirectory=/srv/riskety-rekt`. Full setup in `deploy/README.md`.
-
-Target is a DigitalOcean droplet, **not** App Platform — an ephemeral filesystem
-wipes SQLite on every redeploy.
-
-## Open work
-
-Plan 4 (tick runner + web app) still owes:
-
-- Caddy routing `/slack/events` → port 3001. Slack's Event Subscriptions cannot
-  be registered until that endpoint answers a public HTTPS `url_verification`
-  challenge, so the bot is unusable and its round trip untestable until then.
-- The tick runner: `dailyApprovals(store, seasonId, day)` feeds **both**
-  `context.approvals` and `context.postedToday`; then `runPostRecap` after the
-  state save, in that order.
-- `claimTick` for idempotency; `loadState`/`saveState`/`loadOrders`/`saveOrder`.
-- Wager locking at `min(close_time, settlements.observed_at)`.
+`riskety-publish-slate.timer` 08:00; `riskety-poll-settlements.timer` `*:00/30`;
+`riskety-poll-prices.timer` `*:15/30` (offset, not simultaneous);
+`riskety-tick.timer` `21:00:30` (refusals exit 0 on purpose, so
+`Restart=on-failure` cannot loop); `riskety-slack.service` and
+`riskety-web.service` long-running; a Caddyfile routes the public HTTPS side.
+All read `/etc/riskety-rekt/env`. Target is a droplet, not App Platform — an
+ephemeral filesystem wipes SQLite. Demo tooling: `riskety-demo-web.service`,
+`seed-demo.sh`. Full setup in `deploy/README.md`.

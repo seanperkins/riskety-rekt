@@ -1,9 +1,11 @@
-> Generated: 2026-08-10 | Token-lean format for LLM context
+> Generated: 2026-08-11 | Token-lean format for LLM context
 
 # Integrations — Kalshi and Slack
 
 The only two places the process speaks to a network, and both are cached to
-SQLite well before the 21:00 tick.
+SQLite well before the 21:00 tick. Both sides are gated by `season.modules`:
+with `markets` off the slate job and both pollers skip (exit 0) without a
+network call; with `irl` off the approval flow is never invoked.
 
 ## Kalshi (`src/adapters/kalshi/`)
 
@@ -74,6 +76,11 @@ arbitrary order); a batch that throws is swallowed and stays unsettled. An
 omitted market, a timeout and a void result are indistinguishable by design —
 the engine refunds after two ticks either way.
 
+`poll-prices` reuses `getCandidates` for the day's slate window and writes
+`market_prices` every 30 minutes. The published slate stays frozen — live
+prices exist so a wager is priced at PLACEMENT (`order_wagers.price`), which is
+the stale-price fix; re-staking re-prices.
+
 Slate selection lives in `src/slate/select.ts`: rank by volume desc (id as
 tiebreak), **at most one market per series**, then re-sort by id for storage. One
 observed window held 2,257 eligible markets across 44 series, so ranking by
@@ -94,9 +101,15 @@ Everything else is pure, which is what keeps the suite offline.
 | `approvals.ts` | `dailyApprovals(store, seasonId, day)` → `{ approvals, postedToday }` |
 | `recap.ts` | `renderRecap(input)` → `{ text, blocks }` |
 | `announce.ts` | `renderSlate(day, slate)` → `{ text, blocks }` |
+| `login.ts` | the `/login` slash command → hashed magic link DM (web session entry) |
 | `post.ts` | `createPoster(env, client?)` → `Poster` |
 | `text.ts` | `safeText(value, max)` |
 | `cli.ts` | the long-running bot; `PORT` default 3001 |
+
+Gate order in `interpretReaction` (events.ts): team → channel →
+`APPROVAL_EMOJI` filter → roster → self-approval. The rule-catalogue plan's
+vote branch inserts after team/channel and BEFORE the emoji filter, doing its
+own roster lookup.
 
 ### Env
 

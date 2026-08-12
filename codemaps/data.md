@@ -1,158 +1,112 @@
-> Generated: 2026-08-10 | Token-lean format for LLM context
-> STALE (2026-08-11): predates the pluggable-mechanics module system — the
-> pipeline is now grant/claims/allocate/locks/validate/combat/advance, pending
-> lives in moduleState.markets, and mechanics are src/engine/modules/. Trust
-> CLAUDE.md and the code until /update-codemaps regenerates this file.
+> Generated: 2026-08-11 | Token-lean format for LLM context
 
 # Data — types, schema, constants
 
 ## Engine types (`src/engine/types.ts`)
 
 ```ts
-type FactionId = TerritoryId = ContinentId = MarketId = string
+type FactionId = TerritoryId = RegionId = MarketId = string
+type ModuleId = RuleId = string                    // mechanics.ts
 type WagerSide  = "yes" | "no"
 type Settlement = "yes" | "no" | "unsettled"
 
-Territory     { id, name, continent, neighbors: TerritoryId[] }
-Continent     { id, name, bonus: number }
-GameMap       { territories: Territory[], continents: Continent[] }
+Territory     { id, name, region, neighbors: TerritoryId[] }
+Region        { id, name, bonus }
+GameMap       { territories: Territory[], regions: Region[] }
 Faction       { id, playerName, color }
-Market        { id, question, priceYes, priceNo, closeTime: string }
+Market        { id, question, priceYes, priceNo, closeTime }   // closeTime: ISO instant
 PendingWager  { wagerId, factionId, marketId, side, stake, price, placedOnDay }
-ApprovedAction{ eventId, playerId, postedAt, approvedAt }   // ISO instants
+ApprovedAction{ eventId, playerId, postedAt, approvedAt }
 
-DailyContext  { slate: Market[], approvals: ApprovedAction[],
-                postedToday: FactionId[], settlements: Record<MarketId, Settlement> }
+DailyContext  { slate, approvals, postedToday, settlements,
+                tickInstant: string,   // the tick's frozen ISO instant — time enters HERE
+                modules: string[],     // enabled module ids, from the season row
+                rules: string[] }      // day-scoped voted rules; [] until the catalogue ships
 
-Deploy        { territory, count }
-Attack        { from, to, count }
-WagerOrder    { marketId, side, stake }
-Order         { factionId, deploys[], attacks[], wagers[], protect: TerritoryId | null }
+Deploy { territory, count }   Attack { from, to, count }   Move { from, to, count }
+WagerOrder { marketId, side, stake, price? }   // price = placement price (stale-price fix)
+Order  { factionId, deploys[], attacks[], moves?[], wagers[], protect: TerritoryId | null }
 
-GameState     { seasonId, day, map, factions, ownership: Record<TerritoryId, FactionId>,
-                garrisons: Record<TerritoryId, number>, reserves: Record<FactionId, number>,
-                pending: PendingWager[], log: TickEvent[], engineVersion }
+GameState { seasonId, day, map, factions, ownership, garrisons, reserves,
+            moduleState: Record<string, unknown>,   // each module's slot; replaces `pending`
+            log: TickEvent[], engineVersion }
 ```
 
-`postedToday` is separate from `approvals` because the two mechanics gate
-differently: +1 soldier needs two distinct *other* reactors, the elimination veto
-needs only that the player showed up. Post *times* are deliberately absent —
-Early Bird keys on an approved action's `postedAt`.
+`moduleState` values are opaque JSON — module code (incl. its exported helpers)
+is the only interpreter; `saveState` asserts a JSON round-trip. `markets` holds
+`{ pending: PendingWager[] }`.
 
 ### TickEvent union
 
 ```ts
 { t: "income";      faction, amount }
 { t: "irl";         faction, actions, bonus }
+{ t: "grant";       source, faction, amount }      // module/rule without its own variant
 { t: "deploy";      faction, territory, count }
-{ t: "fieldBattle"; a, b, aContinues, bContinues }
+{ t: "move";        faction, from, to, count }
+{ t: "fieldBattle"; a, b, aContinues, bContinues, aLost, bLost }
 { t: "protected";   territory, byCount }
-{ t: "attack";      from, to, attacker, committed, survivors, captured }
-{ t: "wagerSettle"; wagerId, outcome: Settlement, payout }
-{ t: "rejected";    faction, field, reason }
+{ t: "attack";      from, to, attacker, committed, survivors, captured,
+                    lost, defenderLost, fee? }     // lost = target-combat only;
+                                                   // defenderLost once per territory
+{ t: "wagerSettle"; wagerId, outcome, payout, stake }
+{ t: "rejected";    faction, field, reason, ref? } // ref names the dropped item
 ```
 
-## Adapter types (`src/adapters/types.ts`)
-
-```ts
-Candidate extends Market { volume: number; series: string }   // selection-only fields
-CandidateWindow { opensAfter: Date; closesBefore: Date }      // passed in, never computed
-MarketAdapter {
-  getCandidates(window): Promise<Candidate[]>
-  getSettlements(ids): Promise<Record<MarketId, Settlement>>
-}
-```
+Consumers are exhaustiveness-guarded: `src/web/render.ts` switch has
+`assertNever`; the recap has a `RECAP_HANDLED ∪ RECAP_IGNORED` coverage test
+(`deploy` deliberately unrendered).
 
 ## SQLite schema (`src/store/schema.ts`)
 
-`MIGRATIONS: string[]`, append-only, one per `PRAGMA user_version` step. **Never
-edit a shipped migration.** `migrate(db)` is safe on every boot; each migration
-runs in its own BEGIN/COMMIT with ROLLBACK on error.
+`MIGRATIONS: string[]`, append-only, one per `user_version` step. **Never edit
+a shipped migration.** Seven ship (indices 0–6):
 
-### Migration 0 — markets
-
-| Table | Columns | Notes |
-|---|---|---|
-| `seasons` | `season_id` PK, `start_date`, `length_days` | `start_date` is the ET date of the day-0 deal |
-| `slate_publications` | (`season_id`,`day`) PK, `published_at`, `market_count` | distinguishes "not published yet" from "published empty on purpose" |
-| `slate_markets` | (`season_id`,`day`,`market_id`) PK, `question`, `price_yes`, `price_no`, `close_time` | + index `slate_markets_by_market` |
-| `settlements` | `market_id` PK, `outcome CHECK IN ('yes','no')`, `observed_at` | first observation wins |
-
-`settlements.observed_at` is load-bearing, not bookkeeping: every sampled Kalshi
-market carries `can_close_early`, so an outcome can go public before the stated
-close. Wagers must lock at `min(close_time, observed_at)` — Plan 4's web app owes
-this.
-
-### Migration 1 — Slack
-
-| Table | Columns | Notes |
-|---|---|---|
-| `roster` | `slack_user_id` PK, `faction_id` **UNIQUE**, `display_name` | UNIQUE blocks two accounts on one faction, which would defeat the self-approval check |
-| `slack_events` | `event_id` PK, `received_at` | dedupe ledger; Slack redelivers up to 3× |
-| `posts` | `message_ts` PK, `faction_id`, `posted_at`, `et_date`, `deleted` | + index `posts_by_date`; both times derive from `message_ts`, never from write time |
-| `reactions` | (`message_ts`,`faction_id`) PK, `reacted_at` | the PK **is** the "distinct reactors" rule; 👍 after 👍🏽 collides |
-
-**Approvals are never stored.** An `ApprovedAction` is derived at read time by
-`dailyApprovals`. Storing them would make `reaction_removed` a state machine that
-must retract an approval which may or may not have existed; deriving makes
-removal one `DELETE`.
-
-## Store interfaces (`src/store/types.ts`)
-
-Implemented by `openStore(path)` in `src/store/sqlite.ts` → `SlateStore & RosterStore & ApprovalStore`.
-
-| Interface | Methods |
+| # | Adds |
 |---|---|
-| `SlateStore` | `season`, `upsertSeason`, `publishSlate`, `slatePublished`, `loadSlate`, `recordSettlement`, `loadSettlements`, `marketsAwaitingSettlement`, `close` |
-| `RosterStore` | `addRosterMember`, `roster`, `factionForSlackUser`, `slackUserForFaction` |
-| `ApprovalStore` | `markEventSeen`, `recordPost`, `deletePost`, `recordApproval`, `removeApproval`, `postsOn`, `postFor`, `approversOf` |
+| 0 | `seasons`, `slate_publications`, `slate_markets`, `settlements` (first observation wins) |
+| 1 | `roster` (faction UNIQUE), `slack_events` (dedupe), `posts`, `reactions` (PK = distinct-reactor rule) |
+| 2 | `states`, `orders`, `order_wagers`, `tick_context`, `recaps` (attempt in PK — claim-then-post ledger); rewrites `slate_markets.close_time` to ISO |
+| 3 | `login_tokens` (hashed, TTL) |
+| 4 | `market_prices` (30-min live prices), `order_wagers.price` (placement price; NULL = slate fallback) |
+| 5 | `login_tokens_v2` rebuild (≤ `MAX_LIVE_TOKENS` per user instead of exactly one) |
+| 6 | `seasons.modules` (default `'["markets","irl","veto"]'`); **DATA migration** rewriting `states.state` JSON `pending` → `moduleState.markets.pending` (pinned SQL; a real pre-migration row is loaded through it in `migration.test.ts`) |
 
-`publishSlate` returns `false` and writes nothing on a second call for the same
-day — a 20:00 rerun would otherwise re-snapshot prices on the afternoon's
-information. `markEventSeen` returns `false` on a redelivery. Every Slack write
-is idempotent.
+Load-bearing details: `settlements.observed_at` (markets can close early;
+wagers lock at `min(close_time, observed_at)` — `saveWager`'s `stillOpen`
+gate); approvals are **derived, never stored** (`dailyApprovals` at read time);
+`tick_context.context` carries the whole `DailyContext` as JSON — pre-change
+rows are backfilled at read time from literals, never the mutable season row.
 
-`node:sqlite` is loaded via `createRequire`, **not** a static import: Vite builds
-its builtin list with `builtinModules.filter(id => !id.includes(":"))` and Node
-lists the module only as `node:sqlite`, so a static import resolves to bare
-`sqlite` and every store test fails to load. Rows come back with a `null`
-prototype — spread them rather than calling `Object.prototype` methods. The
-`ExperimentalWarning` on stderr is expected.
+## Store (`src/store/types.ts`, implemented by `openStore(path)` in `sqlite.ts`)
 
-Connection setup: `journal_mode = WAL`, `busy_timeout = 5000`,
-`foreign_keys = ON`. `PARAM_CHUNK = 500` keeps bound params under SQLite's 999.
-
-## Constants (`src/config.ts`)
-
-| Name | Value | Note |
-|---|---|---|
-| `SEASON_LENGTH` | 21 | |
-| `SLATE_MIN` / `SLATE_MAX` | 3 / 5 | below MIN logs, does not fail |
-| `WINDOW_OPEN_HOUR` / `WINDOW_CLOSE_HOUR` | 9 / 21 | ET, on the slate's own day |
-| `PRICE_MIN` / `PRICE_MAX` | 0.1 / 0.9 | must equal the engine clamp; asserted in `config.test.ts` |
-| `VOLUME_FLOOR` | 500 | p75 of markets that traded; 66.6% of same-day markets never trade, so the spec's "median" would have been 0 |
-| `QUESTION_MAX_CHARS` | 200 | |
-| `TIMEZONE` | `America/New_York` | |
-| `KALSHI_BASE_URL` | `https://api.elections.kalshi.com/trade-api/v2` | |
-| `HTTP_TIMEOUT_MS` / `HTTP_RETRIES` / `HTTP_RETRY_DELAY_MS` | 20000 / 2 / 1000 | |
-| `MAX_PAGES` / `PAGE_LIMIT` | 40 / 1000 | was 12 until a run returned exactly 12,000 markets seven days running |
-| `SETTLEMENT_BATCH_SIZE` | 100 | max tickers per `?tickers=` query |
-| `SETTLEMENT_HORIZON_DAYS` | 4 | > `REFUND_AFTER_TICKS`, so nothing older can affect a live wager |
-
-`src/slack/config.ts`: `APPROVAL_EMOJI = {"+1"}`, `EMOJI_ALIASES`
-(`thumbsup`, `thumbsup_all`, `+1` → `+1`), `TICK_HOUR = 21`,
-`MAX_RECAP_BLOCKS = 48`, `MAX_SECTION_CHARS = 2900`, `MAX_SECTION_LINES = 20`,
-`RECAP_NAME_MAX_CHARS = 40`.
-
-## Time helpers (`src/time.ts`)
-
-| Function | Contract |
+| Interface | Highlights |
 |---|---|
-| `etDate(at)` | instant → `YYYY-MM-DD` in ET |
-| `etInstant(date, hour, minute=0)` | ET wall clock → `Date`; two-pass offset solve for DST |
-| `etDaysBetween(from, to)` | whole calendar days; both read as UTC midnight |
-| `etDateAdd(date, days)` | inverse of the above |
-| `slackTsToIso(ts)` | `"1723237200.000200"` → ISO; **throws** on a malformed ts rather than landing it at the epoch |
+| `SeasonStore` | `season`, `upsertSeason`, `insertSeason` (insert-only + seed), `setSeasonModules` |
+| `SlateStore` | `publishSlate` (idempotent), `loadSlate`, `recordSettlement`, `loadSettlements`, `marketsAwaitingSettlement`, `recordPrices`, `pricesFor` |
+| `RosterStore` / `ApprovalStore` | roster CRUD; `recordPost`, `recordApproval` (INSERT OR IGNORE — first ts wins), `removeApproval`, `postFor`, `approversOf` |
+| `OrderStore` | `saveOrder`, `saveWager` (orderGate: day range, deadline, resolved, market-locked; + `markets-off`), `orderFor`, `wagersFor`, `assembleOrders` |
+| `StateStore` | `saveState` (JSON round-trip assert), `loadState` (`parseState` validates; requires `moduleState`), `latestSavedDay`, `stateExists`, `saveTickContext`, `loadTickContext`, `deleteStatesFrom` |
+| `AuthStore` / `RecapLedger` | hashed login tokens; `claimRecap` (attempt-keyed) |
+| `Transactional` | `transaction(fn)` — the ONLY `BEGIN` owner (`migrate` is the documented exemption) |
 
-Counting in dates rather than hours is what keeps a DST transition from shifting
-a day boundary or a refund window.
+`node:sqlite` loads via `createRequire` (Vite strips the `node:` prefix). Rows
+have a null prototype — spread them. WAL, `busy_timeout = 5000`.
+
+## Constants
+
+`src/config.ts`: `SEASON_LENGTH = 14`, `SLATE_MIN/MAX = 3/5`,
+`WINDOW_OPEN_HOUR/CLOSE_HOUR = 9/21` (close **pinned equal to `TICK_HOUR`** in
+`config.test.ts` — claim seniority depends on it), `PRICE_MIN/MAX = 0.1/0.9`
+(pinned equal to the engine clamp), `VOLUME_FLOOR = 500`,
+`QUESTION_MAX_CHARS = 200`, Kalshi HTTP knobs, `SETTLEMENT_HORIZON_DAYS = 4`.
+
+`src/slack/config.ts`: `APPROVAL_EMOJI = {"+1"}` + aliases, `TICK_HOUR = 21`,
+recap block/section caps. `src/engine/mechanics.ts`: `MAX_DEPARTURE_COST = 2`.
+
+## Time (`src/time.ts`, `src/season.ts`)
+
+`etDate`, `etInstant` (two-pass DST solve), `etDaysBetween`, `etDateAdd`,
+`slackTsToIso` (throws on malformed). `currentDay(season, now)` and
+`tickInstant(season, day)` are THE day clock — calendar-derived, never
+state-derived. `checkDeal` bounds roster × territories.
