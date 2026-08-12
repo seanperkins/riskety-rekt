@@ -107,7 +107,12 @@ export function seatsFor(policyNames: string[]): Seat[] {
   })
 }
 
-export function runSeason(policyNames: string[], seed: number): SeasonResult {
+export function runSeason(
+  policyNames: string[],
+  seed: number,
+  opts: { modules?: string[] } = {},
+): SeasonResult {
+  const modules = opts.modules ?? ["markets", "irl", "veto"]
   const rng = makeRng(seed)
   const policies = policyNames.map((n) => {
     const p = POLICIES.find((x) => x.name === n)
@@ -174,7 +179,7 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
       postedToday: postedToday.sort(),
       settlements,
       tickInstant: simInstant(day, 21),
-      modules: ["markets", "irl", "veto"],
+      modules,
       rules: [],
     }
     const orders = policies.map((p, i) => p.decide(state, seatIds[i]!, slate, rng))

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { SEASON_LENGTH } from "../config.js"
 import { checkDeal } from "../season.js"
-import { runMany, runSeason, seatsFor } from "./run.js"
+import { parseInstant } from "../engine/mechanics.js"
+import { runMany, runSeason, seatsFor, simInstant } from "./run.js"
 
 const four = ["Turtle", "Blitz", "GymRat", "Slacker"]
 
@@ -102,5 +103,17 @@ describe("seats", () => {
     const rep = runMany(["Blitz", "Blitz", "Turtle", "Hunter"], 20)
     expect(rep.seats).toEqual({ Blitz: 2, Turtle: 1, Hunter: 1 })
     expect(Object.values(rep.wins).reduce((a, b) => a + b, 0)).toBe(20)
+  })
+
+  it("completes a season with every module off — plain deterministic Risk", () => {
+    const out = runSeason(["Blitz", "Turtle", "Hunter", "Consolidator"], 7, { modules: [] })
+    expect(out.days).toBeGreaterThan(0)
+    expect(out.winner).toBeDefined()
+  })
+
+  it("orders the sim calendar so every close is strictly before its tick", () => {
+    // Wrong ordering here silently measures the pre-fix (deploys-senior) game
+    // while reporting it as the balance run.
+    expect(parseInstant(simInstant(5, 18))).toBeLessThan(parseInstant(simInstant(5, 21)))
   })
 })
