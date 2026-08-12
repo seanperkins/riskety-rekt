@@ -38,8 +38,27 @@ export function runRuleGate(
   policyNames: string[],
   seasonsPerArm: number,
   ruleId: string,
+  baseline?: BaselineWinners,
 ): GateResult {
-  return runGate(policyNames, seasonsPerArm, ruleId, { rules: [ruleId] })
+  return runGate(policyNames, seasonsPerArm, ruleId, { rules: [ruleId] }, baseline)
+}
+
+/**
+ * The winning POLICY of each baseline season, indexed by `seed - 1`.
+ *
+ * Every arm is paired against the same seeds, so this sweep is identical for
+ * all of them and computing it once turns 2N sweeps into N+1. Not an
+ * approximation — the seeds make it literally the same computation.
+ */
+export type BaselineWinners = (string | undefined)[]
+
+export function baselineWinners(policyNames: string[], seasons: number): BaselineWinners {
+  const policyOf = new Map(seatsFor(policyNames).map((s) => [s.id, s.policy]))
+  const out: BaselineWinners = []
+  for (let seed = 1; seed <= seasons; seed++) {
+    out.push(policyOf.get(runSeason(policyNames, seed).winner))
+  }
+  return out
 }
 
 /**
@@ -48,8 +67,12 @@ export function runRuleGate(
  * forced-daily is the stress envelope above it — and both arms share the
  * season's main rng stream, so the difference is the rules alone.
  */
-export function runVoteGate(policyNames: string[], seasonsPerArm: number): GateResult {
-  return runGate(policyNames, seasonsPerArm, "voted", { voteRules: true })
+export function runVoteGate(
+  policyNames: string[],
+  seasonsPerArm: number,
+  baseline?: BaselineWinners,
+): GateResult {
+  return runGate(policyNames, seasonsPerArm, "voted", { voteRules: true }, baseline)
 }
 
 function runGate(
@@ -57,6 +80,7 @@ function runGate(
   seasonsPerArm: number,
   label: string,
   arm: { rules?: string[]; voteRules?: boolean },
+  baseline?: BaselineWinners,
 ): GateResult {
   const seats = seatsFor(policyNames)
   const policyOf = new Map(seats.map((s) => [s.id, s.policy]))
@@ -66,9 +90,9 @@ function runGate(
   const forcedWins = new Map(policies.map((p) => [p, 0]))
 
   for (let seed = 1; seed <= seasonsPerArm; seed++) {
-    const base = runSeason(policyNames, seed)
+    const bWin =
+      baseline === undefined ? policyOf.get(runSeason(policyNames, seed).winner) : baseline[seed - 1]
     const forced = runSeason(policyNames, seed, arm)
-    const bWin = policyOf.get(base.winner)
     const fWin = policyOf.get(forced.winner)
     for (const p of policies) {
       const b = bWin === p ? 1 : 0
@@ -117,12 +141,19 @@ if (isMain) {
   const seasons = Number(process.argv[2] ?? 10_000)
   console.log(`bounded-swing gate: ${seasons} seasons per arm, roster ${ROSTER.join(", ")}\n`)
 
+  // Computed ONCE and shared by every arm — all arms pair against these same
+  // seeds, so this is the identical computation, not an approximation.
+  const baseline = baselineWinners(ROSTER, seasons)
+
   const arms = [
     ...RULE_CATALOGUE.map((r) => ({
       label: `${r.id} forced daily`,
-      run: () => runRuleGate(ROSTER, seasons, r.id),
+      run: () => runRuleGate(ROSTER, seasons, r.id, baseline),
     })),
-    { label: "the VOTED regime (drawn and voted daily)", run: () => runVoteGate(ROSTER, seasons) },
+    {
+      label: "the VOTED regime (drawn and voted daily)",
+      run: () => runVoteGate(ROSTER, seasons, baseline),
+    },
   ]
 
   for (const arm of arms) {

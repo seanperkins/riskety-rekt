@@ -167,4 +167,14 @@ describe("rule arms", () => {
       expect(Number.isFinite(row.pairedSePct)).toBe(true)
     }
   })
+
+  it("a cached baseline gives IDENTICAL results to recomputing it", async () => {
+    // The refactor that turns 2N sweeps into N+1 is only worth anything if it
+    // is exactly behavior-preserving, and pinned seeds make that an equality,
+    // not an approximation.
+    const { baselineWinners, runRuleGate, runVoteGate } = await import("./rule-gate.js")
+    const baseline = baselineWinners(roster, 20)
+    expect(runRuleGate(roster, 20, "truce", baseline)).toEqual(runRuleGate(roster, 20, "truce"))
+    expect(runVoteGate(roster, 20, baseline)).toEqual(runVoteGate(roster, 20))
+  })
 })
