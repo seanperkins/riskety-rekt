@@ -2,7 +2,8 @@ import { resolveCombat } from "./combat.js"
 import { territoryIncome } from "./income.js"
 import { MAX_DEPARTURE_COST, checkContribution, parseInstant, sortClaims } from "./mechanics.js"
 import { MODULE_REGISTRY } from "./modules/index.js"
-import { validateModules } from "./registry.js"
+import { RULE_REGISTRY } from "./rules/index.js"
+import { validateModules, validateRules } from "./registry.js"
 import { cmp } from "./sort.js"
 import { ENGINE_VERSION } from "./types.js"
 import { validateOrder } from "./validate.js"
@@ -47,7 +48,16 @@ export function resolve(state: GameState, orders: Order[], context: DailyContext
   const log: TickEvent[] = []
   const factionIds = state.factions.map((f) => f.id).sort()
   const factionSet: ReadonlySet<string> = new Set(factionIds)
-  const active = validateModules(context.modules, MODULE_REGISTRY)
+  // Modules are season-scoped, rules day-scoped; both are validated per
+  // namespace (separate registries) and dispatched identically. The merged
+  // list is id-sorted so within every hook, mechanics run in one
+  // deterministic order regardless of how the context lists them. Ids cannot
+  // collide across the namespaces — buildCatalogue refuses a rule id that
+  // matches a module id at catalogue load.
+  const active = [
+    ...validateModules(context.modules, MODULE_REGISTRY),
+    ...validateRules(context.rules, RULE_REGISTRY),
+  ].sort((a, b) => cmp(a.id, b.id))
 
   // 1 — grant, once. Core income first, then hooks sorted by id (the registry
   // returns them sorted), so the log is deterministic.

@@ -213,3 +213,96 @@ describe("resolve", () => {
     expect(next.reserves["f1"]).toBe(0)
   })
 })
+
+describe("rule dispatch", () => {
+  it("boom doubles each faction's income", () => {
+    const s = createSeason("s1", factions, ids)
+    const base = resolve(s, [], emptyCtx)
+    const boomed = resolve(s, [], { ...emptyCtx, rules: ["boom"] })
+    for (const f of factions) {
+      expect(boomed.reserves[f.id]! - base.reserves[f.id]!).toBe(territoryIncome(s, f.id))
+      expect(boomed.log).toContainEqual({
+        t: "grant",
+        source: "boom",
+        faction: f.id,
+        amount: territoryIncome(s, f.id),
+      })
+    }
+  })
+
+  it("truce voids every attack but moves still run", () => {
+    const s = createSeason("s1", factions, ids)
+    const mine = new Set(territoriesOf(s, "f1"))
+    const neighborsOf = (id: string) => RISK_MAP.territories.find((t) => t.id === id)!.neighbors
+    const attackFrom = [...mine].find((t) => neighborsOf(t).some((n) => !mine.has(n)))!
+    const attackTo = neighborsOf(attackFrom).find((n) => !mine.has(n))!
+    const moveFrom = [...mine].find((t) => neighborsOf(t).some((n) => mine.has(n)))!
+    const moveTo = neighborsOf(moveFrom).find((n) => mine.has(n))!
+    const next = resolve(
+      s,
+      [order({
+        factionId: "f1",
+        attacks: [{ from: attackFrom, to: attackTo, count: 1 }],
+        moves: [{ from: moveFrom, to: moveTo, count: 1 }],
+      })],
+      { ...emptyCtx, rules: ["truce"] },
+    )
+    expect(next.log).toContainEqual({
+      t: "rejected",
+      faction: "f1",
+      field: "attacks",
+      reason: "protected",
+      ref: `attack:${attackFrom}|${attackTo}`,
+    })
+    expect(next.ownership[attackTo]).toBe(s.ownership[attackTo])
+    expect(next.log.some((e) => e.t === "move")).toBe(true)
+    // Truce supplies no per-territory events — the recap names the rule.
+    expect(next.log.some((e) => e.t === "protected")).toBe(false)
+  })
+
+  it("attrition charges the departure fee through the rules path", () => {
+    // The review panel's worked case: garrison 3, cost 1, cap g−1 = 2.
+    // X→Y 1 consumes 1+1 = 2 (fits); X→Z 1 would need 4 > 2 — rejected.
+    const s = createSeason("s1", factions, ids)
+    const mine = new Set(territoriesOf(s, "f1"))
+    const neighborsOf = (id: string) => RISK_MAP.territories.find((t) => t.id === id)!.neighbors
+    const from = [...mine].find((t) => neighborsOf(t).filter((n) => !mine.has(n)).length >= 2)!
+    const [y, z] = neighborsOf(from).filter((n) => !mine.has(n))
+    const next = resolve(
+      s,
+      [order({
+        factionId: "f1",
+        deploys: [{ territory: from, count: 1 }], // garrison 2 → 3
+        attacks: [
+          { from, to: y!, count: 1 },
+          { from, to: z!, count: 1 },
+        ],
+      })],
+      { ...emptyCtx, rules: ["attrition"] },
+    )
+    const attackEvents = next.log.filter((e) => e.t === "attack")
+    expect(attackEvents).toHaveLength(1)
+    expect(attackEvents[0]).toMatchObject({ from, committed: 1, fee: 1 })
+    expect(next.log.some((e) => e.t === "rejected" && e.field === "attacks")).toBe(true)
+    expect(next.garrisons[from]).toBe(1) // 3 − (1 committed + 1 fee)
+  })
+
+  it("rule order in ctx.rules does not change output", () => {
+    const s = createSeason("s1", factions, ids)
+    const a = resolve(s, [], { ...emptyCtx, rules: ["truce", "boom"] })
+    const b = resolve(s, [], { ...emptyCtx, rules: ["boom", "truce"] })
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b))
+  })
+
+  it("refuses an unknown rule id, and a module id in ctx.rules", () => {
+    const s = createSeason("s1", factions, ids)
+    expect(() => resolve(s, [], { ...emptyCtx, rules: ["ghost"] })).toThrow(/unknown rule/)
+    expect(() => resolve(s, [], { ...emptyCtx, rules: ["markets"] })).toThrow(/unknown rule/)
+  })
+
+  it("a frozen rule replays identically — day-5 semantics come from ctx alone", () => {
+    const s = createSeason("s1", factions, ids)
+    const ctx = { ...emptyCtx, rules: ["boom"] }
+    expect(resolve(s, [], ctx)).toEqual(resolve(s, [], ctx))
+  })
+})
