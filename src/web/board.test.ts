@@ -269,3 +269,58 @@ describe("level of detail", () => {
     for (const id of Object.keys(p.shapesFine)) expect(onBoard.has(id), id).toBe(true)
   })
 })
+
+/**
+ * The veto is the one order that only becomes available by LOSING, so an
+ * eliminated player has had no earlier moment to learn it exists — and for a
+ * long time they could not use it at all: the selection was only ever set inside
+ * the mine(id) branch, so holding nothing meant selecting nothing, and the
+ * button's guard never cleared.
+ */
+describe("an eliminated viewer", () => {
+  /** f1 wiped out, f2 holding everything f1 held. */
+  const wipedOut = () => {
+    const ownership = { ...state.ownership }
+    for (const [t, f] of Object.entries(ownership)) if (f === "f1") ownership[t] = "f2"
+    return { ...state, ownership }
+  }
+
+  /**
+   * Markup only, cut before the first script.
+   *
+   * The client is INLINED into every page, and it carries the same phrases in
+   * its flash() strings — so a whole-document match reports the notice as
+   * present on every board, eliminated or not. Which it did, the first time
+   * these were written.
+   */
+  const railOf = (html: string) => html.slice(0, html.indexOf("<script"))
+
+  it("is told the veto exists, and that any territory is fair game", () => {
+    const rail = railOf(renderBoard(project({ state: wipedOut() })))
+    expect(rail).toMatch(/you are out/i)
+    expect(rail).toMatch(/any<\/em>\s*territory/i)
+    // The posting condition is NAMED, never evaluated: whether they posted today
+    // lives in Slack and is deliberately not in the projection.
+    expect(rail).toMatch(/posted a workout today/i)
+  })
+
+  it("gets no such notice while still holding ground", () => {
+    expect(railOf(renderBoard(project()))).not.toMatch(/you are out/i)
+  })
+
+  it("is told plainly when the veto module is off, rather than offered nothing", () => {
+    const rail = railOf(renderBoard(project({ state: wipedOut(), modules: ["markets", "irl"] })))
+    expect(rail).toMatch(/veto is off/i)
+    expect(rail).not.toMatch(/one Protect a day/i)
+  })
+
+  it("still has no other faction's plan in the page", () => {
+    // The notice is new markup on the eliminated path; the secrecy model has to
+    // survive it.
+    const html = renderBoard(project({ state: wipedOut() }))
+    const data = html.slice(html.indexOf("window.__RR__"))
+    for (const key of ['"orders"', '"plans"', '"reserves"']) {
+      expect(data, key).not.toContain(key)
+    }
+  })
+})

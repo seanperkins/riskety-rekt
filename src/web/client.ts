@@ -32,6 +32,19 @@ let highlight = null
 let saveState = "saved"
 
 const mine = (id) => P.ownership[id] === P.factionId
+
+// Eliminated: nothing left on the board. The interaction model INVERTS here,
+// and it has to. Every other order names a territory you own, so the selection
+// was only ever assigned inside the mine(id) branch -- which meant a player
+// holding nothing could never select anything, the Protect button's no-selection
+// guard never cleared, and the elimination veto was unreachable from this page
+// for exactly the people it exists for. The engine lets a veto name ANY
+// territory on the map (veto.ts validates existence, not ownership), so when you
+// are out, every territory becomes selectable and nothing else is.
+const eliminated = Object.values(P.ownership).indexOf(P.factionId) === -1
+// A veto is neither validated nor applied in a veto-off season -- the module
+// owns both hooks -- so offering the button there would be a lie.
+const canVeto = eliminated && P.modules.indexOf("veto") !== -1
 const owner = (id) => P.ownership[id]
 const colorOf = (f) => (P.factions.find((x) => x.id === f) || {}).color || "#888"
 const nameOf = (id) => (P.territories.find((t) => t.id === id) || {}).name || id
@@ -859,6 +872,15 @@ function commitAttack() {
 function onTap(id) {
   if (P.locked) return
 
+  // Out of the game: a tap picks a shield target, anyone's, and that is all.
+  if (eliminated) {
+    if (!canVeto) return flash("You are out, and the veto is off this season.")
+    selected = id
+    paint()
+    render()
+    return
+  }
+
   if (mine(id)) {
     if (selected !== id) {
       // An ADJACENT own territory is a reinforcement target; anywhere else of
@@ -944,7 +966,11 @@ function drawArrows() {
 }
 
 function protect() {
-  if (!selected) return flash("Pick one of your territories first.")
+  // Living factions cannot veto at all; the engine rejects it with "faction is
+  // not eliminated". The button is disabled for them, so this is the belt to
+  // that braces.
+  if (!canVeto) return flash("A shield is only for a player with nothing left.")
+  if (!selected) return flash("Tap any territory to shield it.")
   snapshot()
   plan.protect = plan.protect === selected ? null : selected
   save()
@@ -1035,7 +1061,10 @@ function render() {
   plan.moves.forEach((m, i) =>
     rows.push(row("move", i, "Move " + m.count + " from " + esc(nameOf(m.from)) + " to " + esc(nameOf(m.to)), true)))
   if (plan.protect) rows.push(row("protect", 0, "Protect " + esc(nameOf(plan.protect)), false))
-  $("plan").innerHTML = rows.length ? rows.join("") : '<p class="hint">No orders yet. Tap one of your territories.</p>'
+  const emptyPlan = eliminated
+    ? "Nothing yet. Pick a territory to Protect."
+    : "No orders yet. Tap one of your territories."
+  $("plan").innerHTML = rows.length ? rows.join("") : '<p class="hint">' + emptyPlan + "</p>"
 
   const left = P.reserve - spent()
   // The over-budget hint names WHICH orders give way: under claim seniority
@@ -1051,12 +1080,22 @@ function render() {
   else if (saveState === "saving") { s.textContent = "saving…"; s.className = "save" }
   else { s.textContent = "NOT SAVED — " + saveState.slice(6); s.className = "save bad" }
 
+  // An eliminated player can do exactly one thing, so neither the deploy nor
+  // the attack prompt applies to them.
   $("selected").textContent = selected
     ? nameOf(selected) +
-      (left > 0 ? " — tap again to add a soldier" : " — tap a neighbour to attack or reinforce")
-    : "nothing selected"
+      (eliminated
+        ? plan.protect === selected
+          ? " — protected tonight"
+          : " — press Protect to shield it"
+        : left > 0
+          ? " — tap again to add a soldier"
+          : " — tap a neighbour to attack or reinforce")
+    : eliminated
+      ? "nothing selected — tap any territory"
+      : "nothing selected"
   $("flash").textContent = flashMsg
-  $("btn-protect").disabled = !selected || P.locked
+  $("btn-protect").disabled = !canVeto || !selected || P.locked
   $("btn-undo").disabled = history.length === 0 || P.locked
 }
 

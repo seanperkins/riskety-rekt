@@ -369,6 +369,32 @@ export function renderMap(view: MapView, coords: Record<string, LatLon>): string
  * secret per faction. Showing a total that included either would be a number
  * the viewer cannot verify and, for wagers, a leak.
  */
+/**
+ * The notice an eliminated player sees, and nobody else.
+ *
+ * Without it the Protect button is simply disabled for everyone still playing
+ * and simply enabled for someone with nothing left, with no explanation of
+ * either — and the veto is the one order that only becomes available by losing,
+ * so there is no earlier moment at which anyone would have learned it exists.
+ *
+ * It states the posting condition rather than evaluating it: whether you posted
+ * today lives in Slack, and putting it in the projection would mean shipping a
+ * fact about a player to the browser for no gain. Naming the rule is enough.
+ */
+function outOfIt(p: Projection): string {
+  const held = Object.values(p.ownership).filter((f) => f === p.factionId).length
+  if (held > 0) return ""
+  if (!p.modules.includes("veto")) {
+    return `<p class="hint out">You are out — and the veto is off this season, so there is
+      nothing left to do but watch.</p>`
+  }
+  // "Protect" throughout, matching the button and the plan row. An earlier draft
+  // called it a shield, which read better and named nothing on screen.
+  return `<p class="hint out"><strong>You are out.</strong> You still get one Protect a day:
+    tap <em>any</em> territory, anyone's, and no attack can enter it tonight. It only counts
+    if you posted a workout today — showing up is the price of a say in how this ends.</p>`
+}
+
 function standings(p: Projection): string {
   const held = new Map<string, number>()
   for (const f of p.factions) held.set(f.id, 0)
@@ -466,6 +492,7 @@ export function renderBoard(p: Projection): string {
     <p class="sub">Day ${esc(p.day)} · ${esc(me?.name ?? p.factionId)}</p>
     <p id="countdown" class="count"></p>
 
+    ${outOfIt(p)}
     <h2 class="h2">Selected</h2>
     <p class="hint"><span id="selected">nothing selected</span></p>
     <div class="chips">

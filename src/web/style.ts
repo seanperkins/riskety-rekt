@@ -598,6 +598,13 @@ body {
   font-size: 15px; line-height: 1; padding: 0 2px; }
 .prow button:hover, .prow button:focus-visible { color: var(--accent); }
 
+/* The elimination notice. Accent-bordered rather than red: being knocked out
+   opens the veto, so it is news, not an error. */
+.hint.out { border-left: 2px solid var(--accent); padding: 8px 0 8px 10px;
+  margin: 4px 0 0; color: var(--ink); }
+.hint.out strong { font-weight: 650; }
+.hint.out em { font-style: normal; color: var(--accent); }
+
 .save { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
   font-weight: 650; margin-left: 6px; }
 .save.ok { color: var(--muted); }
