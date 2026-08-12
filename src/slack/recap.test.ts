@@ -221,7 +221,9 @@ describe("recap event coverage", () => {
       ruleIds: ["truce"],
     })
     const all = texts(blocks).join("\n")
-    expect(all).toContain("Rule in force: Truce — No attacks land today. Moves and deploys still run.")
+    expect(all).toContain(
+      "Rule in force: Log Off — No attacks land today. Moves and deploys still run. Go outside.",
+    )
   })
 
   it("renders an id the catalogue no longer knows as the bare id, without throwing", () => {

@@ -2,10 +2,34 @@ import { cmp } from "../sort.js"
 import { MODULE_REGISTRY } from "../modules/index.js"
 import { attritionRule } from "./attrition.js"
 import { boomRule } from "./boom.js"
+import { conscriptionRule } from "./conscription.js"
+import { diamondHandsRule } from "./diamond-hands.js"
+import { fortressRule } from "./fortress.js"
+import { gainsRule } from "./gains.js"
+import { mainCharacterRule } from "./main-character.js"
+import { regionalManagerRule } from "./regional-manager.js"
+import { soleSurvivorRule } from "./sole-survivor.js"
+import { touchGrassRule } from "./touch-grass.js"
+import { tributeRule } from "./tribute.js"
 import { truceRule } from "./truce.js"
+import { underdogRule } from "./underdog.js"
 import type { Rule } from "../mechanics.js"
 
-export { attritionRule, boomRule, truceRule }
+export {
+  attritionRule,
+  boomRule,
+  conscriptionRule,
+  diamondHandsRule,
+  fortressRule,
+  gainsRule,
+  mainCharacterRule,
+  regionalManagerRule,
+  soleSurvivorRule,
+  touchGrassRule,
+  tributeRule,
+  truceRule,
+  underdogRule,
+}
 
 /**
  * Engine-local: src/engine cannot import src/config, and this is a load-time
@@ -40,7 +64,30 @@ export function buildCatalogue(
   return out
 }
 
-export const RULE_CATALOGUE: readonly Rule[] = [attritionRule, boomRule, truceRule]
+/**
+ * The closed season-one catalogue.
+ *
+ * Rule IDS are permanent: they are frozen into `tick_context.context.rules`
+ * and logged as `grant.source`, so a rename would orphan history. Display
+ * names and descriptions are read from this registry at render time and may
+ * change freely — which is why `boom`, `attrition` and `truce` kept their ids
+ * when the catalogue got a sense of humour.
+ */
+export const RULE_CATALOGUE: readonly Rule[] = [
+  attritionRule,
+  boomRule,
+  conscriptionRule,
+  diamondHandsRule,
+  fortressRule,
+  gainsRule,
+  mainCharacterRule,
+  regionalManagerRule,
+  soleSurvivorRule,
+  touchGrassRule,
+  tributeRule,
+  truceRule,
+  underdogRule,
+]
 
 export const RULE_REGISTRY: Map<string, Rule> = buildCatalogue(
   RULE_CATALOGUE,

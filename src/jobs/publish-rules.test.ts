@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 import { handleReactionEvent } from "../slack/handlers.js"
 import { dailyRuleSelection } from "../slack/rule-vote.js"
 import { openStore } from "../store/sqlite.js"
-import { runPublishRules } from "./publish-rules.js"
+import { RULES_PER_OFFER, runPublishRules } from "./publish-rules.js"
+import { RULE_CATALOGUE } from "../engine/rules/index.js"
 import type { SlackMessage } from "../slack/post.js"
 
 // startDate 2026-08-06; noon UTC on the 9th is ET morning of day 3.
@@ -27,8 +28,43 @@ describe("runPublishRules", () => {
     expect(out).toMatchObject({ status: "posted", day: 3 })
     expect(poster.post).toHaveBeenCalledOnce()
     const offers = store.ruleOffersFor("s1", 3)
-    expect(offers).toHaveLength(3) // all three season-one rules are eligible
+    expect(offers).toHaveLength(RULES_PER_OFFER)
+    expect(offers.map((o) => o.ordinal)).toEqual([1, 2, 3])
     expect(offers.every((o) => o.messageTs === "1756758000.000100")).toBe(true)
+    store.close()
+  })
+
+  it("draws a SUBSET of the catalogue — the ballot is smaller than the catalogue", async () => {
+    const store = setup()
+    await runPublishRules({ store, seasonId: "s1", now: NOW, poster: okPoster() })
+    const drawn = store.ruleOffersFor("s1", 3).map((o) => o.ruleId)
+    expect(drawn).toHaveLength(RULES_PER_OFFER)
+    expect(RULE_CATALOGUE.length).toBeGreaterThan(RULES_PER_OFFER)
+    // Every drawn id is a real catalogue entry, and the draw has no repeats.
+    const ids = new Set(RULE_CATALOGUE.map((r) => r.id))
+    for (const id of drawn) expect(ids.has(id)).toBe(true)
+    expect(new Set(drawn).size).toBe(drawn.length)
+    store.close()
+  })
+
+  it("draws different sets on different days", async () => {
+    // Guards against a seed derivation that ignores the day. Checked across
+    // several days so the assertion is not one unlucky collision away from
+    // flaking.
+    const store = setup()
+    const days = [
+      new Date("2026-08-07T12:00:00Z"),
+      new Date("2026-08-09T12:00:00Z"),
+      new Date("2026-08-11T12:00:00Z"),
+      new Date("2026-08-13T12:00:00Z"),
+    ]
+    const draws: string[] = []
+    for (const now of days) {
+      await runPublishRules({ store, seasonId: "s1", now, poster: okPoster() })
+      const day = Math.round((now.getTime() - Date.parse("2026-08-06T04:00:00Z")) / 86_400_000)
+      draws.push(store.ruleOffersFor("s1", day).map((o) => o.ruleId).join(","))
+    }
+    expect(new Set(draws).size).toBeGreaterThan(1)
     store.close()
   })
 

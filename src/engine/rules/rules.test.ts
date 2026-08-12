@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest"
 import { RISK_MAP, createSeason } from "../index.js"
 import { territoryIncome } from "../income.js"
-import { RULE_CATALOGUE, RULE_REGISTRY, buildCatalogue, eligibleRules } from "./index.js"
+import {
+  RULE_CATALOGUE,
+  RULE_DESCRIPTION_MAX_CHARS,
+  RULE_REGISTRY,
+  buildCatalogue,
+  eligibleRules,
+} from "./index.js"
 import { attritionRule } from "./attrition.js"
 import { boomRule } from "./boom.js"
 import { truceRule } from "./truce.js"
@@ -96,14 +102,42 @@ describe("the catalogue", () => {
     expect(() => buildCatalogue([long], new Set())).toThrow(/description/)
   })
 
-  it("eligibleRules filters by needs against the enabled modules", () => {
-    // Season-one rules have no needs, so the filter needs a synthetic rule to
-    // be falsifiable — same reasoning as the synthetic tie-break mechanic.
-    const needy: Rule = { id: "zz-needy", name: "N", description: "d", needs: ["markets"] }
-    const cat = buildCatalogue([...RULE_CATALOGUE, needy], new Set(["markets", "irl", "veto"]))
-    expect(cat.has("zz-needy")).toBe(true)
-    expect(eligibleRules(["irl"], cat).map((r) => r.id)).not.toContain("zz-needy")
-    expect(eligibleRules(["markets"], cat).map((r) => r.id)).toContain("zz-needy")
-    expect(eligibleRules([], cat).map((r) => r.id)).toEqual(["attrition", "boom", "truce"])
+  it("eligibleRules filters by needs — with real consumers, not a synthetic rule", () => {
+    const all = eligibleRules(["markets", "irl", "veto"]).map((r) => r.id)
+    expect(all).toContain("gains")
+    expect(all).toContain("diamond-hands")
+
+    // markets off: the wager rule is never OFFERED, rather than offered and inert.
+    const noMarkets = eligibleRules(["irl", "veto"]).map((r) => r.id)
+    expect(noMarkets).not.toContain("diamond-hands")
+    expect(noMarkets).toContain("gains")
+
+    // irl off: likewise for the workout rule.
+    const noIrl = eligibleRules(["markets"]).map((r) => r.id)
+    expect(noIrl).not.toContain("gains")
+    expect(noIrl).toContain("diamond-hands")
+
+    // Plain Risk offers only the rules that need nothing.
+    const none = eligibleRules([]).map((r) => r.id)
+    expect(none).not.toContain("gains")
+    expect(none).not.toContain("diamond-hands")
+    expect(none.length).toBe(RULE_CATALOGUE.length - 2)
+  })
+
+  it("every entry's display copy fits the ballot", () => {
+    // A future witty entry must not silently overflow the offer message or
+    // the recap line. buildCatalogue enforces the description bound at import;
+    // this pins the name too, against RECAP_NAME_MAX_CHARS.
+    for (const r of RULE_CATALOGUE) {
+      expect(r.description.length).toBeLessThanOrEqual(RULE_DESCRIPTION_MAX_CHARS)
+      expect(r.name.length).toBeLessThanOrEqual(40)
+    }
+  })
+
+  it("keeps the shipped ids frozen — they live in tick_context history", () => {
+    // Display copy may change freely; ids may not. A rename here orphans every
+    // frozen context that named the old id.
+    const ids = RULE_CATALOGUE.map((r) => r.id)
+    for (const frozen of ["boom", "attrition", "truce"]) expect(ids).toContain(frozen)
   })
 })

@@ -8,9 +8,12 @@ import type { Rule } from "../mechanics.js"
  * rule itself.
  */
 export const truceRule: Rule = {
+  // The id is frozen in tick_context history; only the display copy changed.
+  // "Moves and deploys still run" is load-bearing copy, not filler: locks gate
+  // attacks only, and the recap must never promise that nothing moved.
   id: "truce",
-  name: "Truce",
-  description: "No attacks land today. Moves and deploys still run.",
+  name: "Log Off",
+  description: "No attacks land today. Moves and deploys still run. Go outside.",
   lock(state) {
     return state.map.territories.map((t) => ({ territory: t.id }))
   },

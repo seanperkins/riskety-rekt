@@ -323,6 +323,44 @@ describe("rule dispatch", () => {
     expect(next.log).toContainEqual({ t: "protected", territory: target, byCount: 1 })
   })
 
+  it("sole-survivor reads POST-allocation garrisons: a deploy forfeits sanctuary", () => {
+    // The rule's central decision, and only the full pipeline can prove it —
+    // lock runs at step 4, after deploys land at step 3. Two identical
+    // one-troop targets; f1 reinforces exactly one of them.
+    const s = createSeason("s1", factions, ids)
+    const mine = new Set(territoriesOf(s, "f2"))
+    const neighborsOf = (id: string) => RISK_MAP.territories.find((t) => t.id === id)!.neighbors
+    const from = [...mine].find((t) => neighborsOf(t).filter((n) => !mine.has(n)).length >= 2)!
+    const [a, b] = neighborsOf(from).filter((n) => !mine.has(n))
+    // Both targets sit at one troop; f1 owns them and deploys into `a` only.
+    s.garrisons[a!] = 1
+    s.garrisons[b!] = 1
+    s.ownership[a!] = "f1"
+    s.ownership[b!] = "f1"
+    s.garrisons[from] = 9
+
+    const next = resolve(
+      s,
+      [
+        order({ factionId: "f1", deploys: [{ territory: a!, count: 1 }] }),
+        order({
+          factionId: "f2",
+          attacks: [
+            { from, to: a!, count: 2 },
+            { from, to: b!, count: 2 },
+          ],
+        }),
+      ],
+      { ...emptyCtx, rules: ["sole-survivor"] },
+    )
+
+    const voided = next.log.filter(
+      (e) => e.t === "rejected" && e.reason === "protected",
+    ) as { ref?: string }[]
+    // `b` stayed at one troop and is protected; `a` was reinforced and is not.
+    expect(voided.map((e) => e.ref)).toEqual([`attack:${from}|${b!}`])
+  })
+
   it("logs one protected event per territory when two mechanics both supply one", () => {
     // What the guard is actually for. The veto is the only shipped mechanic
     // that supplies lock events, and it returns each territory once, so this

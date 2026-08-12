@@ -8,9 +8,10 @@ import type { Rule } from "../mechanics.js"
  * are skipped, mirroring core income's own `amount === 0` skip.
  */
 export const boomRule: Rule = {
+  // The id is frozen in tick_context history; only the display copy changed.
   id: "boom",
-  name: "Boom",
-  description: "Territory income is doubled today.",
+  name: "Quantitative Easing",
+  description: "Territory income is doubled today. Thank the central bank.",
   grant(state) {
     return state.factions
       .map((f) => f.id)
