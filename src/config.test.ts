@@ -10,7 +10,9 @@ import {
   SLATE_MAX,
   SLATE_MIN,
   VOLUME_FLOOR,
+  WINDOW_CLOSE_HOUR,
 } from "./config.js"
+import { TICK_HOUR } from "./slack/config.js"
 import { PALETTE } from "./jobs/season-init.js"
 
 describe("config", () => {
@@ -43,5 +45,15 @@ describe("config", () => {
     // The observed median same-day volume is 0.00; a zero floor admits the
     // ~75% of markets that never trade.
     expect(VOLUME_FLOOR).toBeGreaterThan(0)
+  })
+
+  it("pins the slate close window to the tick hour", () => {
+    // Two constants in two modules, and their equality is load-bearing for
+    // claim seniority: the publisher rejects markets closing at or after
+    // WINDOW_CLOSE_HOUR, which is what guarantees every wager claim's
+    // lockedAt is strictly earlier than a deploy's tickInstant. Raising
+    // WINDOW_CLOSE_HOUR past TICK_HOUR would silently reopen the
+    // deploy-inflation exploit for late-closing markets.
+    expect(WINDOW_CLOSE_HOUR).toBe(TICK_HOUR)
   })
 })
