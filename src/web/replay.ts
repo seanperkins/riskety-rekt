@@ -113,14 +113,27 @@ function travel(from, to, color, ms) {
   const dot = L.circleMarker([a.lat, a.lon], {
     radius: 5, color: "#0b1a24", weight: 1, fillColor: color, fillOpacity: 1, interactive: false,
   }).addTo(map)
+  // Cleanup is on a TIMER, not on the animation finishing. requestAnimationFrame
+  // is throttled to a standstill in a background tab, so a player who switches
+  // away mid-flight used to come back to a map littered with every dashed line
+  // and dot the replay had ever drawn -- they were removed only by the frame
+  // that never ran. The frames are decoration; the removal is not.
+  let gone = false
+  const clear = () => {
+    if (gone) return
+    gone = true
+    map.removeLayer(dot)
+    map.removeLayer(line)
+  }
+  setTimeout(clear, ms + 260)
   const t0 = Date.now()
-  function step() {
+  function frame() {
+    if (gone) return
     const k = Math.min(1, (Date.now() - t0) / ms)
     dot.setLatLng([a.lat + (b.lat - a.lat) * k, a.lon + (b.lon - a.lon) * k])
-    if (k < 1) requestAnimationFrame(step)
-    else setTimeout(() => { map.removeLayer(dot); map.removeLayer(line) }, 260)
+    if (k < 1) requestAnimationFrame(frame)
   }
-  requestAnimationFrame(step)
+  requestAnimationFrame(frame)
 }
 
 // ---- beats -----------------------------------------------------------------

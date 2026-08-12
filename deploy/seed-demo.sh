@@ -51,10 +51,15 @@ say "roster"
 sudo -u riskety --preserve-env=TZ,RR_DB_PATH,RR_SEASON_ID \
   npm --prefix "$APP" run --silent roster:list -- 2>&1 | tail -12
 
-# Day 0 is dealt for TODAY, so the board is current rather than dated. No timer
-# points at this database, so the demo never ticks and never drifts -- it is a
-# still photograph of a freshly dealt board.
-START=$(date +%F)
+# Day 0 is dealt two days BACK by default, which leaves day 1 resolvable: a
+# demo whose board has never ticked cannot show the replay, and the replay is
+# most of what there is to show. Pass a date to override, or `today` for the
+# original still photograph.
+#
+# No timer points at this database either way, so the demo never drifts on its
+# own -- days are resolved deliberately, by seed-demo-night.sh.
+START=${1:-$(date -d '2 days ago' +%F 2>/dev/null || date -v-2d +%F)}
+if [ "$START" = "today" ]; then START=$(date +%F); fi
 say "dealing day 0 for $START"
 sudo -u riskety --preserve-env=TZ,RR_DB_PATH,RR_SEASON_ID \
   npm --prefix "$APP" run --silent season:init -- "$START" --seed 4711 2>&1 | tail -8
