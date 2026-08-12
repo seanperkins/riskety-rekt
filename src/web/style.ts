@@ -283,6 +283,11 @@ body {
 
 .chip:disabled { opacity: 0.45; cursor: default; }
 .chip:disabled:hover { border-color: var(--rule); color: var(--muted); }
+/* The UA sheet's [hidden] { display: none } is beaten by .chip's own display,
+   so a chip carrying the attribute stayed on screen -- which is how a Protect
+   button nobody could press went on being shown to living factions after it was
+   marked hidden. Any rule that sets display on a class must restate this. */
+.chip[hidden] { display: none; }
 
 /* Attack arrows. The head is a CSS triangle rotated to the bearing, so it needs
    no asset and scales with the text size rather than the map. */

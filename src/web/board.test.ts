@@ -323,6 +323,16 @@ describe("an eliminated viewer", () => {
     expect(rail).toMatch(/id="btn-protect"[^>]*\shidden/)
   })
 
+  it("and the stylesheet actually honours hidden on a chip", () => {
+    // Marking it hidden did nothing on its own: .chip sets display, and an
+    // author rule beats the UA sheet's [hidden] { display: none }. The attribute
+    // was present and the button stayed on screen.
+    const css = STYLE.replace(/\/\*[\s\S]*?\*\//g, "")
+    expect(css).toMatch(/\.chip\[hidden\]\s*\{[^}]*display:\s*none/)
+    // And it must come after the rule it is correcting.
+    expect(css.search(/\.chip\[hidden\]/)).toBeGreaterThan(css.search(/\.chip\s*\{/))
+  })
+
   it("is told plainly when the veto module is off, rather than offered nothing", () => {
     const rail = railOf(renderBoard(project({ state: wipedOut(), modules: ["markets", "irl"] })))
     expect(rail).toMatch(/veto is off/i)
