@@ -332,6 +332,11 @@ body {
 
 .atk-verdict { margin: 2px 0 0; text-align: center; }
 .atk-verdict.takes { color: var(--accent); }
+/* The conditional consequence, one step quieter than the verdict: it is always
+   a "if they also did X", never a prediction, because whether they did is the
+   one thing the projection may not contain. */
+.atk-caveat { margin: 4px 0 0; text-align: center; font-size: 11px; opacity: .75; }
+.atk-caveat:empty { display: none; }
 .atk-pick output {
   min-width: 26px;
   text-align: right;
@@ -585,4 +590,22 @@ button.chip { cursor: pointer; background: none; font: inherit; font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 button.chip:disabled { opacity: .4; cursor: default; }
 button.chip:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+
+/* A page of prose, not a rail. The rail's .note is 12px muted -- correct for a
+   footnote beside a map, unreadable for a screen of text -- so /rules gets a
+   document measure and body-sized type instead of reusing it. */
+.doc { max-width: 64ch; margin: 0 auto; padding: 32px 24px 64px; }
+.doc h1 { font-size: 22px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+.doc .lede { color: var(--muted); margin: 6px 0 0; }
+.doc h2 { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em;
+  font-weight: 650; color: var(--muted); margin: 34px 0 10px;
+  padding-top: 14px; border-top: 1px solid var(--rule); }
+.doc p { margin: 0 0 12px; }
+.doc ul { margin: 0 0 12px; padding-left: 20px; }
+.doc li { margin: 0 0 7px; }
+.doc code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px; color: var(--accent); }
+.doc strong { font-weight: 650; }
+.doc a { color: var(--accent); }
+.doc .back { display: inline-block; margin-top: 28px; font-size: 13px; }
 `

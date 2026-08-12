@@ -95,6 +95,114 @@ export interface MapView {
   board?: { factions: number; seed: number }
 }
 
+/**
+ * How the game works. Static prose — no projection, no season, no state, so it
+ * needs no session and cannot leak anything.
+ *
+ * It exists because the rules players get WRONG are the ones no single tap can
+ * explain. The attack panel already says "takes it with 4"; nothing could say
+ * "and if they attacked you back, the smaller force dies outright" at the
+ * moment you need it, because whether they did is the one thing the projection
+ * is forbidden to contain.
+ *
+ * Every number here is the engine's, not the spec's: the income formula is
+ * `territoryIncome`, the 2-action cap and both bonuses are `irlGrants`, the
+ * mutual-attack rule and the post-departure garrison are `resolveCombat`, the
+ * price clamp is `payout`. When one of those changes this page is wrong, and
+ * `render.test.ts` pins the load-bearing phrases so a silent drift shows up.
+ */
+export function renderRules(): string {
+  return page(
+    "Riskety Rekt — how it works",
+    `<div class="doc">
+  <h1>How this works</h1>
+  <p class="lede">One tick a day. Everything below resolves at the same instant,
+    for everybody, with nobody moving first.</p>
+
+  <h2>The tick</h2>
+  <p>Orders resolve at <strong>21:00 Eastern</strong>, once a day. Until then nothing
+    you save has happened yet — deploys, moves and attacks are a plan, and you can
+    change them as often as you like.</p>
+  <p>At 21:00 every player's orders resolve <strong>simultaneously</strong>. There is no
+    turn order and no advantage to submitting early or late. You cannot see anyone
+    else's plan, and they cannot see yours.</p>
+  <p>Soldiers you earn tonight are spendable tonight — income arrives before your
+    orders are checked, so a deploy funded by today's income is legal.</p>
+
+  <h2>Where soldiers come from</h2>
+  <ul>
+    <li><strong>Territory income.</strong> <code>max(5, territories / 2)</code> rounded
+      down, plus a bonus for every whole region you hold. Anything up to eleven
+      territories pays the same 5, so early on <strong>completing a region is worth far
+      more than collecting scattered ground</strong> — the count itself does not start
+      to matter until twelve.</li>
+    <li><strong>Workouts.</strong> Post a photo in Slack. When <strong>two other
+      players</strong> react 👍 it counts, and you get +1. Up to two photos a day.
+      Only 👍 counts, and your own reaction never does.</li>
+    <li><strong>Timing bonuses.</strong> The first person to post that day gets +1.
+      The last person to be approved before 21:00 gets +1. One bonus each, so if
+      you hold both ends the second goes to the next player.</li>
+    <li><strong>Settled wagers.</strong> See below.</li>
+  </ul>
+  <p>A faction with no territories earns no income.</p>
+
+  <h2>Moving</h2>
+  <p>You can move soldiers to an adjacent territory you already own. They
+    <strong>arrive before any fighting</strong>, defend the destination that same
+    night, and can die doing it. Reinforcement, not logistics.</p>
+  <p>Moves and attacks share one budget per territory, and a territory can never be
+    emptied — at least one soldier always stays home. If you order more out of one
+    place than it can spare, the <strong>move survives and the attack is dropped</strong>:
+    losing ground you already hold is worse than failing to take more.</p>
+
+  <h2>Fighting</h2>
+  <ul>
+    <li>You may attack any adjacent territory you do not own, with up to
+      <strong>all but one</strong> of the attacking territory's soldiers.</li>
+    <li>A territory defends with the soldiers <strong>still in it</strong>. Anything you
+      ordered out has already left, so attacking out of a border territory weakens
+      its defence the same night.</li>
+    <li>Losses total exactly the defending garrison, shared out across everyone
+      attacking that territory. Beat the defence and you take it with whatever
+      survives; fall short and you have only thinned the garrison.</li>
+    <li><strong>If two players attack each other across the same border, the smaller
+      force dies outright</strong> and the larger continues with
+      <code>size − 2 × smaller</code>. A small attack into a big one is not a cheap
+      spoiler — it is a total loss, and it still costs the attacker double.</li>
+    <li>Attacks from several of your own territories onto one target fight as a single
+      force. Survivors of a failed attack withdraw to where they came from.</li>
+  </ul>
+
+  <h2>Wagers</h2>
+  <ul>
+    <li><strong>One wager per market</strong>, per player. Backing both sides of the
+      same market would be a guaranteed profit, so it is not allowed.</li>
+    <li>A wager is priced <strong>when you place it</strong>, not at the tick. Changing
+      your stake re-prices it at the current odds.</li>
+    <li>Each market <strong>locks at its own close time</strong>, not at 21:00 — often
+      hours earlier, and sooner still if it settles early.</li>
+    <li>Your stake leaves your reserve at the tick. Winning pays it back with a
+      premium; losing returns nothing.</li>
+  </ul>
+
+  <h2>The daily rule</h2>
+  <p>Every morning the bot offers three rules from the catalogue in Slack. React with
+    the numeral next to the one you want. You can change your mind — your latest
+    reaction is the one that counts — and the most-voted rule is applied at 21:00
+    for that night only. If nobody votes, nothing changes.</p>
+
+  <h2>Being knocked out</h2>
+  <p>A player with no territories left can shield one territory a day from attack —
+    anyone's — but only if they posted a workout that day. Showing up is the price
+    of a say in how it ends.</p>
+
+  <p class="note">If the game does something you did not expect, it is probably on this
+    page — and if it is not, it is a bug worth reporting.</p>
+  <a class="back" href="/">← Back to the board</a>
+</div>`,
+  )
+}
+
 export function renderMap(view: MapView, coords: Record<string, LatLon>): string {
   const world = view.base
   const focusId = view.focusId
@@ -345,6 +453,7 @@ export function renderBoard(p: Projection): string {
         <span class="hint">soldiers</span>
       </div>
       <p id="atk-verdict" class="hint atk-verdict"></p>
+      <p id="atk-caveat" class="hint atk-caveat"></p>
       <div class="atk-actions">
         <button id="atk-select" class="chip" hidden>Select instead</button>
         <button id="atk-cancel" class="chip">Cancel</button>
@@ -375,9 +484,11 @@ export function renderBoard(p: Projection): string {
 
     ${standings(p)}
 
-    <p class="note">Tap one of your territories to select it, then tap a
-      neighbour to attack. Orders save as you make them and lock at 21:00.
-      ${p.modules.includes("markets") ? `<a href="/wagers">Wagers</a> · ` : ""}<a href="/day/${esc(p.day)}">Last night</a></p>
+    <p class="note">Tap one of your territories to select it, then tap a neighbour —
+      an enemy to attack it, one of yours to reinforce it. Orders save as you make
+      them and lock at 21:00, when <strong>everyone resolves at once</strong>; nobody
+      moves first.
+      ${p.modules.includes("markets") ? `<a href="/wagers">Wagers</a> · ` : ""}<a href="/day/${esc(p.day)}">Last night</a> · <a href="/rules">How this works</a></p>
   </aside>
 </div>
 <script>window.__RR__ = ${JSON.stringify(p).replace(/</g, "\\u003c")}</script>
@@ -424,8 +535,9 @@ export function renderWagers(p: Projection, now: Date): string {
         rows === "" ? `<tr><td class="hint">No slate published yet.</td></tr>` : rows
       }</tbody></table>
       <p class="note">A market locks at its close time, or as soon as its
-        outcome is public — whichever comes first.
-        <a href="/">Board</a></p>
+        outcome is public — whichever comes first. That is usually well before
+        21:00, so a wager is not something you can leave until the evening.
+        <a href="/">Board</a> · <a href="/rules">How this works</a></p>
     </aside></div>`,
   )
 }
@@ -522,7 +634,8 @@ export function renderDay(args: {
         reinforcements === "" ? `<tr><td class="hint">Nobody earned.</td></tr>` : reinforcements
       }</tbody></table>
       <p class="note">Income, workouts and settled wagers are all the same
-        thing: soldiers in the bank. <a href="/">Board</a></p>
+        thing: soldiers in the bank. <a href="/">Board</a> ·
+        <a href="/rules">How this works</a></p>
     </aside></div>`,
   )
 }

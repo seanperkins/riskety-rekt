@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { currentDay, tickInstant } from "../season.js"
 import { projectionFor } from "./projection-data.js"
-import { esc, page, renderBoard, renderDay, renderMap, renderWagers } from "./render.js"
+import { esc, page, renderBoard, renderDay, renderMap, renderRules, renderWagers } from "./render.js"
 import { sessionFactionFor } from "./session.js"
 import { parseOrderBody } from "../jobs/order-entry.js"
 
@@ -63,6 +63,10 @@ function vendor(path: string): { body: string; type: string } | undefined {
  */
 const ROUTES: Record<string, (params: URLSearchParams) => string | undefined> = {
   "/map": (p) => mapPage(p),
+  // Session-free like /map, and for the same reason: it holds no state. It is
+  // deliberately NOT linked from the signed-out page, which keeps its property
+  // of telling a stranger nothing about the game.
+  "/rules": () => renderRules(),
 }
 
 /**

@@ -808,10 +808,13 @@ function openAttack(from, to) {
 function paintVerdict() {
   const v = $("atk-verdict")
   if (!v || !atkPending) return
+  const c = $("atk-caveat")
   const n = Math.floor(Number($("atk-slider").value))
   if (atkPending.kind === "move") {
     v.textContent = n <= 0 ? "No move." : "Reinforces " + nameOf(atkPending.to) + " before any fighting tonight."
     v.classList.toggle("takes", n > 0)
+    // Troops ordered out have already gone, so the origin defends without them.
+    if (c) c.textContent = n <= 0 ? "" : nameOf(atkPending.from) + " defends tonight without them."
     return
   }
   const need = atkPending.need
@@ -820,6 +823,14 @@ function paintVerdict() {
   else if (n >= need) v.textContent = "Takes it with " + (n - d) + " if nothing changes tonight."
   else v.textContent = "Falls short — weakens the garrison to " + (d - n) + "."
   v.classList.toggle("takes", n >= need)
+  // ALWAYS conditional. Whether they ordered an attack back is deliberately not
+  // in the projection, so this states the rule and never guesses the outcome.
+  if (c) {
+    c.textContent =
+      n <= 0
+        ? ""
+        : "If they attack " + nameOf(atkPending.from) + " too, the smaller force dies outright."
+  }
 }
 
 function closeAttack() {

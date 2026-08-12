@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { GameMap } from "../engine/index.js"
 import { COORDS } from "../map/coords.js"
 import { WORLD } from "../map/world.js"
-import { esc, page, renderMap } from "./render.js"
+import { esc, page, renderMap, renderRules } from "./render.js"
 
 describe("esc", () => {
   it("escapes every HTML-significant character", () => {
@@ -77,5 +77,43 @@ describe("renderMap", () => {
       territories: [{ id: "a", name: "A", region: "x", neighbors: [] }],
     }
     expect(() => renderMap({ base: orphan }, {})).not.toThrow()
+  })
+})
+
+describe("renderRules", () => {
+  const html = renderRules()
+
+  it("carries no game state at all, which is why it needs no session", () => {
+    // Static prose. If a projection, season or faction ever leaks in here the
+    // route has to move behind sessionFactionFor — this is the tripwire.
+    expect(html).not.toContain("__RR__")
+    for (const leak of ["ownership", "garrisons", "seasonId", "factionId"]) {
+      expect(html, leak).not.toContain(leak)
+    }
+  })
+
+  it("states the rules a player cannot learn from any single tap", () => {
+    // The four this page exists for. Reword them freely; do not drop them.
+    // \s+ throughout: the copy is indented HTML, so a phrase can wrap across a
+    // newline mid-sentence and a literal-space regex fails on formatting alone.
+    expect(html).toMatch(/simultaneous/i) // there is no turn order
+    expect(html).toMatch(/smaller\s+force\s+dies/i) // mutual attacks
+    expect(html).toMatch(/still\s+in\s+it/i) // post-departure garrison defends
+    expect(html).toMatch(/two\s+other/i) // approval needs two OTHER players
+  })
+
+  it("quotes the engine's numbers, so drift shows up here", () => {
+    expect(html).toContain("max(5, territories / 2)") // territoryIncome
+    // The floor bites until t = 12: max(5, floor(11/2)) === 5. The first draft
+    // of this page said five and twelve "both pay 6", which is wrong for five.
+    expect(html).toMatch(/eleven\s+territories\s+pays\s+the\s+same\s+5/i)
+    expect(html).toMatch(/two photos a day/i) // irlGrants caps actions at 2
+    expect(html).toContain("size − 2 × smaller") // resolveCombat
+    expect(html).toMatch(/one wager per market/i) // validateOrder
+    expect(html).toMatch(/locks at its own close time/i) // not at the tick
+  })
+
+  it("links back to the board", () => {
+    expect(html).toContain('href="/"')
   })
 })

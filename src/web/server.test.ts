@@ -78,6 +78,14 @@ describe("the web server", () => {
     }
   })
 
+  it("serves /rules without a session, like /map", async () => {
+    const res = await request("/rules")
+    expect(res.status).toBe(200)
+    expect(res.headers["content-type"]).toBe("text/html; charset=utf-8")
+    expect(res.body).toMatch(/simultaneous/i)
+    expect(res.body).not.toContain("__RR__")
+  })
+
   it("ignores a query parameter it does not know", async () => {
     // The URL is parsed for its pathname, so an unrelated param -- a cache
     // buster, a tracking tag -- must not miss the route.
