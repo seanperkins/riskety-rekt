@@ -548,6 +548,11 @@ export function openStore(
       return this.transaction((): SaveResult => {
         const gate = orderGate(seasonId, day, now)
         if (!gate.ok) return gate
+        // A markets-off season takes no stakes — an explicit rejection, not a
+        // silent acceptance the engine would ignore.
+        if (!(seasonRow(seasonId).modules ?? ["markets"]).includes("markets")) {
+          return { ok: false, reason: "markets-off" }
+        }
         if (!Number.isSafeInteger(wager.stake) || wager.stake <= 0) {
           return { ok: false, reason: "bad-stake" }
         }

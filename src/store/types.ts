@@ -186,6 +186,7 @@ export type SaveRejection =
   | "market-locked"
   | "not-on-slate"
   | "bad-stake"
+  | "markets-off"
 
 export type SaveResult = { ok: true } | { ok: false; reason: SaveRejection }
 

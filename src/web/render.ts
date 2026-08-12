@@ -23,6 +23,11 @@ import type { Projection } from "./projection-data.js"
  * habit of escaping only "the untrusted ones" is how the one that got
  * reclassified slips through.
  */
+/** Exhaustiveness guard: a new TickEvent variant fails the build, not the reader. */
+function assertNever(x: never): never {
+  throw new Error(`unhandled event ${JSON.stringify(x)}`)
+}
+
 export function esc(value: unknown): string {
   return String(value).replace(
     /[&<>"']/g,
@@ -306,8 +311,15 @@ function standings(p: Projection): string {
       <table class="t standings"><thead>
         <tr><th>faction</th><th class="n">terr</th><th class="n">income</th></tr>
       </thead><tbody>${rows}</tbody></table>
-      <p class="note">From the board only — territories and whole regions.
-        Approved workouts and settled wagers arrive at the tick.</p>
+      <p class="note">From the board only — territories and whole regions.${
+        p.modules.includes("irl") && p.modules.includes("markets")
+          ? " Approved workouts and settled wagers arrive at the tick."
+          : p.modules.includes("irl")
+            ? " Approved workouts arrive at the tick."
+            : p.modules.includes("markets")
+              ? " Settled wagers arrive at the tick."
+              : ""
+      }</p>
     </details>`
 }
 
@@ -365,7 +377,7 @@ export function renderBoard(p: Projection): string {
 
     <p class="note">Tap one of your territories to select it, then tap a
       neighbour to attack. Orders save as you make them and lock at 21:00.
-      <a href="/wagers">Wagers</a> · <a href="/day/${esc(p.day)}">Last night</a></p>
+      ${p.modules.includes("markets") ? `<a href="/wagers">Wagers</a> · ` : ""}<a href="/day/${esc(p.day)}">Last night</a></p>
   </aside>
 </div>
 <script>window.__RR__ = ${JSON.stringify(p).replace(/</g, "\\u003c")}</script>
@@ -383,8 +395,10 @@ export function renderBoard(p: Projection): string {
  * refuse.
  */
 export function renderWagers(p: Projection, now: Date): string {
-  const staked = new Map(p.wagers.map((w) => [w.marketId, w]))
-  const rows = p.slate
+  // Reachable only for a markets-on season — the route 404s otherwise — so
+  // the absent-field case is a server bug, not a render case.
+  const staked = new Map((p.wagers ?? []).map((w) => [w.marketId, w]))
+  const rows = (p.slate ?? [])
     .map((m) => {
       const mine = staked.get(m.id)
       const closed = new Date(m.closeTime).getTime() <= now.getTime()
@@ -449,8 +463,19 @@ export function renderDay(args: {
       case "irl":
         push(e.faction, `+${e.actions + e.bonus} workout`)
         break
+      case "grant":
+        if (e.amount > 0) push(e.faction, `+${e.amount} (${esc(e.source)})`)
+        break
       case "wagerSettle":
         if (e.payout > 0) push("—", `+${e.payout} from a market`)
+        break
+      case "move":
+        // Genuinely missing until this change — move events silently vanished
+        // from the replay, which is the proof the assertNever below earns its
+        // place.
+        steps.push(
+          `${esc(fname(e.faction))} reinforces ${esc(tname(e.to))} from ${esc(tname(e.from))} with ${e.count}`,
+        )
         break
       case "deploy":
         steps.push(`${esc(fname(e.faction))} deploys ${e.count} to ${esc(tname(e.territory))}`)
@@ -473,6 +498,9 @@ export function renderDay(args: {
       case "rejected":
         steps.push(`<span class="save bad">rejected</span> ${esc(fname(e.faction))}: ${esc(e.reason)}`)
         break
+      default:
+        // A new TickEvent variant fails the BUILD here, not the reader.
+        assertNever(e)
     }
   }
 

@@ -96,6 +96,7 @@ function boardPage(deps: WebDeps, faction: string, now: Date): string | undefine
       plan: orderRow ?? { deploys: [], attacks: [], protect: null },
       wagers: deps.store.wagersFor(deps.seasonId, day, faction),
       slate: deps.store.loadSlate(deps.seasonId, day),
+      modules: season.modules ?? ["markets", "irl", "veto"],
       tickAt: tickInstant(season, day),
       now,
     }),
@@ -286,6 +287,13 @@ export function createWebServer(deps: WebDeps): Server {
     }
 
     if (path === "/wagers") {
+      // Absent, not hidden: a markets-off season has no wagers page at all.
+      const gateSeason = deps.store.season(deps.seasonId)
+      if (gateSeason !== undefined && !(gateSeason.modules ?? ["markets"]).includes("markets")) {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
+        res.end("not found\n")
+        return
+      }
       if (faction === undefined) {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
         res.end(req.method === "HEAD" ? undefined : signInPage())
@@ -311,6 +319,7 @@ export function createWebServer(deps: WebDeps): Server {
           },
           wagers: deps.store.wagersFor(deps.seasonId, day, faction),
           slate: deps.store.loadSlate(deps.seasonId, day),
+          modules: season.modules ?? ["markets", "irl", "veto"],
           tickAt: tickInstant(season, day),
           now,
         }),
@@ -430,6 +439,12 @@ function savePlan(
       })
     } catch (err) {
       return json(400, { ok: false, reason: err instanceof Error ? err.message : "bad plan" })
+    }
+    // An order field whose module is off is REJECTED with a reason — silent
+    // acceptance of a field the engine will ignore is a lost order.
+    const modules = season.modules ?? ["markets", "irl", "veto"]
+    if (body.protect !== null && !modules.includes("veto")) {
+      return json(422, { ok: false, reason: "the veto module is off this season" })
     }
     const out = deps.store.saveOrder(deps.seasonId, day, faction, body, now)
     return json(out.ok ? 200 : 409, out.ok ? { ok: true } : { ok: false, reason: out.reason })

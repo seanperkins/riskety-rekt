@@ -40,6 +40,7 @@ function projection(): unknown {
     plan: { deploys: [], attacks: [], protect: null },
     wagers: [],
     slate: [],
+    modules: ["markets", "irl", "veto"],
     tickAt: new Date("2026-09-02T01:00:00Z"),
     now: new Date("2026-09-01T12:00:00Z"),
   })

@@ -26,6 +26,7 @@ const project = (over = {}) =>
     plan: { deploys: [{ territory: "alaska", count: 3 }], attacks: [], protect: "peru" },
     wagers: [],
     slate: [],
+    modules: ["markets", "irl", "veto"],
     tickAt: TICK,
     now: NOW,
     ...over,
@@ -36,6 +37,22 @@ describe("the projection", () => {
     const p = project()
     expect(p.plan.deploys).toEqual([{ territory: "alaska", count: 3 }])
     expect(p.plan.protect).toBe("peru")
+  })
+
+  it("a markets-off season carries NO wagers or slate keys — absent, not empty", () => {
+    const p = project({ modules: ["irl", "veto"] })
+    expect("wagers" in p).toBe(false)
+    expect("slate" in p).toBe(false)
+    // And the serialized page carries neither key nor the /wagers link — a
+    // dead link to a 404 is exactly the ghost UI the sweep exists to prevent.
+    const html = renderBoard(p)
+    expect(html).not.toContain('"wagers"')
+    expect(html).not.toContain('"slate"')
+    expect(html).not.toContain('href="/wagers"')
+  })
+
+  it("a markets-on season keeps the wagers link", () => {
+    expect(renderBoard(project())).toContain('href="/wagers"')
   })
 
   it("carries public ownership and garrisons", () => {
@@ -124,6 +141,7 @@ describe("the off-board backdrop", () => {
     plan: { deploys: [], attacks: [], protect: null },
     wagers: [],
     slate: [],
+    modules: ["markets", "irl", "veto"],
     tickAt: new Date("2026-09-02T01:00:00Z"),
     now: new Date("2026-09-01T12:00:00Z"),
   })
@@ -160,6 +178,7 @@ describe("sea links on the board", () => {
     plan: { deploys: [], attacks: [], protect: null },
     wagers: [],
     slate: [],
+    modules: ["markets", "irl", "veto"],
     tickAt: new Date("2026-09-02T01:00:00Z"),
     now: new Date("2026-09-01T12:00:00Z"),
   })
@@ -200,6 +219,7 @@ describe("level of detail", () => {
     plan: { deploys: [], attacks: [], protect: null },
     wagers: [],
     slate: [],
+    modules: ["markets", "irl", "veto"],
     tickAt: new Date("2026-09-02T01:00:00Z"),
     now: new Date("2026-09-01T12:00:00Z"),
   })

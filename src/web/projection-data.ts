@@ -89,8 +89,15 @@ export interface Projection {
   /** The viewer's alone. */
   reserve: number
   plan: OrderBody
-  wagers: WagerRow[]
-  slate: Market[]
+  /**
+   * ABSENT — not empty — for a markets-off season, and the wagers panel,
+   * nav link and page are absent with them. Optional so a partial sweep is a
+   * type error at the read sites rather than a ghost UI.
+   */
+  wagers?: WagerRow[]
+  slate?: Market[]
+  /** The season's enabled modules; the client renders only what is on. */
+  modules: string[]
   /** Milliseconds until the tick, or 0 once it has passed. */
   msToTick: number
   locked: boolean
@@ -105,6 +112,7 @@ export function projectionFor(args: {
   plan: OrderBody
   wagers: WagerRow[]
   slate: Market[]
+  modules: string[]
   tickAt: Date
   now: Date
 }): Projection {
@@ -163,8 +171,10 @@ export function projectionFor(args: {
     ),
     reserve: state.reserves[factionId] ?? 0,
     plan: args.plan,
-    wagers: args.wagers,
-    slate: args.slate,
+    // Conditional spread, not `undefined` values — exactOptionalPropertyTypes,
+    // and board.test.ts asserts the keys are ABSENT for a markets-off season.
+    ...(args.modules.includes("markets") ? { wagers: args.wagers, slate: args.slate } : {}),
+    modules: args.modules,
     msToTick,
     locked: msToTick === 0,
   }

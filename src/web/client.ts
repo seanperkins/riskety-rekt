@@ -1027,7 +1027,12 @@ function render() {
   $("plan").innerHTML = rows.length ? rows.join("") : '<p class="hint">No orders yet. Tap one of your territories.</p>'
 
   const left = P.reserve - spent()
-  $("reserve").textContent = left + " of " + P.reserve
+  // The over-budget hint names WHICH orders give way: under claim seniority
+  // the wagers are locked at their market's close, so a short reserve drops
+  // deploys, not wagers. Without this line the first player whose later
+  // wagers push a saved plan negative files the allocation as a bug.
+  $("reserve").textContent =
+    left < 0 ? left + " of " + P.reserve + " — wagers are locked; deploys give way" : left + " of " + P.reserve
   $("reserve").className = left < 0 ? "n over" : "n"
 
   const s = $("save")

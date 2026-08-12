@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { RISK_MAP, createSeason } from "../engine/index.js"
 import type { Faction, GameState, TickEvent } from "../engine/index.js"
@@ -159,5 +160,54 @@ describe("renderRecap", () => {
       correction: true,
     })
     expect(texts(blocks).join("\n")).toMatch(/correction/i)
+  })
+})
+
+describe("recap event coverage", () => {
+  // The recap is a per-type filter, not a switch — no assertNever can make a
+  // missed variant a build error. Instead: HANDLED ∪ IGNORED must equal
+  // TickEvent["t"] at the TYPE level (a new variant fails compilation below),
+  // and each HANDLED entry must actually be queried in the source (so the
+  // union cannot become a hand-maintained lie).
+  const RECAP_HANDLED = [
+    "income",
+    "irl",
+    "grant",
+    "protected",
+    "move",
+    "fieldBattle",
+    "attack",
+    "wagerSettle",
+    "rejected",
+  ] as const
+  // deploy is DELIBERATELY unrendered: the recap narrates the night's combat
+  // and economy; per-territory deploy counts are the board's job.
+  const RECAP_IGNORED = ["deploy"] as const
+
+  type Covered = (typeof RECAP_HANDLED)[number] | (typeof RECAP_IGNORED)[number]
+  // Both directions: a new TickEvent variant breaks the first, a stale entry
+  // in these lists breaks the second.
+  const _allCovered: TickEvent["t"] extends Covered ? true : never = true
+  const _noExtras: Covered extends TickEvent["t"] ? true : never = true
+  void _allCovered
+  void _noExtras
+
+  it("queries every HANDLED type in the source, and never the IGNORED ones", () => {
+    const src = readFileSync("src/slack/recap.ts", "utf8")
+    for (const t of RECAP_HANDLED) {
+      expect(src, `recap.ts must query of("${t}")`).toContain(`of("${t}")`)
+    }
+    for (const t of RECAP_IGNORED) {
+      expect(src, `recap.ts deliberately ignores "${t}"`).not.toContain(`of("${t}")`)
+    }
+  })
+
+  it("renders a module grant with its source", () => {
+    const { blocks } = renderRecap({
+      state: stateWith([{ t: "grant", source: "boom", faction: "f1", amount: 5 }]),
+      previous: stateWith([], 2),
+      lengthDays: 21,
+    })
+    expect(texts(blocks).join("\n")).toContain("(boom)")
   })
 })

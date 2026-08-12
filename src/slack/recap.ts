@@ -80,10 +80,13 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
   const of = <T extends TickEvent["t"]>(t: T) =>
     state.log.filter((e): e is Extract<TickEvent, { t: T }> => e.t === t)
 
-  // Reinforcements: income and IRL, one line per faction.
+  // Reinforcements: income, IRL, and generic mechanic grants, one line per
+  // faction. A grant names its source so a doubled-income day reads as the
+  // rule that caused it, not as ordinary income.
   const income = of("income")
   const irl = of("irl")
-  if (income.length > 0 || irl.length > 0) {
+  const grants = of("grant").filter((e) => e.amount > 0)
+  if (income.length > 0 || irl.length > 0 || grants.length > 0) {
     const byFaction = new Map<FactionId, string[]>()
     for (const e of income) {
       byFaction.set(e.faction, [...(byFaction.get(e.faction) ?? []), `+${e.amount} income`])
@@ -94,6 +97,9 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
         ...(byFaction.get(e.faction) ?? []),
         `+${e.actions} workout${e.actions === 1 ? "" : "s"}${bonus}`,
       ])
+    }
+    for (const e of grants) {
+      byFaction.set(e.faction, [...(byFaction.get(e.faction) ?? []), `+${e.amount} (${e.source})`])
     }
     const lines = [...byFaction.keys()]
       .sort()
