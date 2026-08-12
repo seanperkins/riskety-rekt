@@ -1,6 +1,39 @@
 import { describe, expect, it } from "vitest"
-import { HOUSE_BONUS, PRICE_CEIL, PRICE_FLOOR, payout } from "../engine/index.js"
+import type { Faction } from "../engine/index.js"
+import { HOUSE_BONUS, PRICE_CEIL, PRICE_FLOOR, RISK_MAP, createSeason, payout } from "../engine/index.js"
 import { CLIENT } from "./client.js"
+import { projectionFor } from "./projection-data.js"
+import { renderBoard } from "./render.js"
+
+const factions: Faction[] = ["f1", "f2", "f3"].map((id) => ({
+  id,
+  playerName: `Player ${id}`,
+  color: "#123456",
+}))
+const state = createSeason("s1", factions, RISK_MAP.territories.map((t) => t.id))
+
+const boardWith = (deploy: number, stake: number): { html: string; reserve: number } => {
+  const p = projectionFor({
+    state,
+    day: 1,
+    factionId: "f1",
+    plan: { deploys: [{ territory: "alaska", count: deploy }], attacks: [], protect: null },
+    wagers: [{ marketId: "m1", side: "yes", stake, firstStakedAt: "2026-09-04T12:00:00Z" }],
+    slate: [
+      {
+        id: "m1",
+        question: "Will it rain?",
+        priceYes: 0.6,
+        priceNo: 0.4,
+        closeTime: "2026-09-04T23:00:00Z",
+      },
+    ],
+    modules: ["markets", "irl", "veto"],
+    tickAt: new Date("2026-09-05T01:00:00Z"),
+    now: new Date("2026-09-04T20:00:00Z"),
+  })
+  return { html: renderBoard(p, new Date("2026-09-04T20:00:00Z")), reserve: p.reserve }
+}
 
 describe("the wagers panel", () => {
   it("lives in the board's client, not its own page script", () => {
@@ -16,6 +49,26 @@ describe("the wagers panel", () => {
     // stakes alone. Without that a player could plan deploys on the board and
     // stake the whole reserve in the panel, and the tick would drop the deploys.
     expect(CLIENT).toMatch(/reserveLeft[\s\S]{0,400}spent\(\)/)
+  })
+
+  /**
+   * The client writes the live figure into #wagers-left. That write is guarded
+   * by `if (el)`, so when the id was carried over from the deleted /wagers page
+   * but never emitted in the sheet, nothing threw and no test failed -- the
+   * number was simply never shown, and `.sheet` is a full-inset overlay, so on
+   * a phone the rail behind it is covered rather than merely dimmed. A player
+   * staked blind. Pinned both ways: the target exists, and it starts correct.
+   */
+  it("shows the remaining reserve inside the sheet, where the rail is covered", () => {
+    const { html } = boardWith(3, 2)
+    expect(html).toContain('id="wagers-left"')
+    expect(CLIENT).toContain("wagers-left")
+  })
+
+  it("server-renders that figure net of deploys AND stakes, matching the rail", () => {
+    const { html, reserve } = boardWith(3, 2)
+    const shown = /id="wagers-left">(-?\d+)</.exec(html)?.[1]
+    expect(shown).toBe(String(reserve - 3 - 2))
   })
 })
 

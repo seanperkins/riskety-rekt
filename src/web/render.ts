@@ -593,6 +593,11 @@ ${wagersPanel(p, now)}
 function wagersPanel(p: Projection, now: Date): string {
   if (!p.modules.includes("markets")) return ""
   const staked = new Map((p.wagers ?? []).map((w) => [w.marketId, w]))
+  // Deploys AND wagers, the same sum the rail shows and the client recomputes.
+  const unspent =
+    p.reserve -
+    p.plan.deploys.reduce((n, d) => n + d.count, 0) -
+    (p.wagers ?? []).reduce((n, w) => n + w.stake, 0)
   const rows = (p.slate ?? [])
     .map((m) => {
       const mine = staked.get(m.id)
@@ -636,6 +641,16 @@ function wagersPanel(p: Projection, now: Date): string {
       <p class="hint">One wager per market. Your stake leaves the reserve at the tick —
         win and it comes back with interest, lose and it is gone. The price is fixed
         when you place it.</p>
+      <!--
+        The reserve, restated INSIDE the sheet. The rail carries the same figure,
+        but the sheet is a fixed, full-inset overlay: on a phone the rail is not
+        merely dimmed, it is covered. Without this line a player stakes with no
+        idea what is left, which is exactly the blindness that merging the old
+        /wagers page into the board was meant to end. paintWagers keeps it
+        live; this value is what it shows before the first repaint.
+      -->
+      <p class="hint">Unspent reserve: <b id="wagers-left">${esc(unspent)}</b> —
+        the same soldiers your deploys draw on.</p>
       <ul class="wagers">${rows === "" ? `<li class="hint">No slate published yet.</li>` : rows}</ul>
       <p class="note">A market locks at its close time, or as soon as its outcome is
         public — whichever comes first. That is usually well before 21:00, so a wager
