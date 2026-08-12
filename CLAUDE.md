@@ -49,6 +49,13 @@ failure worth a systemd retry, 2 an operator mistake or a write the rules
 rejected. A tick **refusal exits 0** — its condition never clears with time, so
 a non-zero exit would restart-loop all night under `Restart=on-failure`.
 
+Exit 2 only stops a retry because every retrying unit carries
+**`RestartPreventExitStatus=2`** — `Restart=on-failure` restarts on *any*
+non-zero status, so the third code was documented but inert until that line
+existed. An **unknown season is a `UsageError`** (exit 2) in every job module
+for the same reason: a misconfigured `RR_SEASON_ID` threw a plain `Error`, exited
+1, and restart-looped the tick 778 times on the live droplet.
+
 `npm run publish-slate` late in the ET day legitimately publishes nothing. Judge
 it by an 08:00 run.
 

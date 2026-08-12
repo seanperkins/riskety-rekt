@@ -3,6 +3,7 @@ import { ENGINE_VERSION, RISK_MAP, createSeason } from "../engine/index.js"
 import type { Faction, GameState, Market } from "../engine/index.js"
 import { openStore } from "../store/sqlite.js"
 import { runTick } from "./tick.js"
+import { UsageError } from "./flags.js"
 import { pendingWagersOf } from "../engine/modules/index.js"
 
 const SEASON = { seasonId: "s1", startDate: "2026-09-01", lengthDays: 14 }
@@ -147,6 +148,17 @@ describe("runTick — the day clock", () => {
   it("throws on an unknown season", () => {
     const d = seeded({ latestSavedDay: 0 })
     expect(() => runTick({ ...d, seasonId: "nope", now: at(1, 21, 30) })).toThrow(/unknown season/)
+    d.store.close()
+  })
+
+  it("throws it as a UsageError, so the CLI exits 2 and systemd stops retrying", () => {
+    // Observed in production: a misconfigured RR_SEASON_ID exited 1, and
+    // `Restart=on-failure` retried it 778 times. An unknown season is an
+    // operator mistake whose condition never clears with time — the same
+    // reason a refusal exits 0 — so it must not read as a retryable failure.
+    // The unit pairs this with RestartPreventExitStatus=2.
+    const d = seeded({ latestSavedDay: 0 })
+    expect(() => runTick({ ...d, seasonId: "nope", now: at(1, 21, 30) })).toThrow(UsageError)
     d.store.close()
   })
 })

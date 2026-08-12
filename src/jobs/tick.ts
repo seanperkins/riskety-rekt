@@ -3,6 +3,7 @@ import { ENGINE_VERSION } from "../engine/index.js"
 import { DEFAULT_MODULES, marketIdsOf } from "../engine/modules/index.js"
 import type { DailyContext, GameState, MarketId, Settlement } from "../engine/index.js"
 import { currentDay, tickInstant } from "../season.js"
+import { UsageError } from "./flags.js"
 import { dailyApprovals } from "../slack/approvals.js"
 import { dailyRuleSelection } from "../slack/rule-vote.js"
 import type {
@@ -67,7 +68,12 @@ export function runTick(deps: TickDeps): TickOutcome {
   const resolve = deps.resolve ?? resolveEngine
 
   const season = store.season(seasonId)
-  if (season === undefined) throw new Error(`runTick: unknown season ${seasonId}`)
+  // A UsageError, not a plain Error: it exits 2, which the unit's
+  // RestartPreventExitStatus=2 treats as final. A misconfigured RR_SEASON_ID
+  // exiting 1 restart-looped this service 778 times in production — the same
+  // hazard the exit-0 refusal contract exists to avoid, arriving by the door
+  // marked "system failure worth a retry".
+  if (season === undefined) throw new UsageError(`runTick: unknown season ${seasonId}`)
 
   // FIRST, before the day-clock table: latestSavedDay is undefined until this
   // passes. Defaulting it to 0 would let a season with a `seasons` row and an

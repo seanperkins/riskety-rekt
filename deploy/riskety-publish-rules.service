@@ -12,5 +12,7 @@ ExecStart=/usr/bin/npm run rules:publish
 # The claim-then-post ledger makes a retry safe: a crash before the post
 # re-posts the claimed draw; a crash after it re-posts with a supersession
 # line. An early failure still leaves the whole day for votes, so retry.
+# Exit 2 is an operator mistake and is final — see riskety-tick.service.
 Restart=on-failure
+RestartPreventExitStatus=2
 RestartSec=300

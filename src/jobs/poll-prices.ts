@@ -1,4 +1,5 @@
 import { currentDay } from "../season.js"
+import { UsageError } from "./flags.js"
 import type { MarketAdapter } from "../adapters/types.js"
 import type { SeasonStore, SlateStore, Transactional } from "../store/types.js"
 
@@ -34,7 +35,7 @@ export interface PricePollDeps {
 export async function runPollPrices(deps: PricePollDeps): Promise<PricePollResult> {
   const log = deps.log ?? (() => {})
   const season = deps.store.season(deps.seasonId)
-  if (season === undefined) throw new Error(`pollPrices: unknown season ${deps.seasonId}`)
+  if (season === undefined) throw new UsageError(`pollPrices: unknown season ${deps.seasonId}`)
 
   const day = currentDay(season, deps.now)
   // Markets off: a deliberate zero-work skip — no slate exists to price.

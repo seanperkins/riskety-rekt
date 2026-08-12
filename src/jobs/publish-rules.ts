@@ -3,6 +3,7 @@ import { RULE_REGISTRY, eligibleRules } from "../engine/rules/index.js"
 import { makeRng, shuffle } from "../rng.js"
 import { etDate, etDaysBetween } from "../time.js"
 import { NUMERAL_NAMES, renderRuleOffer } from "../slack/offer.js"
+import { UsageError } from "./flags.js"
 import type { ReactingPoster } from "../slack/post.js"
 import type { RuleVoteStore, SeasonStore, Transactional } from "../store/types.js"
 
@@ -49,7 +50,7 @@ export async function runPublishRules(deps: PublishRulesDeps): Promise<PublishRu
   const log = deps.log ?? (() => {})
 
   const season = store.season(seasonId)
-  if (season === undefined) throw new Error(`publish-rules: unknown season ${seasonId}`)
+  if (season === undefined) throw new UsageError(`publish-rules: unknown season ${seasonId}`)
 
   const day = etDaysBetween(season.startDate, etDate(now))
   if (day < 1) return { status: "skipped", day, reason: "before-season" }

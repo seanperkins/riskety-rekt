@@ -1,6 +1,7 @@
 import { SLATE_MIN, WINDOW_CLOSE_HOUR, WINDOW_OPEN_HOUR } from "../config.js"
 import { etDate, etDaysBetween, etInstant } from "../time.js"
 import { selectSlate } from "../slate/select.js"
+import { UsageError } from "./flags.js"
 import type { Market } from "../engine/index.js"
 import type { MarketAdapter } from "../adapters/types.js"
 import type { SlateStore } from "../store/types.js"
@@ -45,7 +46,7 @@ export async function runPublishSlate(deps: PublishDeps): Promise<PublishOutcome
   const log = deps.log ?? (() => {})
 
   const season = store.season(seasonId)
-  if (season === undefined) throw new Error(`publishSlate: unknown season ${seasonId}`)
+  if (season === undefined) throw new UsageError(`publishSlate: unknown season ${seasonId}`)
 
   const today = etDate(now)
   const day = etDaysBetween(season.startDate, today)

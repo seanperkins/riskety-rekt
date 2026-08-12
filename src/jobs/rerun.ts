@@ -5,6 +5,7 @@ import type { DailyContext, GameState, MarketId, Settlement } from "../engine/in
 import { currentDay, tickInstant } from "../season.js"
 import { dailyApprovals } from "../slack/approvals.js"
 import { dailyRuleSelection } from "../slack/rule-vote.js"
+import { UsageError } from "./flags.js"
 import type {
   ApprovalStore,
   OrderStore,
@@ -72,7 +73,7 @@ export function runRerun(deps: RerunDeps): RerunOutcome {
   const resolve = deps.resolve ?? resolveEngine
 
   const season = store.season(seasonId)
-  if (season === undefined) throw new Error(`runRerun: unknown season ${seasonId}`)
+  if (season === undefined) throw new UsageError(`runRerun: unknown season ${seasonId}`)
 
   // Day 0 is the deal, not a tick. A negative day matters more than it looks:
   // `DELETE FROM states WHERE day >= -1` would take the deal with it.
@@ -199,7 +200,7 @@ function assembleContext(
   previous: GameState,
 ): DailyContext {
   const season = store.season(seasonId)
-  if (season === undefined) throw new Error(`assembleContext: unknown season ${seasonId}`)
+  if (season === undefined) throw new UsageError(`assembleContext: unknown season ${seasonId}`)
   const slate = store.loadSlate(seasonId, day)
   const irl = dailyApprovals(store, seasonId, day)
   const ids = new Set<MarketId>(slate.map((m) => m.id))

@@ -1,5 +1,6 @@
 import { MODULE_REGISTRY } from "../engine/modules/index.js"
 import { validateModules } from "../engine/registry.js"
+import { UsageError } from "./flags.js"
 import type { SeasonStore, StateStore, Transactional } from "../store/types.js"
 
 export type ModulesSetOutcome =
@@ -30,7 +31,7 @@ export function runModulesSet(deps: ModulesSetDeps): ModulesSetOutcome {
   const log = deps.log ?? (() => {})
 
   const season = store.season(seasonId)
-  if (season === undefined) throw new Error(`modules-set: unknown season ${seasonId}`)
+  if (season === undefined) throw new UsageError(`modules-set: unknown season ${seasonId}`)
 
   try {
     validateModules(modules, MODULE_REGISTRY)

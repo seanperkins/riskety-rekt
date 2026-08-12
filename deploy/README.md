@@ -128,6 +128,13 @@ deliberate stop whose condition does not clear with time -- exiting non-zero
 would restart-loop every 60s all night under `Restart=on-failure`. Watch for
 them in the journal, not in the exit status:
 
+**Exit 2 is final**, enforced by `RestartPreventExitStatus=2` on every retrying
+unit. `Restart=on-failure` restarts on any non-zero status, so an operator
+mistake used to loop exactly like a disk error: an `RR_SEASON_ID` naming a
+season that was never initialized restart-looped the tick 778 times on this
+droplet before anyone read the journal. If a unit exits 2, fix the
+configuration -- retrying will never help.
+
 ```bash
 journalctl -u riskety-tick.service -n 50
 ```

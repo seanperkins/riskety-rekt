@@ -14,7 +14,13 @@ ExecStart=/usr/bin/npm run tick
 # A refusal and a skip both exit 0, so neither restarts. Only a genuine failure
 # — a disk error, a bug in resolve — exits 1 and is worth retrying, and the
 # transaction guarantees a failed attempt left nothing behind to collide with.
+#
+# Exit 2 is an operator mistake and is FINAL. `Restart=on-failure` restarts on
+# any non-zero status, so without this line the third exit code was documented
+# but inert: a misconfigured RR_SEASON_ID restart-looped this unit 778 times
+# before anyone looked at the journal.
 Restart=on-failure
+RestartPreventExitStatus=2
 RestartSec=60
 StartLimitBurst=5
 StartLimitIntervalSec=1800
