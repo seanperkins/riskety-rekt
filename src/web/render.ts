@@ -2,8 +2,10 @@ import type { GameMap } from "../engine/index.js"
 import type { LatLon } from "../map/coords.js"
 import { edges, focusRegion, project, regionStats } from "./projection.js"
 import { CLIENT } from "./client.js"
+import { REPLAY } from "./replay.js"
 import { STYLE } from "./style.js"
 import type { Projection } from "./projection-data.js"
+import type { Replay } from "./replay-data.js"
 
 /**
  * Every page is a pure function from data to an HTML string.
@@ -23,11 +25,6 @@ import type { Projection } from "./projection-data.js"
  * habit of escaping only "the untrusted ones" is how the one that got
  * reclassified slips through.
  */
-/** Exhaustiveness guard: a new TickEvent variant fails the build, not the reader. */
-function assertNever(x: never): never {
-  throw new Error(`unhandled event ${JSON.stringify(x)}`)
-}
-
 export function esc(value: unknown): string {
   return String(value).replace(
     /[&<>"']/g,
@@ -370,6 +367,34 @@ export function renderMap(view: MapView, coords: Record<string, LatLon>): string
  * the viewer cannot verify and, for wagers, a leak.
  */
 /**
+ * Send a player to last night's replay if they have not watched it.
+ *
+ * Runs BEFORE the board's markup, so an unwatched night replaces the page
+ * rather than flashing it. `location.replace`, not `href`: the board must not
+ * become a back-button trap behind the replay.
+ *
+ * The seen-marker lives in localStorage, so the SERVER cannot know and cannot
+ * do this with a 302 — watching on a phone and then opening a laptop offers the
+ * replay again, which is the accepted cost of not storing it.
+ *
+ * Two things stop a redirect loop. A failure to read localStorage throws into
+ * the catch and simply does not redirect, so a private window still reaches the
+ * board. And the replay returns with `?from=replay`, which is honoured even if
+ * WRITING the marker silently failed — without it a full quota would bounce a
+ * player between the two pages forever.
+ */
+function unseenReplayRedirect(p: Projection): string {
+  if (p.resolvedDay < 1) return ""
+  return `<script>(function(){try{
+  if (location.search.indexOf("from=replay") !== -1) return
+  var k = "rr.seen." + ${JSON.stringify(p.seasonId)}
+  if (Number(localStorage.getItem(k) || 0) < ${p.resolvedDay}) {
+    location.replace("/day/${p.resolvedDay}")
+  }
+}catch(e){}})()</script>`
+}
+
+/**
  * The notice an eliminated player sees, and nobody else.
  *
  * Without it the Protect button is simply disabled for everyone still playing
@@ -473,7 +498,7 @@ export function renderBoard(p: Projection): string {
   const me = p.factions.find((f) => f.id === p.factionId)
   return page(
     `Riskety Rekt — day ${p.day}`,
-    `<link rel="stylesheet" href="/vendor/leaflet.css">
+    `${unseenReplayRedirect(p)}<link rel="stylesheet" href="/vendor/leaflet.css">
 <div class="wrap">
   <div class="stage"><div id="map"></div>
     <div id="atk" class="atk" hidden>
@@ -597,93 +622,50 @@ export function renderWagers(p: Projection, now: Date): string {
  * every source of soldiers arriving in the bank, so the game reads as one
  * system rather than two.
  */
-export function renderDay(args: {
-  day: number
-  before: GameStateLike
-  after: GameStateLike
-  factionName: (id: string) => string
-  territoryName: (id: string) => string
-}): string {
-  const { after, factionName: fname, territoryName: tname } = args
-
-  const bank = new Map<string, string[]>()
-  const push = (f: string, s: string) => bank.set(f, [...(bank.get(f) ?? []), s])
-  const steps: string[] = []
-
-  for (const e of after.log) {
-    switch (e.t) {
-      case "income":
-        push(e.faction, `+${e.amount} income`)
-        break
-      case "irl":
-        push(e.faction, `+${e.actions + e.bonus} workout`)
-        break
-      case "grant":
-        if (e.amount > 0) push(e.faction, `+${e.amount} (${esc(e.source)})`)
-        break
-      case "wagerSettle":
-        if (e.payout > 0) push("—", `+${e.payout} from a market`)
-        break
-      case "move":
-        // Genuinely missing until this change — move events silently vanished
-        // from the replay, which is the proof the assertNever below earns its
-        // place.
-        steps.push(
-          `${esc(fname(e.faction))} reinforces ${esc(tname(e.to))} from ${esc(tname(e.from))} with ${e.count}`,
-        )
-        break
-      case "deploy":
-        steps.push(`${esc(fname(e.faction))} deploys ${e.count} to ${esc(tname(e.territory))}`)
-        break
-      case "fieldBattle":
-        steps.push(
-          `Field battle between ${esc(tname(e.a))} and ${esc(tname(e.b))} — ${e.aContinues} and ${e.bContinues} continue`,
-        )
-        break
-      case "protected":
-        steps.push(`${esc(tname(e.territory))} is protected by ${e.byCount}`)
-        break
-      case "attack":
-        steps.push(
-          `${esc(fname(e.attacker))} attacks ${esc(tname(e.to))} from ${esc(tname(e.from))} with ${e.committed} — ${
-            e.captured ? `<b>captured</b>, ${e.survivors} hold it` : `repulsed`
-          }`,
-        )
-        break
-      case "rejected":
-        steps.push(`<span class="save bad">rejected</span> ${esc(fname(e.faction))}: ${esc(e.reason)}`)
-        break
-      default:
-        // A new TickEvent variant fails the BUILD here, not the reader.
-        assertNever(e)
-    }
-  }
-
-  const reinforcements = [...bank.entries()]
-    .map(([f, parts]) => `<tr><td>${esc(f === "—" ? "markets" : fname(f))}</td><td class="n">${esc(parts.join(", "))}</td></tr>`)
-    .join("")
-
+/**
+ * The night, animated on the board.
+ *
+ * Replaces a static list of sentences. The list is still here — it is the
+ * transcript beside the map, and the playing step is highlighted in it — but
+ * the map is the point: "f2 attacks Tibet from Yunnan with 6" is a sentence you
+ * have to decode, and a soldier crossing a border is not.
+ *
+ * No session. A resolved night is public: the recap posts all of it to Slack,
+ * so there is nothing here to keep from anyone, and the page therefore carries
+ * no `Projection` and no viewer.
+ */
+export function renderReplay(r: Replay): string {
   return page(
-    `Riskety Rekt — day ${args.day}`,
-    `<div class="wrap"><div class="stage" style="overflow-y:auto;padding:26px">
-      <h2 class="h2">The night, step by step</h2>
-      <ol id="steps">${steps.map((s) => `<li class="prow"><span>${s}</span></li>`).join("")}</ol>
+    `Riskety Rekt — day ${r.day}`,
+    `<link rel="stylesheet" href="/vendor/leaflet.css">
+<div class="wrap">
+  <div class="stage"><div id="map"></div></div>
+  <aside class="rail">
+    <h1 class="title">Day ${esc(r.day)}</h1>
+    <p class="sub">Last night, as it happened</p>
+
+    <div class="chips rp-controls">
+      <button id="btn-play" class="chip">Play</button>
+      <button id="btn-step" class="chip">Step</button>
+      <button id="spd-1" class="chip on">1×</button>
+      <button id="spd-2" class="chip">2×</button>
+      <button id="spd-4" class="chip">4×</button>
     </div>
-    <aside class="rail">
-      <h1 class="title">Day ${esc(args.day)}</h1>
-      <p class="sub">${esc(steps.length)} things happened.</p>
-      <h2 class="h2">Soldiers arriving</h2>
-      <table class="t"><tbody>${
-        reinforcements === "" ? `<tr><td class="hint">Nobody earned.</td></tr>` : reinforcements
-      }</tbody></table>
-      <p class="note">Income, workouts and settled wagers are all the same
-        thing: soldiers in the bank. <a href="/">Board</a> ·
-        <a href="/rules">How this works</a></p>
-    </aside></div>`,
+    <p class="hint" id="progress"></p>
+
+    <h2 class="h2">Soldiers arriving</h2>
+    <table class="t"><tbody id="bank"></tbody></table>
+
+    <h2 class="h2">The night, step by step</h2>
+    <ol id="steps" class="rp-steps"></ol>
+
+    <p class="note">Every number here is the one the engine recorded.
+      <button id="btn-skip" class="chip">Skip to the board →</button></p>
+  </aside>
+</div>
+<script>window.__RRP__ = ${JSON.stringify(r).replace(/</g, "\\u003c")}</script>
+<script src="/vendor/leaflet.js"></script>
+<script>${REPLAY}</script>`,
   )
 }
 
-interface GameStateLike {
-  log: import("../engine/index.js").TickEvent[]
-  ownership: Record<string, string>
-}

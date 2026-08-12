@@ -1149,6 +1149,40 @@ document.addEventListener("keydown", (e) => {
 
 P.loadedAt = Date.now()
 setInterval(() => { $("countdown").textContent = countdown() }, 30000)
+
+// ---- reload once the night lands -------------------------------------------
+// A board left open through 21:00 shows yesterday's map until someone thinks to
+// refresh, and the countdown hitting zero is NOT the signal to reload: the tick
+// fires at 21:00:30 and the transaction takes a moment, so a reload on the
+// countdown races it and lands on the same stale board -- then never tries
+// again. So poll for the day actually RESOLVING, which is a fact, not a
+// prediction.
+//
+// Only after the lock, and it stops the moment it fires: no polling all
+// afternoon while orders are still editable, and no request loop on a page
+// nobody closed for a week.
+var pollTimer = 0
+function pollForTick() {
+  fetch("/api/day", { headers: { accept: "application/json" } })
+    .then(function (r) { return r.ok ? r.json() : null })
+    .then(function (d) {
+      if (d && Number(d.resolved) > P.resolvedDay) {
+        clearInterval(pollTimer)
+        // A hard reload, not a redirect: the board's own markup decides whether
+        // the new night is unwatched and sends them to the replay itself.
+        location.reload()
+      }
+    })
+    .catch(function () {})
+}
+function watchForTick() {
+  if (pollTimer) return
+  pollTimer = setInterval(pollForTick, 20000)
+  pollForTick()
+}
+if (P.locked) watchForTick()
+else setTimeout(watchForTick, Math.max(0, P.msToTick) + 15000)
+
 render()
 })()
 `

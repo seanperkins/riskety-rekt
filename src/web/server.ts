@@ -18,7 +18,8 @@ import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { currentDay, tickInstant } from "../season.js"
 import { projectionFor } from "./projection-data.js"
-import { esc, page, renderBoard, renderDay, renderMap, renderRules, renderWagers } from "./render.js"
+import { replayFor } from "./replay-data.js"
+import { esc, page, renderBoard, renderMap, renderReplay, renderRules, renderWagers } from "./render.js"
 import { sessionFactionFor } from "./session.js"
 import { parseOrderBody } from "../jobs/order-entry.js"
 
@@ -213,6 +214,24 @@ export function createWebServer(deps: WebDeps): Server {
       return
     }
 
+    // Which day has resolved. The board polls it after the tick instant so it
+    // can reload itself once the night has actually landed — a page left open
+    // through 21:00 otherwise shows yesterday's map indefinitely, and the
+    // countdown reaching zero is NOT the signal: the tick fires at 21:00:30 and
+    // takes a moment, so reloading on the countdown races it and reloads into
+    // the same stale board.
+    //
+    // No session: it discloses one integer that the recap posts to Slack anyway.
+    if (path === "/api/day") {
+      const latest = deps.store.latestSavedDay(deps.seasonId)
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+      })
+      res.end(req.method === "HEAD" ? undefined : JSON.stringify({ resolved: latest ?? 0 }))
+      return
+    }
+
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, { "content-type": "text/plain; charset=utf-8", allow: "GET, HEAD" })
       res.end("method not allowed\n")
@@ -372,20 +391,8 @@ export function createWebServer(deps: WebDeps): Server {
         )
         return
       }
-      const fname = new Map(after.factions.map((f) => [f.id, f.playerName]))
-      const tname = new Map(after.map.territories.map((t) => [t.id, t.name]))
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-      res.end(
-        req.method === "HEAD"
-          ? undefined
-          : renderDay({
-              day,
-              before,
-              after,
-              factionName: (id) => fname.get(id) ?? id,
-              territoryName: (id) => tname.get(id) ?? id,
-            }),
-      )
+      res.end(req.method === "HEAD" ? undefined : renderReplay(replayFor({ before, after })))
       return
     }
 

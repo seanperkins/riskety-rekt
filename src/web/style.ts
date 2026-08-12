@@ -283,6 +283,30 @@ body {
 
 .chip:disabled { opacity: 0.45; cursor: default; }
 .chip:disabled:hover { border-color: var(--rule); color: var(--muted); }
+/* ---- the replay ----------------------------------------------------------
+   Territory flashes. Applied to the polygon's own element, so they ride on top
+   of Leaflet's fill without touching the styles Leaflet rewrites on zoom --
+   the same reason paintCounts uses classList and never className. */
+.lit-own   { animation: rp-pulse .9s ease-out; }
+.lit-hit   { animation: rp-hit .9s ease-out; }
+.lit-taken { animation: rp-taken .9s ease-out; }
+.lit-shield{ animation: rp-shield .9s ease-out; }
+@keyframes rp-pulse  { 0% { stroke-width: 1; } 35% { stroke: #e8c56a; stroke-width: 4; } 100% { stroke-width: 1; } }
+@keyframes rp-hit    { 0% { stroke-width: 1; } 35% { stroke: #e5534b; stroke-width: 4; } 100% { stroke-width: 1; } }
+@keyframes rp-taken  { 0% { stroke-width: 1; } 35% { stroke: #fff; stroke-width: 5; } 100% { stroke-width: 1; } }
+@keyframes rp-shield { 0% { stroke-width: 1; } 35% { stroke: #6ad1e8; stroke-width: 5; } 100% { stroke-width: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .lit-own, .lit-hit, .lit-taken, .lit-shield { animation: none; }
+}
+
+.rp-controls { margin-top: 10px; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--ground); font-weight: 650; }
+.rp-steps { list-style: none; margin: 0; padding: 0; max-height: 34vh; overflow-y: auto;
+  font-size: 12px; color: var(--muted); }
+.rp-steps .prow { padding: 3px 0; border: 0; opacity: .55; }
+.rp-steps .prow.done { opacity: .8; }
+.rp-steps .prow.on { opacity: 1; color: var(--ink); font-weight: 650; }
+
 /* The UA sheet's [hidden] { display: none } is beaten by .chip's own display,
    so a chip carrying the attribute stayed on screen -- which is how a Protect
    button nobody could press went on being shown to living factions after it was
