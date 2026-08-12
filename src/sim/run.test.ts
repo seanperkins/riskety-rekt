@@ -141,6 +141,22 @@ describe("rule arms", () => {
     expect(out.winner).toBeDefined()
   })
 
+  it("every arm is PAIRED with baseline — the vote draw is off the main stream", () => {
+    // The gate's whole claim is that a measured difference is the rules and
+    // not a reshuffled world, which holds only if every arm consumes the main
+    // rng identically. A vote draw sharing that stream would shift the board,
+    // the deal and every settlement coin — the exact confound the gate exists
+    // to exclude. Same board and same deal across all three arms is the
+    // observable that pins it.
+    const base = runSeason(roster, 7)
+    const forced = runSeason(roster, 7, { rules: ["boom"] })
+    const voted = runSeason(roster, 7, { voteRules: true })
+    expect(forced.territories).toBe(base.territories)
+    expect(voted.territories).toBe(base.territories)
+    expect(forced.seats).toEqual(base.seats)
+    expect(voted.seats).toEqual(base.seats)
+  })
+
   it("the gate is deterministic and pairs both arms on the same seeds", async () => {
     const { runRuleGate } = await import("./rule-gate.js")
     const a = runRuleGate(roster, 20, "boom")

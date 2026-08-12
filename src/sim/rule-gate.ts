@@ -39,6 +39,25 @@ export function runRuleGate(
   seasonsPerArm: number,
   ruleId: string,
 ): GateResult {
+  return runGate(policyNames, seasonsPerArm, ruleId, { rules: [ruleId] })
+}
+
+/**
+ * The VOTED regime, paired against the same baseline seeds: rules on, drawn
+ * and voted daily. This is the regime a real season can actually produce —
+ * forced-daily is the stress envelope above it — and both arms share the
+ * season's main rng stream, so the difference is the rules alone.
+ */
+export function runVoteGate(policyNames: string[], seasonsPerArm: number): GateResult {
+  return runGate(policyNames, seasonsPerArm, "voted", { voteRules: true })
+}
+
+function runGate(
+  policyNames: string[],
+  seasonsPerArm: number,
+  label: string,
+  arm: { rules?: string[]; voteRules?: boolean },
+): GateResult {
   const seats = seatsFor(policyNames)
   const policyOf = new Map(seats.map((s) => [s.id, s.policy]))
   const policies = [...new Set(policyNames)]
@@ -48,7 +67,7 @@ export function runRuleGate(
 
   for (let seed = 1; seed <= seasonsPerArm; seed++) {
     const base = runSeason(policyNames, seed)
-    const forced = runSeason(policyNames, seed, { rules: [ruleId] })
+    const forced = runSeason(policyNames, seed, arm)
     const bWin = policyOf.get(base.winner)
     const fWin = policyOf.get(forced.winner)
     for (const p of policies) {
@@ -61,7 +80,7 @@ export function runRuleGate(
   }
 
   return {
-    ruleId,
+    ruleId: label,
     seasons: seasonsPerArm,
     perPolicy: policies.map((p) => {
       const d = diffs.get(p)!
@@ -82,22 +101,6 @@ export function runRuleGate(
   }
 }
 
-/** The vote-dynamics arm: rules on, uniform-random seat votes (abstain ½). */
-export function runVoteDynamics(
-  policyNames: string[],
-  seasons: number,
-): { wins: Record<string, number>; seasons: number } {
-  const seats = seatsFor(policyNames)
-  const policyOf = new Map(seats.map((s) => [s.id, s.policy]))
-  const wins: Record<string, number> = {}
-  for (let seed = 1; seed <= seasons; seed++) {
-    const r = runSeason(policyNames, seed, { voteRules: true })
-    const p = policyOf.get(r.winner)
-    if (p !== undefined) wins[p] = (wins[p] ?? 0) + 1
-  }
-  return { wins, seasons }
-}
-
 const ROSTER = [
   "Turtle",
   "Blitz",
@@ -114,9 +117,17 @@ if (isMain) {
   const seasons = Number(process.argv[2] ?? 10_000)
   console.log(`bounded-swing gate: ${seasons} seasons per arm, roster ${ROSTER.join(", ")}\n`)
 
-  for (const rule of RULE_CATALOGUE) {
-    const out = runRuleGate(ROSTER, seasons, rule.id)
-    console.log(`=== ${rule.id} forced daily vs baseline ===`)
+  const arms = [
+    ...RULE_CATALOGUE.map((r) => ({
+      label: `${r.id} forced daily`,
+      run: () => runRuleGate(ROSTER, seasons, r.id),
+    })),
+    { label: "the VOTED regime (drawn and voted daily)", run: () => runVoteGate(ROSTER, seasons) },
+  ]
+
+  for (const arm of arms) {
+    const out = arm.run()
+    console.log(`=== ${arm.label} vs baseline ===`)
     console.log(
       "policy".padEnd(14) +
         "base%".padStart(8) +
@@ -136,11 +147,5 @@ if (isMain) {
       )
     }
     console.log("")
-  }
-
-  const dyn = runVoteDynamics(ROSTER, seasons)
-  console.log(`=== vote dynamics (random votes, abstain 1/2) — ${dyn.seasons} seasons ===`)
-  for (const [p, w] of Object.entries(dyn.wins).sort((a, b) => b[1] - a[1])) {
-    console.log(`  ${p.padEnd(14)} ${((w / dyn.seasons) * 100).toFixed(1).padStart(5)}%`)
   }
 }

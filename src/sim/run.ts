@@ -115,6 +115,9 @@ export function runSeason(
 ): SeasonResult {
   const modules = opts.modules ?? ["markets", "irl", "veto"]
   const rng = makeRng(seed)
+  // A second stream, used ONLY by the daily rule vote — see the draw below.
+  // Off the main stream, so every arm stays paired with baseline on a seed.
+  const voteRng = makeRng((seed ^ 0x5bf03635) >>> 0)
   const policies = policyNames.map((n) => {
     const p = POLICIES.find((x) => x.name === n)
     if (!p) throw new Error(`unknown policy: ${n}`)
@@ -174,19 +177,26 @@ export function runSeason(
       settlements[w.marketId] = rng() < pYes ? "yes" : "no"
     }
 
-    // Forced rules are the balance gate's stress arm; voteRules is the
-    // dynamics arm — a seeded daily draw with uniform-random seat votes
-    // (abstain ½), plurality, ties to the lowest rule id. The model is
-    // deliberately strategy-free; the balance review doc states it. The
-    // forced arms consume NO extra randomness, so they stay seed-comparable
-    // with baseline (common random numbers); the voteRules arm does not.
+    // Forced rules are the gate's stress arm; voteRules is the dynamics arm —
+    // a seeded daily draw with uniform-random seat votes (abstain ½),
+    // plurality, ties to the lowest rule id. The model is deliberately
+    // strategy-free; the balance review doc states it.
+    //
+    // BOTH arms draw from `voteRng`, a SEPARATE stream, never the season's
+    // `rng`. That is what makes every arm paired with baseline on a seed
+    // (common random numbers): the board, the deal, the slate prices, the
+    // settlement coins and every policy decision consume the main stream in
+    // the same order whether rules are on or off, so a measured difference is
+    // the rules and not a reshuffled world. Sharing one stream made the voted
+    // arm diverge for reasons that had nothing to do with rules, which is
+    // exactly the confound the gate exists to exclude.
     let rules: string[] = opts.rules ?? []
     if (opts.voteRules === true) {
-      const offered = shuffle([...RULE_CATALOGUE], rng).slice(0, 9)
+      const offered = shuffle([...RULE_CATALOGUE], voteRng).slice(0, 9)
       const counts = new Map<string, number>()
       for (let i = 0; i < seatIds.length; i++) {
-        if (rng() < 0.5) continue
-        const pick = offered[Math.floor(rng() * offered.length)]!
+        if (voteRng() < 0.5) continue
+        const pick = offered[Math.floor(voteRng() * offered.length)]!
         counts.set(pick.id, (counts.get(pick.id) ?? 0) + 1)
       }
       let winner: string | undefined
