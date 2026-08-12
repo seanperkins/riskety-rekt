@@ -114,6 +114,7 @@ systemctl daemon-reload
 say "enabling timers and services"
 systemctl enable --now \
   riskety-publish-slate.timer \
+  riskety-publish-rules.timer \
   riskety-poll-settlements.timer \
   riskety-poll-prices.timer \
   riskety-tick.timer \

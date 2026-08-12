@@ -32,6 +32,10 @@ HTTP would be a way to reach the app with the cookie silently dropped.
 
 ### Still to do before a season
 
+0. **Get the code onto `origin/main`.** `bootstrap.sh` does
+   `git reset --hard origin/main`, so that branch is the deploy artifact and
+   nothing else is reachable from the droplet. There is no CI, so `npm test`
+   and `npm run typecheck` locally are the only gate.
 1. **Fill in `SLACK_*` in `/etc/riskety-rekt/env`** (mode 0600). `bootstrap.sh`
    deliberately leaves `riskety-slack` stopped while they are blank rather than
    letting it restart-loop, and re-running it starts the service once they are
@@ -187,6 +191,7 @@ Create the app at api.slack.com/apps with these bot scopes:
 | `channels:history` | read `message` events in the public game channel |
 | `reactions:read` | read `reaction_added` / `reaction_removed` |
 | `chat:write` | post the slate, the recap, and the daily rule offer |
+| `commands` | the `/login` slash command, which is the only way a player reaches the web app |
 | `reactions:write` | pre-seed the rule offer's numeral ballot (OPTIONAL — see below) |
 
 Subscribe to these bot events: `message.channels`, `reaction_added`,
