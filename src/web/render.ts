@@ -1,3 +1,4 @@
+import { HOUSE_BONUS, PRICE_CEIL, PRICE_FLOOR } from "../engine/index.js"
 import type { GameMap } from "../engine/index.js"
 import type { LatLon } from "../map/coords.js"
 import { edges, focusRegion, project, regionStats } from "./projection.js"
@@ -598,6 +599,7 @@ export function renderWagers(p: Projection, now: Date): string {
         <button class="chip step" data-delta="-1" aria-label="one fewer">−</button>
         <output class="stake">${esc(mine?.stake ?? 0)}</output>
         <button class="chip step" data-delta="1" aria-label="one more">+</button>
+        <span class="hint payout"></span>
         <span class="hint bet-state"></span>
       </div>
     </div>`
@@ -606,6 +608,16 @@ export function renderWagers(p: Projection, now: Date): string {
         ${control}</td></tr>`
     })
     .join("")
+
+  // The engine's own clamp, applied here rather than in the browser, so the
+  // payout a player is shown and the payout they are paid come from one place.
+  // The client multiplies and rounds in the same expression order `payout` uses,
+  // which matters: (stake / p) * bonus and stake * (bonus / p) can differ in the
+  // last bit and flip a round() sitting exactly on .5.
+  const clamp = (p: number): number => Math.min(PRICE_CEIL, Math.max(PRICE_FLOOR, p))
+  const odds = Object.fromEntries(
+    (p.slate ?? []).map((m) => [m.id, { yes: clamp(m.priceYes), no: clamp(m.priceNo) }]),
+  )
 
   return page(
     "Riskety Rekt — wagers",
@@ -636,7 +648,7 @@ export function renderWagers(p: Projection, now: Date): string {
         21:00, so a wager is not something you can leave until the evening.
         <a href="/">Board</a> · <a href="/rules">How this works</a></p>
     </aside></div>
-<script>window.__RRW__ = ${JSON.stringify({ reserve: p.reserve }).replace(/</g, "\\u003c")}</script>
+<script>window.__RRW__ = ${JSON.stringify({ reserve: p.reserve, bonus: HOUSE_BONUS, odds }).replace(/</g, "\\u003c")}</script>
 <script>${WAGERS}</script>`,
   )
 }

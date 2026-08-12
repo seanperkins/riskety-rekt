@@ -26,16 +26,42 @@ function staked() {
   return total
 }
 
+const left = () => W.reserve - staked()
+
 function paintReserve() {
-  const left = W.reserve - staked()
   const el = $("reserve")
+  if (el) el.textContent = String(left())
+  // The cap is the point, not decoration. Over-commit and the engine's
+  // allocation phase drops the JUNIOR claims at the tick -- silently, hours
+  // later, with the player believing all five bets stand. Better to stop the
+  // plus button than to explain that afterwards.
+  const none = left() <= 0
+  for (const b of document.querySelectorAll('.bet .step[data-delta="1"]')) b.disabled = none
+}
+
+/**
+ * What this stake pays if it wins.
+ *
+ * The SAME expression the engine's payout() uses, in the same order, against
+ * prices this page was handed already clamped. Written as (stake / p) * bonus
+ * rather than stake * (bonus / p) on purpose: the two differ in the last bit
+ * and can land on opposite sides of a round() sitting exactly on .5.
+ */
+function payoutFor(row, stake) {
+  const o = W.odds[row.getAttribute("data-market")]
+  const side = sideOf(row)
+  if (!o || !side || stake <= 0) return 0
+  return Math.round((stake / o[side]) * W.bonus)
+}
+
+function paintPayout(row) {
+  const el = row.querySelector(".payout")
   if (!el) return
-  el.textContent = String(left)
-  // Over-committing is not blocked here -- the engine's allocation phase
-  // decides who gets paid when several claims compete, and duplicating that
-  // rule in the browser would be a second implementation of it. It is only
-  // flagged, so nobody is surprised at 21:00.
-  el.className = left < 0 ? "n over" : ""
+  const stake = Number(row.querySelector(".stake").textContent) || 0
+  const win = payoutFor(row, stake)
+  // Profit as well as the total, because "wins 8" on a stake of 3 reads as
+  // either 8 back or 11 back until you say which.
+  el.textContent = win === 0 ? "" : "wins " + win + " (+" + (win - stake) + ")"
 }
 
 function setState(row, text, bad) {
@@ -85,6 +111,7 @@ for (const row of document.querySelectorAll(".bet")) {
       // Tapping the chosen side again clears it, which is the only way to say
       // "I have not decided" once you have touched the row.
       if (!already) btn.setAttribute("aria-pressed", "true")
+      paintPayout(row)
       // Picking a side with a stake already set is a change of bet, so it
       // re-prices -- the server records the price at save time.
       save(row)
@@ -93,9 +120,14 @@ for (const row of document.querySelectorAll(".bet")) {
 
     if (btn.classList.contains("step")) {
       const out = row.querySelector(".stake")
-      const next = Math.max(0, (Number(out.textContent) || 0) + Number(btn.getAttribute("data-delta")))
+      const delta = Number(btn.getAttribute("data-delta"))
+      // Never past the reserve. Raising a stake by more than is left would be
+      // committing soldiers that do not exist.
+      if (delta > 0 && left() <= 0) return
+      const next = Math.max(0, (Number(out.textContent) || 0) + delta)
       out.textContent = String(next)
       paintReserve()
+      paintPayout(row)
       // Debounced: holding + would otherwise post once per tap, and each post
       // re-prices the wager.
       clearTimeout(row.__t)
@@ -105,5 +137,6 @@ for (const row of document.querySelectorAll(".bet")) {
 }
 
 paintReserve()
+for (const row of document.querySelectorAll(".bet")) paintPayout(row)
 })()
 `
