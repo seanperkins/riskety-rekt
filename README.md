@@ -23,7 +23,8 @@ settlement.
 |---|---|
 | [`docs/superpowers/specs/2026-08-09-riskety-rekt-design.md`](docs/superpowers/specs/2026-08-09-riskety-rekt-design.md) | **The spec.** Every rule, and why it is that rule. |
 | [`HANDOFF.md`](HANDOFF.md) | Current state, architecture, and the rules a newcomer gets wrong |
-| [`docs/superpowers/reviews/2026-08-09-balance-run.md`](docs/superpowers/reviews/2026-08-09-balance-run.md) | What 2,000 simulated seasons say about the economy |
+| [`codemaps/`](codemaps/) | Generated architecture maps — module graph, engine pipeline, schema, jobs, web. Regenerate with `/update-codemaps`; don't hand-edit. |
+| [`docs/superpowers/reviews/2026-08-11-balance-run-modules.md`](docs/superpowers/reviews/2026-08-11-balance-run-modules.md) | What 10,000 simulated seasons say about the economy |
 | [`docs/superpowers/plans/`](docs/superpowers/plans/) | Implementation plans. Each carries a "Spec deltas" section recording where reality corrected the design. |
 
 The spec is the interesting document. Most of its rules exist because a reviewer or a
@@ -33,10 +34,12 @@ bets that are secretly the same bet.
 
 ## State
 
-The pure rules engine, the offline season simulator, the Kalshi market adapter and the
-Slack ingress, the 21:00 tick runner and the order-entry CLI are built and tested.
-**646 tests, none of which touch the network** — `test/no-network.ts` replaces `fetch`
-in every test run, so that is enforced rather than asserted.
+The pure rules engine (now module-dispatched: markets, IRL and the veto are
+pluggable mechanics), the offline season simulator, the Kalshi market adapter, the
+Slack ingress, the 21:00 tick runner, the order-entry CLI and the player web app are
+built and tested. **759 tests, none of which touch the network** —
+`test/no-network.ts` replaces `fetch` in every test run, so that is enforced rather
+than asserted.
 
 The player app is built: sign in with `/login` in Slack, act on a real map,
 orders autosave and lock at 21:00. What still blocks a *competitive* season is

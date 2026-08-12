@@ -69,15 +69,13 @@ both landing in SQLite hours earlier. A Kalshi outage at 20:59 cannot stall the
 season. Keep new work on that side of the line.
 
 **Everything is one function**: `resolve(state, orders, context) → GameState`.
-The pipeline is grant → claims → **allocate** (all reserve spends, by ascending
-parsed `lockedAt` — wagers lock at their market's close, deploys at the tick,
-so the earlier commitment is senior) → locks → movement validation → combat →
-advance. Mechanics are modules (`src/engine/modules/`) dispatched through the
-`Mechanic` hook contract (`src/engine/mechanics.ts`); a season's set lives in
-`seasons.modules` and is frozen into each day's context. Order validation still
-deliberately sits *after* the grant phase — income earned this tick is
-spendable this tick — and movement caps sit after allocation, so a dropped
-deploy shrinks the attack cap it fed.
+Mechanics (markets, IRL, veto) are modules dispatched through fixed hooks — the
+pipeline, hook contract and module table live in `codemaps/engine.md`. Two
+orderings are load-bearing and deliberate: order validation sits *after* the
+grant phase (income earned this tick is spendable this tick), and the reserve
+allocation — ascending parsed `lockedAt`, the earlier-locked commitment senior —
+resolves *before* movement caps, so a dropped deploy shrinks the attack cap it
+fed rather than leaving phantom troops legal.
 
 **The tick's claim, resolve and save are ONE transaction.** There is no lock
 table, and adding one back would reintroduce the ambiguity it was removed for:
