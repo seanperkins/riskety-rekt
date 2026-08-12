@@ -1,7 +1,8 @@
 import { resolve as resolveEngine } from "../engine/index.js"
 import { ENGINE_VERSION } from "../engine/index.js"
+import { DEFAULT_MODULES, marketIdsOf } from "../engine/modules/index.js"
 import type { DailyContext, GameState, MarketId, Settlement } from "../engine/index.js"
-import { currentDay } from "../season.js"
+import { currentDay, tickInstant } from "../season.js"
 import { dailyApprovals } from "../slack/approvals.js"
 import type {
   ApprovalStore,
@@ -157,10 +158,20 @@ function assembleContext(
   day: number,
   previous: GameState,
 ): DailyContext {
+  const season = store.season(seasonId)
+  if (season === undefined) throw new Error(`assembleContext: unknown season ${seasonId}`)
   const slate = store.loadSlate(seasonId, day)
   const irl = dailyApprovals(store, seasonId, day)
   const ids = new Set<MarketId>(slate.map((m) => m.id))
-  for (const w of previous.pending) ids.add(w.marketId)
+  for (const id of marketIdsOf(previous)) ids.add(id)
   const settlements: Record<MarketId, Settlement> = store.loadSettlements([...ids].sort())
-  return { slate, approvals: irl.approvals, postedToday: irl.postedToday, settlements }
+  return {
+    slate,
+    approvals: irl.approvals,
+    postedToday: irl.postedToday,
+    settlements,
+    tickInstant: tickInstant(season, day).toISOString(),
+    modules: [...DEFAULT_MODULES],
+    rules: [],
+  }
 }

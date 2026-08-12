@@ -64,7 +64,7 @@ export function createSeason(
     ownership,
     garrisons,
     reserves,
-    pending: [],
+    moduleState: {},
     log: [],
     engineVersion: ENGINE_VERSION,
   }

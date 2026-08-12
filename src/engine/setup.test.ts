@@ -68,7 +68,7 @@ describe("createSeason", () => {
   it("starts at day 0 with empty pending and log", () => {
     const s = createSeason("s1", factions, ids)
     expect(s.day).toBe(0)
-    expect(s.pending).toEqual([])
+    expect(s.moduleState).toEqual({})
     expect(s.log).toEqual([])
     expect(s.engineVersion).toBe("1.0.0")
   })

@@ -2,7 +2,26 @@ import { describe, expect, it } from "vitest"
 import { RISK_MAP } from "./map.js"
 import { createSeason } from "./setup.js"
 import { resolveCombat } from "./combat.js"
-import type { Faction, GameState, Order } from "./types.js"
+import { vetoModule } from "./modules/veto.js"
+import type { DailyContext, Faction, GameState, Order, TerritoryId } from "./types.js"
+
+const ctxOf = (postedToday: string[]): DailyContext => ({
+  slate: [],
+  approvals: [],
+  postedToday,
+  settlements: {},
+  tickInstant: "2026-01-02T21:00:00.000Z",
+  modules: ["irl", "veto"],
+  rules: [],
+})
+
+/** Compose the veto module's locks with combat, as the pipeline does. */
+const combat = (s: GameState, orders: Order[], postedToday: string[] = []) => {
+  const locked = new Set<TerritoryId>(
+    vetoModule.lock!(s, orders, ctxOf(postedToday)).map((r) => r.territory),
+  )
+  return resolveCombat(s, orders, locked, { attackDepartureCost: 0 })
+}
 
 const factions: Faction[] = [
   { id: "f1", playerName: "Ana", color: "#e11" },
@@ -37,7 +56,7 @@ describe("attack resolution", () => {
       s.ownership["alberta"] = "f2"
       s.garrisons["alberta"] = 3
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 9 }] }),
     ], [])
     expect(r.ownership["alberta"]).toBe("f1")
@@ -52,7 +71,7 @@ describe("attack resolution", () => {
       s.ownership["alberta"] = "f2"
       s.garrisons["alberta"] = 3
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 3 }] }),
     ], [])
     expect(r.ownership["alberta"]).toBe("f2")
@@ -68,7 +87,7 @@ describe("attack resolution", () => {
       s.ownership["northwest_territory"] = "f3"
       s.garrisons["northwest_territory"] = 1
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "northwest_territory", count: 9 }] }),
       order({ factionId: "f2", attacks: [{ from: "alberta", to: "alaska", count: 2 }] }),
     ], [])
@@ -86,7 +105,7 @@ describe("field battles", () => {
       s.ownership["alberta"] = "f2"
       s.garrisons["alberta"] = 5
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 10 }] }),
       order({ factionId: "f2", attacks: [{ from: "alberta", to: "alaska", count: 1 }] }),
     ], [])
@@ -102,7 +121,7 @@ describe("field battles", () => {
       s.ownership["alberta"] = "f2"
       s.garrisons["alberta"] = 6
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 5 }] }),
       order({ factionId: "f2", attacks: [{ from: "alberta", to: "alaska", count: 5 }] }),
     ], [])
@@ -119,7 +138,7 @@ describe("field battles", () => {
       s.ownership["alberta"] = "f2"
       s.garrisons["alberta"] = 3
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 100 }] }),
       order({ factionId: "f2", attacks: [{ from: "alberta", to: "alaska", count: 1 }] }),
     ], [])
@@ -133,7 +152,7 @@ describe("field battles", () => {
       s.ownership["alberta"] = "f2"
       s.garrisons["alberta"] = 3
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 100 }] }),
       order({ factionId: "f2", attacks: [{ from: "alberta", to: "alaska", count: 1 }] }),
     ], [])
@@ -152,7 +171,7 @@ describe("multi-attacker", () => {
       s.ownership["alberta"] = "f3"
       s.garrisons["alberta"] = 5
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 3 }] }),
       order({ factionId: "f2", attacks: [{ from: "northwest_territory", to: "alberta", count: 4 }] }),
     ], [])
@@ -170,7 +189,7 @@ describe("multi-attacker", () => {
       s.ownership["alberta"] = "f3"
       s.garrisons["alberta"] = 5
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 3 }] }),
       order({ factionId: "f2", attacks: [{ from: "northwest_territory", to: "alberta", count: 4 }] }),
     ], [])
@@ -187,7 +206,7 @@ describe("multi-attacker", () => {
       s.ownership["alberta"] = "f3"
       s.garrisons["alberta"] = 10
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 4 }] }),
       order({ factionId: "f2", attacks: [{ from: "northwest_territory", to: "alberta", count: 4 }] }),
     ], [])
@@ -205,7 +224,7 @@ describe("protections", () => {
       s.ownership["alberta"] = "f2"
       s.garrisons["alberta"] = 1
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 9 }] }),
       order({ factionId: "f3", protect: "alberta" }),
     ], ["f3"])
@@ -221,7 +240,7 @@ describe("protections", () => {
       s.ownership["alberta"] = "f2"
       s.garrisons["alberta"] = 1
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 9 }] }),
       order({ factionId: "f3", protect: "alberta" }),
       order({ factionId: "f4", protect: "alberta" }),
@@ -241,7 +260,7 @@ describe("protections", () => {
       s.ownership["alberta"] = "f2"
       s.garrisons["alberta"] = 1
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 9 }] }),
       order({ factionId: "f3", protect: "alberta" }),
       order({ factionId: "f4", protect: "alberta" }),
@@ -258,7 +277,7 @@ describe("protections", () => {
       s.ownership["alberta"] = "f2"
       s.garrisons["alberta"] = 1
     })
-    const r = resolveCombat(s, [
+    const r = combat(s, [
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 9 }] }),
       order({ factionId: "f2", protect: "alberta" }), // f2 still holds alberta
     ], ["f2"])
@@ -281,9 +300,11 @@ describe("protections", () => {
       order({ factionId: "f3", protect: "alberta" }),
     ]
     // f3 holds nothing, so it may claim a veto -- but only by showing up.
-    expect(resolveCombat(s, orders, ["f3"]).ownership["alberta"]).toBe("f2")
-    expect(resolveCombat(s, orders, []).ownership["alberta"]).toBe("f1")
-    expect(resolveCombat(s, orders, []).events.filter((e) => e.t === "protected")).toEqual([])
+    expect(combat(s, orders, ["f3"]).ownership["alberta"]).toBe("f2")
+    expect(combat(s, orders, []).ownership["alberta"]).toBe("f1")
+    // The protected events now come from the veto module's lock results,
+    // which the engine logs — combat itself emits none.
+    expect(vetoModule.lock!(s, orders, ctxOf([]))).toEqual([])
   })
 
   it("still ignores a pick from a living faction that posted", () => {
@@ -294,7 +315,7 @@ describe("protections", () => {
       order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 9 }] }),
       order({ factionId: "f2", protect: "alberta" }),
     ]
-    expect(resolveCombat(s, orders, ["f2"]).ownership["alberta"]).toBe("f1")
+    expect(combat(s, orders, ["f2"]).ownership["alberta"]).toBe("f1")
   })
 
   it("counts parity only over eliminated factions that posted", () => {
@@ -314,10 +335,10 @@ describe("protections", () => {
     ]
 
     // Both posted: the picks cancel and the attack lands.
-    expect(resolveCombat(s, orders, ["f3", "f4"]).ownership["alberta"]).toBe("f1")
+    expect(combat(s, orders, ["f3", "f4"]).ownership["alberta"]).toBe("f1")
     // Only f3 posted: one pick stands, so alberta holds.
-    expect(resolveCombat(s, orders, ["f3"]).ownership["alberta"]).toBe("f2")
-    expect(resolveCombat(s, orders, ["f3"]).events).toContainEqual({
+    expect(combat(s, orders, ["f3"]).ownership["alberta"]).toBe("f2")
+    expect(vetoModule.lock!(s, orders, ctxOf(["f3"])).map((r) => r.event)).toContainEqual({
       t: "protected",
       territory: "alberta",
       byCount: 1,
@@ -338,8 +359,8 @@ describe("determinism", () => {
       })
     const a = order({ factionId: "f1", attacks: [{ from: "alaska", to: "alberta", count: 3 }] })
     const b = order({ factionId: "f2", attacks: [{ from: "northwest_territory", to: "alberta", count: 4 }] })
-    const r1 = resolveCombat(build(), [a, b], [])
-    const r2 = resolveCombat(build(), [b, a], [])
+    const r1 = combat(build(), [a, b], [])
+    const r2 = combat(build(), [b, a], [])
     expect(r1.ownership).toEqual(r2.ownership)
     expect(r1.garrisons).toEqual(r2.garrisons)
   })

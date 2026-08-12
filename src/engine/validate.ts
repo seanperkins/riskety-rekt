@@ -1,15 +1,23 @@
-import { territoriesOf } from "./setup.js"
-import type { DailyContext, GameState, Order, TerritoryId, TickEvent } from "./types.js"
+import type { DailyContext, GameState, Order, TickEvent } from "./types.js"
 
 const isCount = (n: unknown): n is number =>
   typeof n === "number" && Number.isSafeInteger(n) && n >= 0
 
 /**
- * Sanitize a submitted order against the current state.
+ * Sanitize a submitted order's SHAPE and LEGALITY against the current state.
  *
- * Rejection is field-level: a bad line item is dropped and the rest of the order
- * stands. Whole-order rejection would be a griefing lever — a player could append
- * a deliberately malformed attack to void their own committed orders.
+ * Rejection is field-level: a bad line item is dropped and the rest of the
+ * order stands. Whole-order rejection would be a griefing lever — a player
+ * could append a deliberately malformed attack to void their own orders.
+ *
+ * What does NOT live here anymore, and where it went:
+ * - reserve budgeting (deploys and wagers) → the allocation phase, which
+ *   honors claims by lockedAt seniority; a sequential check here would
+ *   preempt cross-mechanic ordering and reopen the deploy-inflation exploit
+ * - move/attack garrison caps → combat's movement validation, which runs
+ *   against POST-ALLOCATION garrisons and merges duplicate attack directions
+ *   before capping (a dropped deploy must shrink the cap it fed)
+ * - protect legality → the veto module's validate hook
  *
  * Never throws on player data. System errors still propagate.
  */
@@ -24,11 +32,9 @@ export function validateOrder(
     rejections.push({ t: "rejected", faction: f, field, reason })
 
   const byId = new Map(state.map.territories.map((t) => [t.id, t]))
-  const reserve = state.reserves[f] ?? 0
 
-  // Deploys: owned territory, valid count, aggregate <= reserve, applied in listed order.
+  // Deploys: owned territory, valid count.
   const deploys: Order["deploys"] = []
-  let spent = 0
   for (const d of order.deploys) {
     if (!isCount(d.count) || d.count === 0) {
       reject("deploys", `bad count for ${d.territory}`)
@@ -38,26 +44,11 @@ export function validateOrder(
       reject("deploys", `does not own ${d.territory}`)
       continue
     }
-    if (spent + d.count > reserve) {
-      reject("deploys", `exceeds reserve at ${d.territory}`)
-      continue
-    }
-    spent += d.count
     deploys.push(d)
   }
 
-  // Post-deploy garrisons drive the per-origin attack cap, so the web app and the
-  // engine agree for anyone deploying into a launch point.
-  const postDeploy: Record<TerritoryId, number> = { ...state.garrisons }
-  for (const d of deploys) postDeploy[d.territory] = (postDeploy[d.territory] ?? 0) + d.count
-
-  // Moves: owned origin, owned adjacent target. They share the attacker's
-  // per-origin cap through the same `committed` ledger, and validate FIRST --
-  // when an origin is over-committed, the reinforcement survives and the
-  // attack is what dies, because a rejected defence loses ground already held
-  // while a rejected attack merely fails to gain some.
+  // Moves: owned origin, owned adjacent target.
   const moves: NonNullable<Order["moves"]> = []
-  const committed: Record<TerritoryId, number> = {}
   for (const m of order.moves ?? []) {
     if (!isCount(m.count) || m.count === 0) {
       reject("moves", `bad count ${m.from} -> ${m.to}`)
@@ -75,17 +66,10 @@ export function validateOrder(
       reject("moves", `${m.to} is not adjacent to ${m.from}`)
       continue
     }
-    const cap = Math.max(0, (postDeploy[m.from] ?? 0) - 1)
-    const used = committed[m.from] ?? 0
-    if (used + m.count > cap) {
-      reject("moves", `exceeds garrison cap at ${m.from}`)
-      continue
-    }
-    committed[m.from] = used + m.count
     moves.push(m)
   }
 
-  // Attacks: owned origin, adjacent enemy target, aggregate per origin <= garrison - 1.
+  // Attacks: owned origin, adjacent enemy target.
   const attacks: Order["attacks"] = []
   for (const a of order.attacks) {
     if (!isCount(a.count) || a.count === 0) {
@@ -104,21 +88,15 @@ export function validateOrder(
       reject("attacks", `${a.to} is not adjacent to ${a.from}`)
       continue
     }
-    const cap = Math.max(0, (postDeploy[a.from] ?? 0) - 1)
-    const used = committed[a.from] ?? 0
-    if (used + a.count > cap) {
-      reject("attacks", `exceeds garrison cap at ${a.from}`)
-      continue
-    }
-    committed[a.from] = used + a.count
     attacks.push(a)
   }
 
-  // Wagers: on today's slate, at most one per market, aggregate <= reserve - deploys.
+  // Wagers: on today's slate, at most one per market, valid stake and side.
+  // A markets-off season has an empty slate, so every wager rejects here —
+  // the web layer refuses them upstream with a clearer reason.
   const wagers: Order["wagers"] = []
   const slate = new Map(context.slate.map((m) => [m.id, m]))
   const seen = new Set<string>()
-  let staked = 0
   for (const w of order.wagers) {
     if (!isCount(w.stake) || w.stake === 0) {
       reject("wagers", `bad stake on ${w.marketId}`)
@@ -136,26 +114,9 @@ export function validateOrder(
       reject("wagers", `at most one wager per market (${w.marketId})`)
       continue
     }
-    if (staked + w.stake > reserve - spent) {
-      reject("wagers", `exceeds remaining reserve on ${w.marketId}`)
-      continue
-    }
     seen.add(w.marketId)
-    staked += w.stake
     wagers.push(w)
   }
 
-  // Protect: eliminated factions only, and a real territory.
-  let protect = order.protect
-  if (protect !== null) {
-    if (territoriesOf(state, f).length > 0) {
-      reject("protect", "faction is not eliminated")
-      protect = null
-    } else if (!byId.has(protect)) {
-      reject("protect", `unknown territory ${protect}`)
-      protect = null
-    }
-  }
-
-  return { clean: { factionId: f, deploys, attacks, moves, wagers, protect }, rejections }
+  return { clean: { factionId: f, deploys, attacks, moves, wagers, protect: order.protect }, rejections }
 }

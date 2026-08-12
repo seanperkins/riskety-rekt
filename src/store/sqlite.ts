@@ -80,7 +80,9 @@ function parseState(json: string, seasonId: string, day: number): GameState {
   for (const key of ["ownership", "garrisons", "reserves"] as const) {
     if (typeof s[key] !== "object" || s[key] === null) return bad(`${key} is absent`)
   }
-  if (!Array.isArray(s.pending)) return bad("pending is absent")
+  if (typeof s.moduleState !== "object" || s.moduleState === null || Array.isArray(s.moduleState)) {
+    return bad("moduleState is absent")
+  }
   if (!Array.isArray(s.log)) return bad("log is absent")
   for (const [faction, reserve] of Object.entries(s.reserves)) {
     if (!isCount(reserve)) return bad(`reserve for ${faction} is ${String(reserve)}`)

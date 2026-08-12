@@ -86,7 +86,7 @@ export function settleAll(
     if (outcome === "unsettled") {
       if (today - w.placedOnDay >= REFUND_AFTER_TICKS) {
         credit(w.factionId, w.stake)
-        events.push({ t: "wagerSettle", wagerId: w.wagerId, outcome, payout: w.stake })
+        events.push({ t: "wagerSettle", wagerId: w.wagerId, outcome, payout: w.stake, stake: w.stake })
       } else {
         keep.push(w)
       }
@@ -95,7 +95,7 @@ export function settleAll(
 
     const amount = outcome === w.side ? payout(w.stake, w.price) : 0
     if (amount > 0) credit(w.factionId, amount)
-    events.push({ t: "wagerSettle", wagerId: w.wagerId, outcome, payout: amount })
+    events.push({ t: "wagerSettle", wagerId: w.wagerId, outcome, payout: amount, stake: w.stake })
   }
 
   return { keep, credits, events }

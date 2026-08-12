@@ -6,6 +6,7 @@ import {
   resolve,
   territoriesOf,
 } from "../engine/index.js"
+import { pendingWagersOf } from "../engine/modules/index.js"
 import { SEASON_LENGTH } from "../config.js"
 import { POLICIES } from "./policies.js"
 import { makeRng, type Rng } from "../rng.js"
@@ -58,6 +59,17 @@ export interface Report {
   meanFinalTerritories: Record<string, number>
 }
 
+/**
+ * The sim's synthetic calendar. A market closes at 18:00 of its day and the
+ * tick fires at 21:00 — close STRICTLY before tick, mirroring the publisher's
+ * window. This ordering is load-bearing: wager claims lock at close, deploy
+ * claims at the tick, and inverting them would silently measure the pre-fix
+ * (deploys-senior) game while reporting it as the balance run.
+ */
+export function simInstant(day: number, hour: number): string {
+  return new Date(Date.UTC(2026, 0, 1 + day, hour)).toISOString()
+}
+
 function makeSlate(day: number, rng: Rng): Market[] {
   const p = Math.round((0.15 + rng() * 0.7) * 100) / 100
   return [
@@ -66,7 +78,7 @@ function makeSlate(day: number, rng: Rng): Market[] {
       question: `market ${day}`,
       priceYes: p,
       priceNo: Math.round((1 - p) * 100) / 100,
-      closeTime: "T18:00",
+      closeTime: simInstant(day, 18),
     },
   ]
 }
@@ -132,12 +144,15 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
     // posts, so this is exactly the policies that acted. Slacker, at zero
     // actions, therefore loses its veto once eliminated.
     const postedToday: FactionId[] = []
+    // Grants key on SEAT ids. Keying on the policy name silently lost every
+    // IRL grant on a repeated-policy roster — the old engine dropped a grant
+    // for an unknown faction on the floor; the module engine refuses it.
     policies.forEach((p, i) => {
-      if (p.irlActionsPerDay > 0) postedToday.push(p.name)
+      if (p.irlActionsPerDay > 0) postedToday.push(seatIds[i]!)
       for (let k = 0; k < p.irlActionsPerDay; k++) {
         approvals.push({
           eventId: `${day}-${p.name}-${k}`,
-          playerId: p.name,
+          playerId: seatIds[i]!,
           postedAt: `T${String(6 + i).padStart(2, "0")}:${String(k * 10).padStart(2, "0")}`,
           approvedAt: `T${String(8 + i).padStart(2, "0")}:${String(k * 10).padStart(2, "0")}`,
         })
@@ -147,13 +162,21 @@ export function runSeason(policyNames: string[], seed: number): SeasonResult {
     // Resolve each pending market once, by a coin weighted to its snapshotted
     // YES price. Per market, not per wager, so two factions on one market agree.
     const settlements: Record<string, Settlement> = {}
-    for (const w of [...state.pending].sort((a, b) => cmp(a.marketId, b.marketId))) {
+    for (const w of [...pendingWagersOf(state)].sort((a, b) => cmp(a.marketId, b.marketId))) {
       if (settlements[w.marketId]) continue
       const pYes = w.side === "yes" ? w.price : 1 - w.price
       settlements[w.marketId] = rng() < pYes ? "yes" : "no"
     }
 
-    const context: DailyContext = { slate, approvals, postedToday: postedToday.sort(), settlements }
+    const context: DailyContext = {
+      slate,
+      approvals,
+      postedToday: postedToday.sort(),
+      settlements,
+      tickInstant: simInstant(day, 21),
+      modules: ["markets", "irl", "veto"],
+      rules: [],
+    }
     const orders = policies.map((p, i) => p.decide(state, seatIds[i]!, slate, rng))
     state = resolve(state, orders, context)
 

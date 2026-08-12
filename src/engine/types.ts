@@ -61,6 +61,17 @@ export interface DailyContext {
   slate: Market[]
   approvals: ApprovedAction[]
   /**
+   * The tick's frozen ISO instant, supplied by the runner and recorded in
+   * tick_context. The engine still contains no clock — time enters here.
+   * Deploy claims lock at this instant; wager claims at their market's close,
+   * which the slate publisher guarantees is strictly earlier.
+   */
+  tickInstant: string
+  /** Enabled module ids, from the season row, frozen per day. */
+  modules: string[]
+  /** Day-scoped voted rules. Always [] until the rule-catalogue change. */
+  rules: string[]
+  /**
    * Faction ids that POSTED an action today, approved or not.
    *
    * Separate from `approvals` because the elimination veto gates on posting
@@ -135,10 +146,35 @@ export interface Order {
 export type TickEvent =
   | { t: "income"; faction: FactionId; amount: number }
   | { t: "irl"; faction: FactionId; actions: number; bonus: number }
+  /** A grant from a mechanic without its own variant (module or voted rule). */
+  | { t: "grant"; source: string; faction: FactionId; amount: number }
   | { t: "deploy"; faction: FactionId; territory: TerritoryId; count: number }
   | { t: "move"; faction: FactionId; from: TerritoryId; to: TerritoryId; count: number }
-  | { t: "fieldBattle"; a: TerritoryId; b: TerritoryId; aContinues: number; bContinues: number }
+  /**
+   * aLost/bLost: each side's field-battle deaths. Exclusively here — a troop
+   * that died in the field is never repeated in an attack event's `lost`.
+   */
+  | {
+      t: "fieldBattle"
+      a: TerritoryId
+      b: TerritoryId
+      aContinues: number
+      bContinues: number
+      aLost: number
+      bLost: number
+    }
   | { t: "protected"; territory: TerritoryId; byCount: number }
+  /**
+   * lost: this movement's share of its faction's TARGET-COMBAT casualties
+   * (withdrawn survivors are alive, not lost; field-battle deaths are the
+   * fieldBattle event's). defenderLost: the territory's defender losses,
+   * logged ONCE per contested territory on the surviving arrival with the
+   * lexicographically-first `from`, zero elsewhere — one event is pushed per
+   * arriving movement, and repeating it would sum to legs x defense. fee:
+   * the dial's departure cost; present even on a movement annihilated in a
+   * field battle, whose event survives with zero strength so the fee stays
+   * in the log.
+   */
   | {
       t: "attack"
       from: TerritoryId
@@ -147,9 +183,14 @@ export type TickEvent =
       committed: number
       survivors: number
       captured: boolean
+      lost: number
+      defenderLost: number
+      fee?: number
     }
-  | { t: "wagerSettle"; wagerId: string; outcome: Settlement; payout: number }
-  | { t: "rejected"; faction: FactionId; field: string; reason: string }
+  /** stake retained so settlement accounting can classify win/refund/loss. */
+  | { t: "wagerSettle"; wagerId: string; outcome: Settlement; payout: number; stake: number }
+  /** ref names the order item an allocation or lock drop rejected. */
+  | { t: "rejected"; faction: FactionId; field: string; reason: string; ref?: string }
 
 export interface GameState {
   seasonId: string
@@ -159,7 +200,12 @@ export interface GameState {
   ownership: Record<TerritoryId, FactionId>
   garrisons: Record<TerritoryId, number>
   reserves: Record<FactionId, number>
-  pending: PendingWager[]
+  /**
+   * Each module's cross-tick state under its own key; replaces `pending`.
+   * Module code is the only code that interprets a value — including through
+   * the module's exported helpers (marketIdsOf, pendingWagersOf).
+   */
+  moduleState: Record<string, unknown>
   log: TickEvent[]
   engineVersion: string
 }

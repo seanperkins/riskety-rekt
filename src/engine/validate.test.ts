@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { RISK_MAP } from "./map.js"
+import { resolveCombat } from "./combat.js"
+import { vetoModule } from "./modules/veto.js"
 import { createSeason } from "./setup.js"
 import { validateOrder } from "./validate.js"
 import type { DailyContext, Faction, Order } from "./types.js"
@@ -23,6 +25,9 @@ function fixture() {
     approvals: [],
     postedToday: [],
     settlements: {},
+    tickInstant: "2026-08-09T21:00:00.000Z",
+    modules: ["markets", "irl", "veto"],
+    rules: [],
   }
   return { s, ctx }
 }
@@ -30,8 +35,11 @@ function fixture() {
 const base: Order = { factionId: "f1", deploys: [], attacks: [], wagers: [], protect: null }
 
 describe("validateOrder — aggregates", () => {
-  it("caps total attacks from one origin at garrison - 1", () => {
-    const { s, ctx } = fixture()
+  it("caps total attacks from one origin at garrison - 1 (via combat)", () => {
+    // The cap moved to combat's movement validation, against post-allocation
+    // garrisons. validateOrder shape-passes both lines; combat rejects the
+    // second merged movement.
+    const { s } = fixture()
     const o: Order = {
       ...base,
       attacks: [
@@ -39,9 +47,12 @@ describe("validateOrder — aggregates", () => {
         { from: "alaska", to: "kamchatka", count: 9 },
       ],
     }
-    const { clean, rejections } = validateOrder(s, o, ctx)
-    expect(clean.attacks.reduce((sum, a) => sum + a.count, 0)).toBeLessThanOrEqual(9)
-    expect(rejections.some((r) => r.t === "rejected" && r.field === "attacks")).toBe(true)
+    const r = resolveCombat(s, [o], new Set(), { attackDepartureCost: 0 })
+    const departed = r.events
+      .filter((e) => e.t === "attack")
+      .reduce((sum, e) => sum + e.committed, 0)
+    expect(departed).toBeLessThanOrEqual(9)
+    expect(r.events.some((e) => e.t === "rejected" && e.field === "attacks")).toBe(true)
   })
 
   it("counts the post-deploy garrison toward the attack cap", () => {
@@ -55,7 +66,11 @@ describe("validateOrder — aggregates", () => {
     expect(validateOrder(s, o, ctx).clean.attacks).toHaveLength(1)
   })
 
-  it("caps total deploys at reserve", () => {
+  it("reserve budgeting lives in the allocation, not here — deploys pass shape", () => {
+    // The old sequential cap ("deploys first, wagers get the remainder") was
+    // the deploy-inflation exploit's home. validateOrder now shape-passes
+    // both over-reserve deploys; the allocation drops the junior one with a
+    // rejected event — pinned end-to-end in resolve.test.ts ("seniority").
     const { s, ctx } = fixture()
     const o: Order = {
       ...base,
@@ -64,17 +79,9 @@ describe("validateOrder — aggregates", () => {
         { territory: "alberta", count: 7 },
       ],
     }
-    expect(validateOrder(s, o, ctx).clean.deploys.reduce((sum, d) => sum + d.count, 0)).toBeLessThanOrEqual(10)
-  })
-
-  it("caps wagers at reserve remaining after deploys", () => {
-    const { s, ctx } = fixture()
-    const o: Order = {
-      ...base,
-      deploys: [{ territory: "alaska", count: 8 }],
-      wagers: [{ marketId: "m1", side: "yes", stake: 5 }],
-    }
-    expect(validateOrder(s, o, ctx).clean.wagers.reduce((sum, w) => sum + w.stake, 0)).toBeLessThanOrEqual(2)
+    const { clean, rejections } = validateOrder(s, o, ctx)
+    expect(clean.deploys).toHaveLength(2)
+    expect(rejections).toEqual([])
   })
 
   it("allows at most one wager per market (closes the both-sides hedge)", () => {
@@ -146,25 +153,27 @@ describe("validateOrder — field level", () => {
     expect(validateOrder(s, o, ctx).clean.wagers).toHaveLength(0)
   })
 
-  it("ignores protect from a living faction", () => {
+  it("ignores protect from a living faction (via the veto module)", () => {
+    // Protect legality is the veto module's validate hook now; the pipeline
+    // nulls the field when the hook rejects it.
     const { s, ctx } = fixture()
     const o: Order = { ...base, protect: "brazil" }
-    const { clean, rejections } = validateOrder(s, o, ctx)
-    expect(clean.protect).toBeNull()
-    expect(rejections.some((r) => r.t === "rejected" && r.field === "protect")).toBe(true)
+    const rej = vetoModule.validate!(s, o, ctx)
+    expect(rej.some((r) => r.t === "rejected" && r.field === "protect")).toBe(true)
   })
 
-  it("keeps protect from an eliminated faction", () => {
+  it("keeps protect from an eliminated faction (via the veto module)", () => {
     const { s, ctx } = fixture()
     for (const t of RISK_MAP.territories) s.ownership[t.id] = "f2"
     const o: Order = { ...base, protect: "brazil" }
-    expect(validateOrder(s, o, ctx).clean.protect).toBe("brazil")
+    expect(vetoModule.validate!(s, o, ctx)).toEqual([])
   })
 
-  it("rejects protect on an unknown territory", () => {
+  it("rejects protect on an unknown territory (via the veto module)", () => {
     const { s, ctx } = fixture()
     for (const t of RISK_MAP.territories) s.ownership[t.id] = "f2"
     const o: Order = { ...base, protect: "atlantis" }
-    expect(validateOrder(s, o, ctx).clean.protect).toBeNull()
+    const rej = vetoModule.validate!(s, o, ctx)
+    expect(rej.some((r) => r.t === "rejected" && r.field === "protect")).toBe(true)
   })
 })

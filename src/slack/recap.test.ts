@@ -58,6 +58,8 @@ describe("renderRecap", () => {
           committed: 6,
           survivors: 2,
           captured: true,
+          lost: 3,
+          defenderLost: 1,
         },
       ]),
       previous,
@@ -93,7 +95,7 @@ describe("renderRecap", () => {
 
   it("reports wager settlements", () => {
     const { blocks } = renderRecap({
-      state: stateWith([{ t: "wagerSettle", wagerId: "w1", outcome: "yes", payout: 22 }]),
+      state: stateWith([{ t: "wagerSettle", wagerId: "w1", outcome: "yes", payout: 22, stake: 10 }]),
       previous,
       lengthDays: 21,
     })
@@ -128,6 +130,8 @@ describe("renderRecap", () => {
       attacker: i % 2 === 0 ? "f1" : "f2",
       committed: 3,
       survivors: 1,
+      lost: 1,
+      defenderLost: 0,
       captured: false,
     }))
     const { blocks } = renderRecap({ state: stateWith(busy), previous, lengthDays: 21 })

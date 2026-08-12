@@ -3,6 +3,7 @@ import { ENGINE_VERSION, RISK_MAP, createSeason } from "../engine/index.js"
 import type { Faction, GameState, Market } from "../engine/index.js"
 import { openStore } from "../store/sqlite.js"
 import { runTick } from "./tick.js"
+import { pendingWagersOf } from "../engine/modules/index.js"
 
 const SEASON = { seasonId: "s1", startDate: "2026-09-01", lengthDays: 14 }
 
@@ -184,17 +185,21 @@ describe("runTick — behaviour", () => {
     const withPending: GameState = {
       ...base,
       day: 4,
-      pending: [
-        {
-          wagerId: "w1",
-          factionId: "f1",
-          marketId: "KX-OLD",
-          side: "yes",
-          stake: 5,
-          price: 0.4,
-          placedOnDay: 4,
+      moduleState: {
+        markets: {
+          pending: [
+            {
+              wagerId: "w1",
+              factionId: "f1",
+              marketId: "KX-OLD",
+              side: "yes",
+              stake: 5,
+              price: 0.4,
+              placedOnDay: 4,
+            },
+          ],
         },
-      ],
+      },
     }
     for (let day = 0; day <= 3; day++) {
       store.transaction(() => store.saveState({ ...base, day }, ENGINE_VERSION))
@@ -212,7 +217,7 @@ describe("runTick — behaviour", () => {
     expect(frozen?.context.settlements["KX-NEW"]).toBe("unsettled")
     // And the wager actually paid: 5 at 0.4 yes returns more than the stake.
     expect(store.loadState("s1", 5)?.reserves["f1"]).toBeGreaterThan(0)
-    expect(store.loadState("s1", 5)?.pending).toHaveLength(0)
+    expect(pendingWagersOf(store.loadState("s1", 5)!)).toHaveLength(0)
     store.close()
   })
 

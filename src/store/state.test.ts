@@ -18,6 +18,9 @@ const EMPTY_CONTEXT: DailyContext = {
   approvals: [],
   postedToday: [],
   settlements: {},
+  tickInstant: "2026-01-02T21:00:00.000Z",
+  modules: ["markets", "irl", "veto"],
+  rules: [],
 }
 
 function seeded() {
