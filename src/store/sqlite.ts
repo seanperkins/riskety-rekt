@@ -38,11 +38,15 @@ import type {
   RecapLedger,
   RosterMember,
   RosterStore,
+  RuleOfferRow,
+  RuleReactionRow,
+  RuleVoteStore,
   SeasonRow,
   SeasonStore,
   SlateStore,
 } from "./types.js"
 import { cmp } from "../engine/index.js"
+import { RULE_REGISTRY } from "../engine/rules/index.js"
 import type { DailyContext, FactionId, GameState, Order } from "../engine/index.js"
 import { tickInstant } from "../season.js"
 import { etDate, slackTsToIso } from "../time.js"
@@ -136,6 +140,7 @@ export function openStore(
   RosterStore &
   ApprovalStore &
   OrderStore &
+  RuleVoteStore &
   StateStore &
   Transactional {
   const db = new DatabaseSync(path)
@@ -821,6 +826,109 @@ export function openStore(
         )
         .get(seasonId, day, kind) as { attempt: number | null } | undefined
       return row?.attempt == null ? 0 : Number(row.attempt)
+    },
+
+    claimRuleOffers(seasonId: string, day: number, ruleIds: string[], seed: string): void {
+      // Validated against the closed catalogue BEFORE insert: nothing that
+      // arrives over the wire can name a rule (reactions carry ordinals
+      // only), so anything unknown here is a code bug worth a throw.
+      for (const id of ruleIds) {
+        if (!RULE_REGISTRY.has(id)) throw new Error(`unknown rule id: ${id}`)
+      }
+      this.transaction(() => {
+        ruleIds.forEach((ruleId, i) => {
+          db.prepare(
+            `INSERT INTO rule_offers (season_id, day, rule_id, ordinal, seed, message_ts)
+             VALUES (?, ?, ?, ?, ?, NULL)`,
+          ).run(seasonId, day, ruleId, i + 1, seed)
+        })
+      })
+    },
+
+    ruleOffersFor(seasonId: string, day: number): RuleOfferRow[] {
+      const rows = db
+        .prepare(
+          `SELECT rule_id, ordinal, seed, message_ts FROM rule_offers
+            WHERE season_id = ? AND day = ? ORDER BY ordinal`,
+        )
+        .all(seasonId, day) as {
+        rule_id: string
+        ordinal: number
+        seed: string
+        message_ts: string | null
+      }[]
+      return rows.map((r) => ({
+        ruleId: r.rule_id,
+        ordinal: r.ordinal,
+        seed: r.seed,
+        messageTs: r.message_ts,
+      }))
+    },
+
+    recordOfferMessage(seasonId: string, day: number, messageTs: string): void {
+      db.prepare(`UPDATE rule_offers SET message_ts = ? WHERE season_id = ? AND day = ?`).run(
+        messageTs,
+        seasonId,
+        day,
+      )
+    },
+
+    offerForMessage(
+      messageTs: string,
+    ): { seasonId: string; day: number; ordinals: number[] } | undefined {
+      const rows = db
+        .prepare(
+          `SELECT season_id, day, ordinal FROM rule_offers WHERE message_ts = ? ORDER BY ordinal`,
+        )
+        .all(messageTs) as { season_id: string; day: number; ordinal: number }[]
+      const first = rows[0]
+      if (first === undefined) return undefined
+      return { seasonId: first.season_id, day: first.day, ordinals: rows.map((r) => r.ordinal) }
+    },
+
+    recordRuleReaction(r: {
+      seasonId: string
+      day: number
+      factionId: FactionId
+      ordinal: number
+      reactedAt: string
+    }): void {
+      // Upsert, latest Slack timestamp wins — the exact opposite of
+      // reactions' INSERT OR IGNORE, and correct here: a re-added numeral
+      // means "this is my vote again, now". ISO at write, same convention as
+      // recordApproval, so the tally's cutoff compare is ISO-to-ISO.
+      db.prepare(
+        `INSERT INTO rule_reactions (season_id, day, faction_id, ordinal, reacted_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (season_id, day, faction_id, ordinal)
+         DO UPDATE SET reacted_at = excluded.reacted_at`,
+      ).run(r.seasonId, r.day, r.factionId, r.ordinal, slackTsToIso(r.reactedAt))
+    },
+
+    removeRuleReaction(
+      seasonId: string,
+      day: number,
+      factionId: FactionId,
+      ordinal: number,
+    ): void {
+      db.prepare(
+        `DELETE FROM rule_reactions
+          WHERE season_id = ? AND day = ? AND faction_id = ? AND ordinal = ?`,
+      ).run(seasonId, day, factionId, ordinal)
+    },
+
+    ruleReactionsFor(seasonId: string, day: number): RuleReactionRow[] {
+      const rows = db
+        .prepare(
+          `SELECT faction_id, ordinal, reacted_at FROM rule_reactions
+            WHERE season_id = ? AND day = ? ORDER BY faction_id, ordinal`,
+        )
+        .all(seasonId, day) as { faction_id: string; ordinal: number; reacted_at: string }[]
+      return rows.map((r) => ({
+        factionId: r.faction_id,
+        ordinal: r.ordinal,
+        reactedAt: r.reacted_at,
+      }))
     },
 
     deleteStatesFrom(seasonId: string, day: number): void {

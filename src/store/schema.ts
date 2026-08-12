@@ -282,6 +282,37 @@ export const MIGRATIONS: string[] = [
   )
   WHERE json_extract(state, '$.pending') IS NOT NULL;
   `,
+  `
+  -- The daily rule vote. rule_offers is the day's numbered draw (claim-then-
+  -- post: message_ts is NULL between the claim and the successful Slack post);
+  -- rule_reactions is the RAW vote-reaction record the 21:00 tally derives
+  -- from — the analogue of \`reactions\` for offers. It is a separate table
+  -- because \`reactions\` structurally cannot hold a vote: no emoji column
+  -- (a vote is WHICH numeral), one row per player per message (a change of
+  -- vote needs two live rows), and first-timestamp-wins writes (votes are
+  -- latest-wins). The DERIVED tally is never stored — computed at tick time.
+  CREATE TABLE rule_offers (
+    season_id  TEXT NOT NULL,
+    day        INTEGER NOT NULL CHECK (day >= 1),
+    rule_id    TEXT NOT NULL,
+    ordinal    INTEGER NOT NULL CHECK (ordinal >= 1),
+    seed       TEXT NOT NULL,
+    message_ts TEXT,
+    PRIMARY KEY (season_id, day, rule_id),
+    UNIQUE (season_id, day, ordinal)
+  );
+
+  CREATE INDEX rule_offers_by_message ON rule_offers (message_ts);
+
+  CREATE TABLE rule_reactions (
+    season_id  TEXT NOT NULL,
+    day        INTEGER NOT NULL CHECK (day >= 1),
+    faction_id TEXT NOT NULL,
+    ordinal    INTEGER NOT NULL CHECK (ordinal >= 1),
+    reacted_at TEXT NOT NULL,
+    PRIMARY KEY (season_id, day, faction_id, ordinal)
+  );
+  `,
 ]
 
 /** Apply any migrations the database has not seen. Safe to call on every boot. */

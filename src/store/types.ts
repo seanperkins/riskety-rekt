@@ -360,3 +360,49 @@ export interface StateStore {
    */
   deleteStatesFrom(seasonId: string, day: number): void
 }
+
+/** One candidate in a day's rule-vote offer. */
+export interface RuleOfferRow {
+  ruleId: string
+  ordinal: number
+  seed: string
+  /** NULL between the claim and the successful Slack post (claim-then-post). */
+  messageTs: string | null
+}
+
+/** One still-present numeral reaction — the RAW record the tally derives from. */
+export interface RuleReactionRow {
+  factionId: FactionId
+  ordinal: number
+  /** ISO instant, via slackTsToIso at write. */
+  reactedAt: string
+}
+
+/**
+ * The daily rule vote's storage. Offers are claim-then-post (the recap
+ * ledger's pattern); reactions are raw events, latest-wins per (faction,
+ * ordinal), deleted on reaction_removed. The derived tally is never stored.
+ */
+export interface RuleVoteStore {
+  /**
+   * Claim the day's draw before posting. Throws on a rule id the catalogue
+   * does not know — nothing arriving over the wire can name a rule.
+   */
+  claimRuleOffers(seasonId: string, day: number, ruleIds: string[], seed: string): void
+  ruleOffersFor(seasonId: string, day: number): RuleOfferRow[]
+  /** Record the posted Slack ts on every one of the day's offer rows. */
+  recordOfferMessage(seasonId: string, day: number, messageTs: string): void
+  /** The ingest's offer-message gate: which day does this ts vote on? */
+  offerForMessage(
+    messageTs: string,
+  ): { seasonId: string; day: number; ordinals: number[] } | undefined
+  recordRuleReaction(r: {
+    seasonId: string
+    day: number
+    factionId: FactionId
+    ordinal: number
+    reactedAt: string
+  }): void
+  removeRuleReaction(seasonId: string, day: number, factionId: FactionId, ordinal: number): void
+  ruleReactionsFor(seasonId: string, day: number): RuleReactionRow[]
+}
