@@ -264,6 +264,24 @@ export const MIGRATIONS: string[] = [
 
   CREATE INDEX login_tokens_by_user ON login_tokens (slack_user_id);
   `,
+  `
+  -- Pluggable mechanics: the season's enabled module set, and the state-shape
+  -- move of GameState.pending into moduleState.markets.pending.
+  --
+  -- The UPDATE is a DATA migration, pinned in the spec because its failure
+  -- mode is severe and silent: a mis-composed rewrite drops pending without
+  -- writing moduleState, parseState then rejects every row, and user_version
+  -- has already advanced — an unbootable database with no rollback. The
+  -- migration test loads a real pre-migration row through this exact SQL.
+  ALTER TABLE seasons ADD COLUMN modules TEXT NOT NULL DEFAULT '["markets","irl","veto"]';
+
+  UPDATE states SET state = json_set(
+    json_remove(state, '$.pending'),
+    '$.moduleState',
+    json_object('markets', json_object('pending', json_extract(state, '$.pending')))
+  )
+  WHERE json_extract(state, '$.pending') IS NOT NULL;
+  `,
 ]
 
 /** Apply any migrations the database has not seen. Safe to call on every boot. */

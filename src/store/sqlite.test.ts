@@ -19,7 +19,8 @@ function fresh() {
 describe("seasons", () => {
   it("round-trips a season", () => {
     const s = fresh()
-    expect(s.season("s1")).toEqual(SEASON)
+    // The read-back carries the modules column, defaulted to all three.
+    expect(s.season("s1")).toEqual({ ...SEASON, modules: ["markets", "irl", "veto"] })
     s.close()
   })
 

@@ -13,6 +13,11 @@ export interface SeasonRow {
   seasonId: string
   startDate: string
   lengthDays: number
+  /**
+   * Enabled module ids, copied into each day's frozen context by the tick.
+   * Absent on write means the all-three default (the column's DEFAULT).
+   */
+  modules?: string[]
 }
 
 /**

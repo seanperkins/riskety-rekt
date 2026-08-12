@@ -1,3 +1,4 @@
+import { deepStrictEqual } from "node:assert"
 import { createRequire } from "node:module"
 import type { DatabaseSync as DatabaseSyncCtor } from "node:sqlite"
 import { MAX_LIVE_TOKENS } from "../auth/token.js"
@@ -158,15 +159,28 @@ export function openStore(
     db.prepare("SELECT 1 FROM states WHERE season_id = ? AND day = ?").get(seasonId, day) !==
     undefined
 
+  const parseModules = (raw: string): string[] => {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed) || parsed.some((m) => typeof m !== "string")) {
+      throw new Error(`seasons.modules is corrupt: ${raw}`)
+    }
+    return parsed as string[]
+  }
+
   const seasonRow = (seasonId: string): SeasonRow => {
     const row = db
-      .prepare("SELECT season_id, start_date, length_days FROM seasons WHERE season_id = ?")
-      .get(seasonId) as { season_id: string; start_date: string; length_days: number } | undefined
+      .prepare(
+        "SELECT season_id, start_date, length_days, modules FROM seasons WHERE season_id = ?",
+      )
+      .get(seasonId) as
+      | { season_id: string; start_date: string; length_days: number; modules: string }
+      | undefined
     if (row === undefined) throw new Error(`unknown season ${seasonId}`)
     return {
       seasonId: row.season_id,
       startDate: row.start_date,
       lengthDays: Number(row.length_days),
+      modules: parseModules(row.modules),
     }
   }
 
@@ -194,16 +208,11 @@ export function openStore(
 
   return {
     season(seasonId: string): SeasonRow | undefined {
-      const row = db
-        .prepare("SELECT season_id, start_date, length_days FROM seasons WHERE season_id = ?")
-        .get(seasonId) as
-        | { season_id: string; start_date: string; length_days: number }
-        | undefined
-      if (row === undefined) return undefined
-      return {
-        seasonId: row.season_id,
-        startDate: row.start_date,
-        lengthDays: Number(row.length_days),
+      try {
+        return seasonRow(seasonId)
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith("unknown season")) return undefined
+        throw err
       }
     },
 
@@ -708,6 +717,17 @@ export function openStore(
      * and roll back rather than overwrite a resolved board.
      */
     saveState(state: GameState, engineVersion: string): void {
+      // moduleState values are module-owned opaque JSON. A value that does not
+      // survive a JSON round-trip (undefined properties, cycles, functions)
+      // would corrupt the season silently — stringify drops what it cannot
+      // represent — so the save refuses instead.
+      try {
+        deepStrictEqual(JSON.parse(JSON.stringify(state.moduleState)), state.moduleState)
+      } catch {
+        throw new Error(
+          `saveState: moduleState does not survive a JSON round-trip for day ${state.day}`,
+        )
+      }
       db.prepare(
         `INSERT INTO states (season_id, day, state, engine_version) VALUES (?, ?, ?, ?)`,
       ).run(state.seasonId, state.day, JSON.stringify(state), engineVersion)
