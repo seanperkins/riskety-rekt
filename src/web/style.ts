@@ -299,6 +299,20 @@ body {
   .lit-own, .lit-hit, .lit-taken, .lit-shield { animation: none; }
 }
 
+/* The wagers sheet. Overlays the whole app rather than sitting in the rail:
+   five markets with their own controls do not fit a 300px column, and on a
+   phone the rail is below the map entirely. */
+.sheet { position: fixed; inset: 0; z-index: 900; background: rgba(4, 12, 18, 0.6);
+  display: grid; place-items: center; padding: 20px; overflow-y: auto; }
+.sheet[hidden] { display: none; }
+.sheet-in { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 20px 22px; max-width: 62ch; width: 100%; max-height: 86vh; overflow-y: auto; }
+.sheet-in .h2 { margin-top: 0; display: flex; align-items: center; justify-content: space-between; }
+ul.wagers { list-style: none; margin: 10px 0 0; padding: 0; }
+ul.wagers .wager { padding: 10px 0; border-top: 1px solid var(--rule); }
+ul.wagers .wager b { font-weight: 650; }
+ul.wagers .wager .hint { display: block; margin-top: 2px; }
+
 /* ---- placing a wager ---- */
 .bet { margin: 6px 0 2px; }
 .bet .chips { margin: 4px 0 4px; }

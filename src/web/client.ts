@@ -1147,6 +1147,161 @@ document.addEventListener("keydown", (e) => {
   undo()
 })
 
+// ---- wagers ----------------------------------------------------------------
+// Folded into the board's client rather than kept as its own page script,
+// because a wager and a deploy draw on the SAME reserve. spent() above has
+// always counted both; a separate page counted wagers alone, so a player could
+// plan deploys here and stake the whole reserve there with neither objecting --
+// and the tick then dropped the deploys, silently, because wagers lock earlier
+// and are senior.
+const WG = window.__RRW__ || { bonus: 1.1, odds: {} }
+
+// Live stakes, read off the panel rather than P.wagers: the player may have
+// changed them since the page loaded and not yet saved.
+function stakedNow() {
+  let total = 0
+  for (const el of document.querySelectorAll("#wagers .stake")) total += Number(el.textContent) || 0
+  return total
+}
+
+// The reserve after deploys AND wagers. P.wagers is what the server last saved;
+// the panel is what is on screen, so the saved figure is swapped out for the
+// live one to avoid counting the same stake twice.
+function reserveLeft() {
+  const savedStakes = P.wagers.reduce((n, w) => n + w.stake, 0)
+  return P.reserve - (spent() - savedStakes) - stakedNow()
+}
+
+function sideOfRow(row) {
+  const on = row.querySelector('.side[aria-pressed="true"]')
+  return on ? on.getAttribute("data-side") : null
+}
+
+/**
+ * What this stake pays if it wins.
+ *
+ * The SAME expression as the engine's payout(), in the same order, against
+ * prices the server already clamped with the engine's own bounds. Written as
+ * (stake / p) * bonus rather than stake * (bonus / p) on purpose: the two
+ * differ in the last bit and can land either side of a round() sitting on .5.
+ */
+function paintPayout(row) {
+  const el = row.querySelector(".payout")
+  if (!el) return
+  const o = WG.odds[row.getAttribute("data-market")]
+  const side = sideOfRow(row)
+  const stake = Number(row.querySelector(".stake").textContent) || 0
+  if (!o || !side || stake <= 0) { el.textContent = ""; return }
+  const win = Math.round((stake / o[side]) * WG.bonus)
+  // Profit as well as the total: "wins 9" on a stake of 5 reads as either 9
+  // back or 14 back until you say which.
+  el.textContent = "wins " + win + " (+" + (win - stake) + ")"
+}
+
+function paintWagers() {
+  const left = reserveLeft()
+  const none = left <= 0
+  for (const b of document.querySelectorAll('#wagers .step[data-delta="1"]')) b.disabled = none
+  for (const row of document.querySelectorAll("#wagers .bet")) paintPayout(row)
+  const el = $("wagers-left")
+  if (el) el.textContent = String(left)
+}
+
+function betState(row, text, bad) {
+  const el = row.querySelector(".bet-state")
+  if (!el) return
+  el.textContent = text
+  el.className = "hint bet-state" + (bad ? " save bad" : "")
+}
+
+function saveWager(row) {
+  const marketId = row.getAttribute("data-market")
+  const stake = Number(row.querySelector(".stake").textContent) || 0
+  const side = sideOfRow(row)
+  // A stake of zero is not a wager and there is no delete endpoint, so say so
+  // rather than posting something the server would refuse.
+  if (stake <= 0) return betState(row, side ? "pick a stake" : "", false)
+  if (!side) return betState(row, "pick a side", false)
+  betState(row, "saving...", false)
+  fetch("/api/wager", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ marketId: marketId, side: side, stake: stake }),
+  })
+    .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b } }) })
+    .then(function (res) {
+      if (!res.ok) return betState(row, res.body && res.body.reason ? res.body.reason : "not saved", true)
+      betState(row, "saved", false)
+      // Adopt the saved stake so the shared reserve stops double-counting it.
+      const existing = P.wagers.filter(function (w) { return w.marketId !== marketId })
+      existing.push({ marketId: marketId, side: side, stake: stake, firstStakedAt: "" })
+      P.wagers = existing
+      render()
+    })
+    .catch(function () { betState(row, "not saved -- offline?", true) })
+}
+
+const sheet = $("wagers")
+if (sheet) {
+  const open = (on) => {
+    sheet.hidden = !on
+    // Bookmarkable: #wager reopens it on load. replaceState rather than a hash
+    // assignment so closing it does not stack history entries you must press
+    // back through.
+    // window.history, NOT history: this file declares its own history array
+    // for undo (see MAX_UNDO), which shadows the global. Bare
+    // history.replaceState is undefined here, and the resulting throw left the
+    // sheet open with the URL untouched -- and killed the deep-link line at
+    // the end of this block, so #wager did not reopen it either.
+    window.history.replaceState(null, "", on ? "#wager" : location.pathname)
+    if (on) paintWagers()
+  }
+  $("btn-wagers").addEventListener("click", () => open(true))
+  $("wagers-close").addEventListener("click", () => open(false))
+  sheet.addEventListener("click", (e) => { if (e.target === sheet) open(false) })
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden) open(false) })
+
+  sheet.addEventListener("click", function (e) {
+    const btn = e.target.closest ? e.target.closest("button") : null
+    if (!btn) return
+    const row = btn.closest ? btn.closest(".bet") : null
+    if (!row) return
+
+    if (btn.classList.contains("side")) {
+      const already = btn.getAttribute("aria-pressed") === "true"
+      for (const t of row.querySelectorAll(".side")) t.removeAttribute("aria-pressed")
+      // Tapping the chosen side again clears it -- the only way to say "not
+      // decided" once you have touched the row.
+      if (!already) btn.setAttribute("aria-pressed", "true")
+      paintWagers()
+      saveWager(row)
+      return
+    }
+
+    if (btn.classList.contains("step")) {
+      const out = row.querySelector(".stake")
+      const delta = Number(btn.getAttribute("data-delta"))
+      // Never past the reserve, counting deploys too. Raising it further would
+      // commit soldiers that do not exist.
+      if (delta > 0 && reserveLeft() <= 0) return
+      out.textContent = String(Math.max(0, (Number(out.textContent) || 0) + delta))
+      paintWagers()
+      render()
+      // Debounced: holding + would post once per tap, and each post re-prices.
+      clearTimeout(row.__t)
+      row.__t = setTimeout(function () { saveWager(row) }, 450)
+    }
+  })
+
+  // On load, and on any later hash change. The second is not redundant:
+  // following a #wager link from within the page is a SAME-DOCUMENT
+  // navigation, so the script does not re-run and only this event fires.
+  const syncToHash = () => open(location.hash === "#wager")
+  window.addEventListener("hashchange", syncToHash)
+  if (location.hash === "#wager") open(true)
+  paintWagers()
+}
+
 P.loadedAt = Date.now()
 setInterval(() => { $("countdown").textContent = countdown() }, 30000)
 

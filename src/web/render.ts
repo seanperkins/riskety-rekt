@@ -4,7 +4,6 @@ import type { LatLon } from "../map/coords.js"
 import { edges, focusRegion, project, regionStats } from "./projection.js"
 import { CLIENT } from "./client.js"
 import { REPLAY } from "./replay.js"
-import { WAGERS } from "./wagers-client.js"
 import { STYLE } from "./style.js"
 import type { Projection } from "./projection-data.js"
 import type { Replay } from "./replay-data.js"
@@ -173,7 +172,13 @@ export function renderRules(): string {
   </ul>
 
   <h2>Wagers</h2>
+  <p>Press <strong>Wagers</strong> on the board for the day's markets. Pick a side, set
+    a stake, and it saves as you go — the page shows what a win pays before you
+    commit.</p>
   <ul>
+    <li><strong>Wagers and soldiers share one reserve.</strong> A stake you commit to a
+      market is not available to deploy, and the board counts both against the same
+      number.</li>
     <li><strong>One wager per market</strong>, per player. Backing both sides of the
       same market would be a guaranteed profit, so it is not allowed.</li>
     <li>A wager is priced <strong>when you place it</strong>, not at the tick. Changing
@@ -496,7 +501,7 @@ function standings(p: Projection): string {
     </details>`
 }
 
-export function renderBoard(p: Projection): string {
+export function renderBoard(p: Projection, now: Date = new Date()): string {
   const me = p.factions.find((f) => f.id === p.factionId)
   return page(
     `Riskety Rekt — day ${p.day}`,
@@ -541,6 +546,9 @@ export function renderBoard(p: Projection): string {
            all season is an affordance that leads nowhere. -->
       <button id="btn-protect" class="chip"${vetoState(p).canVeto ? "" : " hidden"}>Protect</button>
       <button id="btn-undo" class="chip">Undo</button>
+      <!-- Hidden rather than omitted for a markets-off season, same reason as
+           Protect: the client wires it by id and a missing node would throw. -->
+      <button id="btn-wagers" class="chip"${p.modules.includes("markets") ? "" : " hidden"}>Wagers</button>
     </div>
     <p class="hint" id="flash"></p>
 
@@ -558,9 +566,10 @@ export function renderBoard(p: Projection): string {
       an enemy to attack it, one of yours to reinforce it. Orders save as you make
       them and lock at 21:00, when <strong>everyone resolves at once</strong>; nobody
       moves first.
-      ${p.modules.includes("markets") ? `<a href="/wagers">Wagers</a> · ` : ""}<a href="/day/${esc(p.day)}">Last night</a> · <a href="/rules">How this works</a></p>
+      <a href="/day/${esc(p.day)}">Last night</a> · <a href="/rules">How this works</a></p>
   </aside>
 </div>
+${wagersPanel(p, now)}
 <script>window.__RR__ = ${JSON.stringify(p).replace(/</g, "\\u003c")}</script>
 <script src="/vendor/leaflet.js"></script>
 <script>${CLIENT}</script>`,
@@ -568,16 +577,21 @@ export function renderBoard(p: Projection): string {
 }
 
 /**
- * Today's slate.
+ * The wagers panel: today's slate, as an overlay on the board.
  *
- * A market locks at `min(closeTime, settlement observed_at)` — `can_close_early`
- * means an outcome can be public hours before the stated close. A locked market
- * renders locked, with the reason, rather than taking a stake the server will
- * refuse.
+ * It was its own page, and that was the wrong shape for one reason above the
+ * rest: a wager and a deploy draw on the SAME reserve, and only the board knew
+ * it. The board has always counted both (see `spent` in the client) and warned
+ * that wagers are senior when the two collide. A separate page counted wagers
+ * alone, so a player could plan deploys here and stake the whole reserve there,
+ * and neither page objected -- the tick then dropped the deploys, silently.
+ * One page, one reserve, one calculation.
+ *
+ * No new data was needed: the board's projection already carried `slate` and
+ * the viewer's own `wagers`.
  */
-export function renderWagers(p: Projection, now: Date): string {
-  // Reachable only for a markets-on season — the route 404s otherwise — so
-  // the absent-field case is a server bug, not a render case.
+function wagersPanel(p: Projection, now: Date): string {
+  if (!p.modules.includes("markets")) return ""
   const staked = new Map((p.wagers ?? []).map((w) => [w.marketId, w]))
   const rows = (p.slate ?? [])
     .map((m) => {
@@ -591,80 +605,46 @@ export function renderWagers(p: Projection, now: Date): string {
             mine === undefined ? "" : ` · you staked ${esc(mine.stake)} on ${esc(mine.side)}`
           }</p>`
         : `<div class="bet" data-market="${esc(m.id)}">
-      <div class="chips">
-        <button class="chip side" data-side="yes"${mine?.side === "yes" ? ' aria-pressed="true"' : ""}>yes ${esc(m.priceYes)}</button>
-        <button class="chip side" data-side="no"${mine?.side === "no" ? ' aria-pressed="true"' : ""}>no ${esc(m.priceNo)}</button>
-      </div>
-      <div class="stakerow">
-        <button class="chip step" data-delta="-1" aria-label="one fewer">−</button>
-        <output class="stake">${esc(mine?.stake ?? 0)}</output>
-        <button class="chip step" data-delta="1" aria-label="one more">+</button>
-        <span class="hint payout"></span>
-        <span class="hint bet-state"></span>
-      </div>
-    </div>`
-      return `<tr><td>${esc(m.question)}
+          <div class="chips">
+            <button class="chip side" data-side="yes"${mine?.side === "yes" ? ' aria-pressed="true"' : ""}>yes ${esc(m.priceYes)}</button>
+            <button class="chip side" data-side="no"${mine?.side === "no" ? ' aria-pressed="true"' : ""}>no ${esc(m.priceNo)}</button>
+          </div>
+          <div class="stakerow">
+            <button class="chip step" data-delta="-1" aria-label="one fewer">−</button>
+            <output class="stake">${esc(mine?.stake ?? 0)}</output>
+            <button class="chip step" data-delta="1" aria-label="one more">+</button>
+            <span class="hint payout"></span>
+            <span class="hint bet-state"></span>
+          </div>
+        </div>`
+      return `<li class="wager"><b>${esc(m.question)}</b>
         <span class="hint">closes ${at} UTC</span>
-        ${control}</td></tr>`
+        ${control}</li>`
     })
     .join("")
 
-  // The engine's own clamp, applied here rather than in the browser, so the
+  // The engine's own clamp, applied HERE rather than in the browser, so the
   // payout a player is shown and the payout they are paid come from one place.
-  // The client multiplies and rounds in the same expression order `payout` uses,
-  // which matters: (stake / p) * bonus and stake * (bonus / p) can differ in the
-  // last bit and flip a round() sitting exactly on .5.
-  const clamp = (p: number): number => Math.min(PRICE_CEIL, Math.max(PRICE_FLOOR, p))
+  const clamp = (q: number): number => Math.min(PRICE_CEIL, Math.max(PRICE_FLOOR, q))
   const odds = Object.fromEntries(
     (p.slate ?? []).map((m) => [m.id, { yes: clamp(m.priceYes), no: clamp(m.priceNo) }]),
   )
 
-  return page(
-    "Riskety Rekt — wagers",
-    `<div class="wrap"><div class="stage" style="display:grid;place-items:center;padding:26px">
-      <div class="doc" style="max-width:46ch">
-        <h1>How a wager works</h1>
-        <p class="lede">Pick a side, set a stake, and it saves as you go.</p>
-        <p>Your soldiers stay in the reserve until the tick runs — a stake is a
-          commitment, not a payment. Win and they come back with interest; lose and
-          they are gone.</p>
-        <p>The price is fixed at the moment you place the wager, so later drift in
-          the odds does not change what you are owed. Change your stake and it
-          re-prices at the odds showing then.</p>
-        <p><strong>One wager per market.</strong> Backing both sides would be a
-          guaranteed profit, so picking the other side replaces your bet rather
-          than adding a second.</p>
-      </div>
+  return `<div id="wagers" class="sheet" hidden>
+    <div class="sheet-in">
+      <h2 class="h2">Today's slate <button id="wagers-close" class="chip">Done</button></h2>
+      <p class="hint">One wager per market. Your stake leaves the reserve at the tick —
+        win and it comes back with interest, lose and it is gone. The price is fixed
+        when you place it.</p>
+      <ul class="wagers">${rows === "" ? `<li class="hint">No slate published yet.</li>` : rows}</ul>
+      <p class="note">A market locks at its close time, or as soon as its outcome is
+        public — whichever comes first. That is usually well before 21:00, so a wager
+        is not something you can leave until the evening.</p>
     </div>
-    <aside class="rail">
-      <h1 class="title">Wagers</h1>
-      <p class="sub">Day ${esc(p.day)} · <span id="reserve">${esc(p.reserve)}</span> in reserve</p>
-      <h2 class="h2">Today's slate</h2>
-      <table class="t"><tbody>${
-        rows === "" ? `<tr><td class="hint">No slate published yet.</td></tr>` : rows
-      }</tbody></table>
-      <p class="note">A market locks at its close time, or as soon as its
-        outcome is public — whichever comes first. That is usually well before
-        21:00, so a wager is not something you can leave until the evening.
-        <a href="/">Board</a> · <a href="/rules">How this works</a></p>
-    </aside></div>
-<script>window.__RRW__ = ${JSON.stringify({ reserve: p.reserve, bonus: HOUSE_BONUS, odds }).replace(/</g, "\\u003c")}</script>
-<script>${WAGERS}</script>`,
-  )
+  </div>
+<script>window.__RRW__ = ${JSON.stringify({ bonus: HOUSE_BONUS, odds }).replace(/</g, "\\u003c")}</script>`
 }
 
-/**
- * The night replayed.
- *
- * Recomputes NOTHING. The log is animated against two known states — day N-1
- * and day N, both already persisted — because replaying events forward would be
- * a second implementation of the engine's bookkeeping, and it would drift until
- * the picture and the game disagreed.
- *
- * Income, IRL grants and settled wagers collapse into one opening summary:
- * every source of soldiers arriving in the bank, so the game reads as one
- * system rather than two.
- */
 /**
  * The night, animated on the board.
  *

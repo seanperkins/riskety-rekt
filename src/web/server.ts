@@ -19,7 +19,7 @@ import { createRequire } from "node:module"
 import { currentDay, tickInstant } from "../season.js"
 import { projectionFor } from "./projection-data.js"
 import { replayFor } from "./replay-data.js"
-import { esc, page, renderBoard, renderMap, renderReplay, renderRules, renderWagers } from "./render.js"
+import { esc, page, renderBoard, renderMap, renderReplay, renderRules } from "./render.js"
 import { sessionFactionFor } from "./session.js"
 import { parseOrderBody, parseWagers } from "../jobs/order-entry.js"
 
@@ -338,49 +338,6 @@ export function createWebServer(deps: WebDeps): Server {
       return
     }
 
-    if (path === "/wagers") {
-      // Absent, not hidden: a markets-off season has no wagers page at all.
-      const gateSeason = deps.store.season(deps.seasonId)
-      if (gateSeason !== undefined && !(gateSeason.modules ?? ["markets"]).includes("markets")) {
-        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
-        res.end("not found\n")
-        return
-      }
-      if (faction === undefined) {
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
-        res.end(req.method === "HEAD" ? undefined : signInPage())
-        return
-      }
-      const season = deps.store.season(deps.seasonId)
-      const day = season === undefined ? 1 : Math.max(1, currentDay(season, now))
-      const state = deps.store.loadState(deps.seasonId, day - 1)
-      if (season === undefined || state === undefined) {
-        res.writeHead(503, { "content-type": "text/html; charset=utf-8" })
-        res.end(page("Not dealt", `<div class="rail"><h1 class="title">No board yet</h1></div>`))
-        return
-      }
-      const html = renderWagers(
-        projectionFor({
-          state,
-          day,
-          factionId: faction,
-          plan: deps.store.orderFor(deps.seasonId, day, faction) ?? {
-            deploys: [],
-            attacks: [],
-            protect: null,
-          },
-          wagers: deps.store.wagersFor(deps.seasonId, day, faction),
-          slate: deps.store.loadSlate(deps.seasonId, day),
-          modules: season.modules ?? ["markets", "irl", "veto"],
-          tickAt: tickInstant(season, day),
-          now,
-        }),
-        now,
-      )
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-      res.end(req.method === "HEAD" ? undefined : html)
-      return
-    }
 
     if (path.startsWith("/day/")) {
       const day = Number(path.slice("/day/".length))

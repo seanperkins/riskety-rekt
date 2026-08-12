@@ -159,9 +159,18 @@ describe("the client script", () => {
         docEvents.push(type)
       },
     }
+    const winEvents: string[] = []
     const win: Record<string, unknown> = {
       __RR__: projection(),
       location: { search: "" },
+      // The wagers sheet syncs to the URL hash: opening it sets #wager, and a
+      // same-document navigation to that hash fires only this event, never a
+      // reload. Recorded so the wiring is asserted rather than merely survived.
+      __events: winEvents,
+      addEventListener(type: string) {
+        winEvents.push(type)
+      },
+      history: { replaceState() {} },
       URLSearchParams: URLSearchParams,
       prompt: () => null,
       setInterval: () => 0,
@@ -221,6 +230,14 @@ describe("the client script", () => {
       "undo is wired",
     ).toContain("click")
     expect(docEvents, "Cmd+Z / Ctrl+Z reaches undo").toContain("keydown")
+    expect(
+      winEvents,
+      "the wagers sheet follows the URL hash, so a #wager link opens it without a reload",
+    ).toContain("hashchange")
+    expect(
+      (byId.get("btn-wagers")?.["__events"] ?? []) as string[],
+      "the Wagers button opens the sheet",
+    ).toContain("click")
     expect(
       (byId.get("atk-ok")?.["__events"] ?? []) as string[],
       "the attack panel's Okay commits",

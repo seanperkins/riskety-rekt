@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest"
 import { HOUSE_BONUS, PRICE_CEIL, PRICE_FLOOR, payout } from "../engine/index.js"
-import { WAGERS } from "./wagers-client.js"
+import { CLIENT } from "./client.js"
 
-describe("the wagers script", () => {
-  it("parses", () => {
-    // A stray backtick or dollar-brace in a comment ends the template literal.
-    // It has shipped twice in this codebase.
-    expect(() => new Function("window", "document", WAGERS)).not.toThrow()
+describe("the wagers panel", () => {
+  it("lives in the board's client, not its own page script", () => {
+    // Merged deliberately: a wager and a deploy draw on the same reserve, and
+    // only one script can hold one number. Two scripts meant two reserve
+    // calculations, and the standalone page's copy was the wrong one.
+    expect(CLIENT).toContain("reserveLeft")
+    expect(CLIENT).toContain("/api/wager")
+  })
+
+  it("caps the stepper against deploys as well as wagers", () => {
+    // reserveLeft subtracts spent() -- which counts deploys -- rather than the
+    // stakes alone. Without that a player could plan deploys on the board and
+    // stake the whole reserve in the panel, and the tick would drop the deploys.
+    expect(CLIENT).toMatch(/reserveLeft[\s\S]{0,400}spent\(\)/)
   })
 })
 

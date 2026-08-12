@@ -39,20 +39,40 @@ describe("the projection", () => {
     expect(p.plan.protect).toBe("peru")
   })
 
+  /**
+   * The serialized projection only. The client script is inlined into the page
+   * and legitimately contains the word "wagers" all over — a whole-document
+   * check reports a leak on every board.
+   */
+  const payloadOf = (html: string) =>
+    html.slice(html.indexOf("window.__RR__"), html.indexOf("</script>", html.indexOf("window.__RR__")))
+
   it("a markets-off season carries NO wagers or slate keys — absent, not empty", () => {
     const p = project({ modules: ["irl", "veto"] })
     expect("wagers" in p).toBe(false)
     expect("slate" in p).toBe(false)
-    // And the serialized page carries neither key nor the /wagers link — a
-    // dead link to a 404 is exactly the ghost UI the sweep exists to prevent.
-    const html = renderBoard(p)
-    expect(html).not.toContain('"wagers"')
-    expect(html).not.toContain('"slate"')
-    expect(html).not.toContain('href="/wagers"')
+    const payload = payloadOf(renderBoard(p))
+    expect(payload).not.toContain('"wagers"')
+    expect(payload).not.toContain('"slate"')
   })
 
-  it("a markets-on season keeps the wagers link", () => {
-    expect(renderBoard(project())).toContain('href="/wagers"')
+  it("a markets-off season offers no way to wager — absent, not dead", () => {
+    // The panel and its odds payload are gone entirely, and the button that
+    // opens it is hidden. A control that opens an empty sheet is ghost UI.
+    const html = renderBoard(project({ modules: ["irl", "veto"] }))
+    expect(html).not.toContain('id="wagers"')
+    // The ASSIGNMENT, not the identifier: the client reads window.__RRW__ with
+    // a fallback, so the name is in the script either way. What must be absent
+    // is the odds payload the panel emits.
+    expect(html).not.toMatch(/__RRW__\s*=/)
+    expect(html).toMatch(/id="btn-wagers"[^>]*\shidden/)
+  })
+
+  it("a markets-on season ships the panel and the button that opens it", () => {
+    const html = renderBoard(project())
+    expect(html).toContain('id="wagers"')
+    expect(html).toMatch(/__RRW__\s*=/)
+    expect(html).toMatch(/id="btn-wagers"(?![^>]*\shidden)/)
   })
 
   it("carries public ownership and garrisons", () => {
