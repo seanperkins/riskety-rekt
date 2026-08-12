@@ -28,6 +28,7 @@ npm run publish-slate                         # the 08:00 job
 npm run poll-settlements                      # the 30-minute settlement job
 npm run poll-prices                           # the 30-minute price job
 npm run tick                                  # the 21:00 job
+npm run modules:set -- markets irl veto       # mid-season module change; refuses while escrow > 0
 npm run order -- f1 --file order.json         # or --stdin; never a shell argument
 npm run wager -- f1 --file wager.json
 npm run recap -- 5 --force                    # re-post a recap the ledger suppressed
@@ -68,7 +69,15 @@ both landing in SQLite hours earlier. A Kalshi outage at 20:59 cannot stall the
 season. Keep new work on that side of the line.
 
 **Everything is one function**: `resolve(state, orders, context) → GameState`.
-Seven steps, with order validation deliberately sitting *after* steps 1–3.
+The pipeline is grant → claims → **allocate** (all reserve spends, by ascending
+parsed `lockedAt` — wagers lock at their market's close, deploys at the tick,
+so the earlier commitment is senior) → locks → movement validation → combat →
+advance. Mechanics are modules (`src/engine/modules/`) dispatched through the
+`Mechanic` hook contract (`src/engine/mechanics.ts`); a season's set lives in
+`seasons.modules` and is frozen into each day's context. Order validation still
+deliberately sits *after* the grant phase — income earned this tick is
+spendable this tick — and movement caps sit after allocation, so a dropped
+deploy shrinks the attack cap it fed.
 
 **The tick's claim, resolve and save are ONE transaction.** There is no lock
 table, and adding one back would reintroduce the ambiguity it was removed for:
@@ -161,11 +170,19 @@ that seems obviously right — it may already have been considered and declined.
 
 What is left before a competitive season:
 
-- **Pluggable mechanics.** Draft at
-  `docs/superpowers/specs/2026-08-10-pluggable-mechanics-design.md`. It changes
-  `GameState` (`pending` → `moduleState`), which regenerates the golden file,
-  and reorders spend claims, which changes combat outcomes and needs a fresh
-  balance run.
+- **The rule catalogue + voting** — the second half of
+  `docs/superpowers/specs/2026-08-10-pluggable-mechanics-design.md` (the
+  module system core is BUILT: `src/engine/mechanics.ts`, `src/engine/modules/`,
+  the allocation pipeline, `moduleState`, `seasons.modules`, `modules:set`).
+  Remaining: the `Rule` interface with `needs`, the three traced rules,
+  `rule_offers`/`rule_reactions` + the Slack vote branch, the freeze of
+  `ctx.rules`, and the per-rule bounded-swing balance gate.
+- **A fresh look at snowballing.** The 2026-08-11 balance run
+  (`docs/superpowers/reviews/2026-08-11-balance-run-modules.md`) found the
+  module system behavior-identical to main — and found main itself drifted:
+  the troop-movement feature pushed Consolidator to 27.7% and day-3 leader
+  conversion to 39%, and the 2026-08-10 balance doc describes the pre-moves
+  game.
 
 ## Docs
 
@@ -174,7 +191,8 @@ What is left before a competitive season:
 | `docs/superpowers/specs/2026-08-09-riskety-rekt-design.md` | The spec. Every rule, and why it is that rule. |
 | `HANDOFF.md` | Current state and the full list of rules a newcomer gets wrong |
 | `docs/superpowers/reviews/2026-08-09-balance-run.md` | Superseded — the original policy/economy run |
-| `docs/superpowers/reviews/2026-08-10-balance-run-world.md` | **Current.** Balance on selected world boards, incl. the first 15-faction run |
+| `docs/superpowers/reviews/2026-08-10-balance-run-world.md` | Superseded — describes the pre-troop-movement game |
+| `docs/superpowers/reviews/2026-08-11-balance-run-modules.md` | **Current.** 10k-season run; module system verified behavior-identical; the snowballing finding |
 | `docs/superpowers/reviews/2026-08-10-balance-run-14day.md` | Superseded — the 21-vs-14 day measurement behind `SEASON_LENGTH` |
 | `docs/map-rendering.md` | The pane stack, what the shape build generates, and the rendering traps that cost a day |
 | `docs/superpowers/plans/` | Each carries a "Spec deltas" section recording where reality corrected the design |

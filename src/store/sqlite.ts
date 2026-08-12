@@ -595,8 +595,10 @@ export function openStore(
         const price = wager.side === "yes" ? priceRow?.yes : priceRow?.no
 
         // first_staked_at is deliberately absent from the DO UPDATE list: it
-        // anchors the ordering of the sequential-greedy reserve check, and
-        // letting a re-stake move it would hand the player that lever.
+        // is immovable on re-stake. Claim seniority now orders by lockedAt
+        // (the market's close) in the engine's allocation phase, so this
+        // anchors only the assembled order's wager listing — kept immovable
+        // anyway so nothing player-controlled ever reorders anything.
         db.prepare(
           `INSERT INTO order_wagers
              (season_id, day, faction_id, market_id, side, stake, first_staked_at, price)

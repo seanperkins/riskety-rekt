@@ -1,6 +1,6 @@
 # Riskety Rekt — Handoff
 
-**Last updated:** 2026-08-09 · **Branch:** `main` · **State:** engine + simulator + market adapter + Slack ingress complete, no tick runner or web UI
+**Last updated:** 2026-08-11 · **Branch:** `main` · **State:** everything through the pluggable-mechanics module system; the rule catalogue + voting remain
 
 A Risk-like conquest game for a private group of friends. One tick per day, orders
 resolved simultaneously. Reinforcements come from two places beyond territory income:
@@ -26,18 +26,24 @@ variance, with uncertainty players can actually reason about.
 ## Current state
 
 **Done:** the pure rules engine, the offline season simulator, the Kalshi market
-adapter with its slate publisher and settlement poller, the Slack ingress with its
-recap and slate renderers, and the 21:00 tick runner with `season-init`, `tick:rerun`,
-the recap ledger and CLI order entry. **646 tests passing**, none of which touch the
-network — `test/no-network.ts` replaces `fetch` in every run, so it is enforced.
+adapter with its slate publisher and settlement/price pollers, the Slack ingress with
+its recap and slate renderers, the 21:00 tick runner with `season-init`, `tick:rerun`,
+the recap ledger and CLI order entry, the world map (264 territories from Natural
+Earth) with roster-sized board selection, session auth via `/login`, the player web
+app (Leaflet board, autosaving orders, wagers page, nightly replay), the wager
+stale-price fix (priced at placement; bounded +16% residual documented in the payout
+clamp), and the **pluggable-mechanics module system**: markets/irl/veto as engine
+modules, the seniority allocation phase (the deploy-inflation fix),
+`GameState.moduleState`, the `seasons.modules` column with migration and
+`modules:set`, module-off gating across jobs/web/Slack, and the departure-cost
+combat dial. **759 tests passing**, none of which touch the network —
+`test/no-network.ts` replaces `fetch` in every run, so it is enforced.
 
-**Also done:** the world map (264 territories from Natural Earth), board selection sized
-to the roster, session auth via a `/login` slash command, and the player web app —
-a Leaflet board you act on, autosaving orders, a wagers page and a nightly replay.
-
-**Not built:** the wager economy's stale-price fix. Late placement at the frozen 08:00
-price is roughly +94% EV, and it is the one thing that still clearly blocks a
-competitive season.
+**Not built:** the rule catalogue + voting (the second half of the
+pluggable-mechanics spec): the `Rule` interface, three traced rules,
+`rule_offers`/`rule_reactions` with the Slack vote branch, and the per-rule
+bounded-swing balance gate. See CLAUDE.md's "Not built" for the snowballing
+finding the 2026-08-11 balance run surfaced.
 
 ```bash
 npm install

@@ -1,4 +1,8 @@
 > Generated: 2026-08-10 | Token-lean format for LLM context
+> STALE (2026-08-11): predates the pluggable-mechanics module system — the
+> pipeline is now grant/claims/allocate/locks/validate/combat/advance, pending
+> lives in moduleState.markets, and mechanics are src/engine/modules/. Trust
+> CLAUDE.md and the code until /update-codemaps regenerates this file.
 
 # Data — types, schema, constants
 
