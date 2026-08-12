@@ -301,7 +301,14 @@ body {
 
 .rp-controls { margin-top: 10px; }
 .chip.on { background: var(--accent); border-color: var(--accent); color: var(--ground); font-weight: 650; }
-.rp-steps { list-style: none; margin: 0; padding: 0; max-height: 34vh; overflow-y: auto;
+/* Tall enough to hold context either side of the playing beat: a peephole that
+   scrolls constantly never tells you where you are in the night.
+   min-height is the load-bearing one. .rail is a flex COLUMN, and a flex item
+   that scrolls its own overflow is free to shrink to nothing when the column is
+   full -- which it was, so this collapsed to a single visible line and no
+   max-height could have stopped it. */
+.rp-steps { list-style: none; margin: 0; padding: 0;
+  flex: 1 1 auto; min-height: 34vh; max-height: 52vh; overflow-y: auto;
   font-size: 12px; color: var(--muted); }
 .rp-steps .prow { padding: 3px 0; border: 0; opacity: .55; }
 .rp-steps .prow.done { opacity: .8; }

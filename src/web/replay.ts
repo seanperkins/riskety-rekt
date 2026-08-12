@@ -33,8 +33,12 @@ const map = L.map("map", {
   zoomControl: true, attributionControl: false, worldCopyJump: false,
   zoomSnap: 0, scrollWheelZoom: true, zoomDelta: 0.5,
 })
-map.createPane("backdrop").style.zIndex = 350
-map.createPane("bridges").style.zIndex = 450
+// The SAME z-indices the board uses, and they are not arbitrary: territories
+// live in Leaflet's default overlayPane at 400, so bridges must sit UNDER that
+// or every sea link is drawn across the countries it connects. Getting this
+// wrong looks like a rendering glitch and is really a stacking order.
+map.createPane("backdrop").style.zIndex = 200
+map.createPane("bridges").style.zIndex = 350
 
 for (const id of Object.keys(R.offBoard || {})) {
   const rings = R.offBoard[id] || []

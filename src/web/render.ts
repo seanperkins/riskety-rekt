@@ -653,11 +653,14 @@ export function renderReplay(r: Replay): string {
     </div>
     <p class="hint" id="progress"></p>
 
-    <h2 class="h2">Soldiers arriving</h2>
-    <table class="t"><tbody id="bank"></tbody></table>
-
+    <!-- The transcript leads. It is the thing being played, and it scrolls
+         itself to the current beat, so burying it under a static table put the
+         one moving part of the page below the fold. -->
     <h2 class="h2">The night, step by step</h2>
     <ol id="steps" class="rp-steps"></ol>
+
+    <h2 class="h2">Soldiers arriving</h2>
+    <table class="t"><tbody id="bank"></tbody></table>
 
     <p class="note">Every number here is the one the engine recorded.
       <button id="btn-skip" class="chip">Skip to the board →</button></p>
