@@ -187,19 +187,31 @@ Create the app at api.slack.com/apps with these bot scopes:
 | `channels:history` | read `message` events in the public game channel |
 | `reactions:read` | read `reaction_added` / `reaction_removed` |
 | `chat:write` | post the slate, the recap, and the daily rule offer |
+| `reactions:write` | pre-seed the rule offer's numeral ballot (OPTIONAL — see below) |
 
 Subscribe to these bot events: `message.channels`, `reaction_added`,
 `reaction_removed`. Point the Request URL at `https://<host>/slack/events` —
 Bolt's default path.
 
-**The daily rule vote needs no additional scopes or subscriptions.** It rides
-the same `reaction_added` / `reaction_removed` events approvals already use —
-the ingest branches on the emoji, routing numerals (`:one:`…`:nine:`) to the
-day's offer message and 👍 to workout posts. The one thing it does NOT do is
-pre-seed the numeral reactions on the offer, which would need
-`reactions:write`; players add their own. If that is ever added, note that the
-bot's own reactions are harmless — the bot user is not on the roster, so
-`factionForSlackUser` drops them.
+**The daily rule vote needs no additional event subscriptions.** It rides the
+same `reaction_added` / `reaction_removed` events approvals already use — the
+ingest branches on the emoji, routing numerals (`:one:`…`:nine:`) to the day's
+offer message and 👍 to workout posts.
+
+`reactions:write` is the one **optional** scope in this table. With it the
+offer job pre-seeds `:one:` `:two:` `:three:` on its own message, so voting is
+one tap. Without it every seeding call fails, the job logs a line per numeral
+and carries on — the offer is still posted, recorded and votable, and players
+add the numeral themselves. Nothing about the tally changes either way, and
+the bot's own reactions never count: the bot user is not on the roster, so
+`factionForSlackUser` drops them at ingest.
+
+To check what the live token actually holds, without side effects:
+
+```bash
+curl -sD- -o/dev/null -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+  https://slack.com/api/auth.test | grep -i '^x-oauth-scopes'
+```
 
 **Event Subscriptions can only be saved once that endpoint is live.** Slack
 POSTs a `url_verification` challenge when the URL is entered and refuses to save

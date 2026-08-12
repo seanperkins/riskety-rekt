@@ -18,7 +18,17 @@ function setup(over: { lengthDays?: number } = {}) {
 
 const okPoster = (ts = "1756758000.000100") => {
   const post = vi.fn(async (_m: SlackMessage) => ts)
-  return { post }
+  const react = vi.fn(async (_ts: string, _emoji: string) => {})
+  return { post, react }
+}
+
+/** A poster whose reaction seeding always fails — the missing-scope case. */
+const noReactPoster = (ts = "1756758000.000100") => {
+  const post = vi.fn(async (_m: SlackMessage) => ts)
+  const react = vi.fn(async (_ts: string, _emoji: string) => {
+    throw new Error("missing_scope")
+  })
+  return { post, react }
 }
 
 describe("runPublishRules", () => {
@@ -81,6 +91,48 @@ describe("runPublishRules", () => {
     b.close()
   })
 
+  it("pre-seeds the ballot with one numeral per candidate, in order", async () => {
+    const store = setup()
+    const poster = okPoster()
+    await runPublishRules({ store, seasonId: "s1", now: NOW, poster })
+    expect(poster.react.mock.calls.map((c) => c[1])).toEqual(["one", "two", "three"])
+    // Always against the message that was just posted.
+    for (const call of poster.react.mock.calls) expect(call[0]).toBe("1756758000.000100")
+    store.close()
+  })
+
+  it("a missing reactions:write scope costs the ballot nothing", async () => {
+    // The seeding is strictly cosmetic. If the scope is absent every react()
+    // throws, and the offer must still be posted, recorded and votable —
+    // players just add the numeral themselves.
+    const store = setup()
+    const poster = noReactPoster()
+    const out = await runPublishRules({ store, seasonId: "s1", now: NOW, poster })
+
+    expect(out).toMatchObject({ status: "posted", day: 3 })
+    expect(poster.react).toHaveBeenCalledTimes(3) // every one attempted, none fatal
+    const offers = store.ruleOffersFor("s1", 3)
+    expect(offers).toHaveLength(RULES_PER_OFFER)
+    expect(offers.every((o) => o.messageTs === "1756758000.000100")).toBe(true)
+    store.close()
+  })
+
+  it("seeds only AFTER the message ts is recorded", async () => {
+    // Ordering is load-bearing: the vote works the moment the ts is stored, so
+    // recording must not sit behind a call that can fail.
+    const store = setup()
+    const seen: (string | null)[] = []
+    const poster = {
+      post: vi.fn(async (_m: SlackMessage) => "1756758000.000100"),
+      react: vi.fn(async (_ts: string, _emoji: string) => {
+        seen.push(store.ruleOffersFor("s1", 3)[0]!.messageTs)
+      }),
+    }
+    await runPublishRules({ store, seasonId: "s1", now: NOW, poster })
+    expect(seen).toEqual(Array(3).fill("1756758000.000100"))
+    store.close()
+  })
+
   it("skips a second run — already posted", async () => {
     const store = setup()
     await runPublishRules({ store, seasonId: "s1", now: NOW, poster: okPoster() })
@@ -130,9 +182,12 @@ describe("runPublishRules", () => {
   it("crash before post replays cleanly, and votes on the RE-POSTED message count", async () => {
     const store = setup()
     store.addRosterMember({ slackUserId: "U2", factionId: "f2", displayName: "Bex" })
-    const dying = { post: vi.fn(async (_m: SlackMessage): Promise<string | undefined> => {
-      throw new Error("slack 500")
-    }) }
+    const dying = {
+      post: vi.fn(async (_m: SlackMessage): Promise<string | undefined> => {
+        throw new Error("slack 500")
+      }),
+      react: vi.fn(async (_ts: string, _emoji: string) => {}),
+    }
     await expect(
       runPublishRules({ store, seasonId: "s1", now: NOW, poster: dying }),
     ).rejects.toThrow("slack 500")

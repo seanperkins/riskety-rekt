@@ -2,8 +2,8 @@ import { RULES_PER_OFFER } from "../config.js"
 import { RULE_REGISTRY, eligibleRules } from "../engine/rules/index.js"
 import { makeRng, shuffle } from "../rng.js"
 import { etDate, etDaysBetween } from "../time.js"
-import { renderRuleOffer } from "../slack/offer.js"
-import type { Poster } from "../slack/post.js"
+import { NUMERAL_NAMES, renderRuleOffer } from "../slack/offer.js"
+import type { ReactingPoster } from "../slack/post.js"
 import type { RuleVoteStore, SeasonStore, Transactional } from "../store/types.js"
 
 export type PublishRulesSkipReason =
@@ -24,7 +24,7 @@ export interface PublishRulesDeps {
   /** Injected: the job holds no clock of its own, so tests can pin the day. */
   now: Date
   /** Optional, same concession postRecapFor makes for an unconfigured workspace. */
-  poster?: Poster
+  poster?: ReactingPoster
   log?: (msg: string) => void
 }
 
@@ -96,5 +96,24 @@ export async function runPublishRules(deps: PublishRulesDeps): Promise<PublishRu
   const ts = await deps.poster.post(message)
   if (ts !== undefined) store.recordOfferMessage(seasonId, day, ts)
   log(`day ${day}: rule offer posted${ts === undefined ? " (no ts returned)" : ""}`)
+
+  // Pre-seed the ballot so voting is one tap. Strictly cosmetic, and ordered
+  // AFTER recordOfferMessage on purpose: the vote works the moment the ts is
+  // stored, so a failure here — a missing `reactions:write` scope, a rate
+  // limit — must not cost the day its ballot. Players can always add the
+  // numeral themselves. Logged loudly, never thrown, exactly as publish-slate
+  // treats a failed announcement.
+  if (ts !== undefined) {
+    for (const o of offers) {
+      const emoji = NUMERAL_NAMES[o.ordinal - 1]
+      if (emoji === undefined) continue
+      try {
+        await deps.poster.react(ts, emoji)
+      } catch (err) {
+        log(`day ${day}: could not pre-seed :${emoji}: (${String(err)}) — players react manually`)
+      }
+    }
+  }
+
   return { status: "posted", day, ruleIds }
 }

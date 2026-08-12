@@ -2,7 +2,22 @@ import { RECAP_NAME_MAX_CHARS } from "./config.js"
 import { safeText } from "./text.js"
 import type { Block } from "./recap.js"
 
-const NUMERAL_NAMES = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+/**
+ * Ordinal → Slack emoji name. Shared with the offer job, which pre-seeds these
+ * as reactions, and mirrored by `NUMERAL_EMOJI` in config.ts, which reads them
+ * back at ingest.
+ */
+export const NUMERAL_NAMES = [
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+]
 
 const plain = (text: string) => ({ type: "plain_text" as const, text, emoji: true as const })
 
