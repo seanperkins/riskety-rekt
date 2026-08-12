@@ -381,10 +381,22 @@ export function renderMap(view: MapView, coords: Record<string, LatLon>): string
  * today lives in Slack, and putting it in the projection would mean shipping a
  * fact about a player to the browser for no gain. Naming the rule is enough.
  */
+/**
+ * Who may cast an elimination veto, from the projection alone.
+ *
+ * One source for the notice and the button, so they can never disagree about
+ * whether the veto is available — which is the state that produced a Protect
+ * button living factions could press and the engine then refused.
+ */
+function vetoState(p: Projection): { out: boolean; canVeto: boolean } {
+  const out = !Object.values(p.ownership).includes(p.factionId)
+  return { out, canVeto: out && p.modules.includes("veto") }
+}
+
 function outOfIt(p: Projection): string {
-  const held = Object.values(p.ownership).filter((f) => f === p.factionId).length
-  if (held > 0) return ""
-  if (!p.modules.includes("veto")) {
+  const { out, canVeto } = vetoState(p)
+  if (!out) return ""
+  if (!canVeto) {
     return `<p class="hint out">You are out — and the veto is off this season, so there is
       nothing left to do but watch.</p>`
   }
@@ -496,7 +508,11 @@ export function renderBoard(p: Projection): string {
     <h2 class="h2">Selected</h2>
     <p class="hint"><span id="selected">nothing selected</span></p>
     <div class="chips">
-      <button id="btn-protect" class="chip">Protect</button>
+      <!-- Present but hidden rather than omitted: the client sets .disabled on
+           it unconditionally, and a missing element would throw there. It can
+           never become pressable for a living faction, so showing it greyed out
+           all season is an affordance that leads nowhere. -->
+      <button id="btn-protect" class="chip"${vetoState(p).canVeto ? "" : " hidden"}>Protect</button>
       <button id="btn-undo" class="chip">Undo</button>
     </div>
     <p class="hint" id="flash"></p>

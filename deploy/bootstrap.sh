@@ -144,9 +144,24 @@ else
   say "RR_WEB_URL not set in /etc/riskety-rekt/env — leaving riskety-web stopped"
 fi
 
+# The demo board, if this box runs one. It carries its whole environment inline
+# in the unit, so there is nothing to check first -- but it is restarted ONLY
+# when already enabled, so a deploy never conscripts a box into serving a demo
+# it was never given.
+#
+# It was missing here for five deploys, and the effect is the one the comment
+# above describes: same tree, same pull, but tsx reads the code once at start,
+# so demo.riskety.com kept serving a build from the previous day while every
+# deploy reported success.
+if systemctl is-enabled riskety-demo-web.service >/dev/null 2>&1; then
+  systemctl restart riskety-demo-web.service
+else
+  say "riskety-demo-web is not enabled — skipping the demo board"
+fi
+
 # Fail loudly rather than reporting a green deploy that is not serving.
 sleep 3
-for unit in riskety-web riskety-slack; do
+for unit in riskety-web riskety-slack riskety-demo-web; do
   if systemctl is-enabled "$unit" >/dev/null 2>&1 && ! systemctl is-active --quiet "$unit"; then
     echo "ERROR: $unit is enabled but not active after deploy" >&2
     journalctl -u "$unit" -n 15 --no-pager >&2

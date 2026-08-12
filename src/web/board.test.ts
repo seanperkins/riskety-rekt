@@ -308,6 +308,21 @@ describe("an eliminated viewer", () => {
     expect(railOf(renderBoard(project()))).not.toMatch(/you are out/i)
   })
 
+  it("is the only viewer shown a Protect button at all", () => {
+    // It can never become pressable for a living faction -- the engine refuses
+    // the pick -- so it is hidden rather than shown greyed out for a whole
+    // season. Hidden, not omitted: the client sets .disabled on it by id.
+    const alive = railOf(renderBoard(project()))
+    expect(alive).toMatch(/id="btn-protect"[^>]*\shidden/)
+    const dead = railOf(renderBoard(project({ state: wipedOut() })))
+    expect(dead).toMatch(/id="btn-protect"(?![^>]*\shidden)/)
+  })
+
+  it("does not get the button in a veto-off season either", () => {
+    const rail = railOf(renderBoard(project({ state: wipedOut(), modules: ["markets", "irl"] })))
+    expect(rail).toMatch(/id="btn-protect"[^>]*\shidden/)
+  })
+
   it("is told plainly when the veto module is off, rather than offered nothing", () => {
     const rail = railOf(renderBoard(project({ state: wipedOut(), modules: ["markets", "irl"] })))
     expect(rail).toMatch(/veto is off/i)
