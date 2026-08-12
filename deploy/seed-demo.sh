@@ -65,4 +65,15 @@ sudo -u riskety --preserve-env=TZ,RR_DB_PATH,RR_SEASON_ID \
   npm --prefix "$APP" run --silent season:init -- "$START" --seed 4711 2>&1 | tail -8
 
 chown -R riskety:riskety "$(dirname "$RR_DB_PATH")"
+
+# The reset above UNLINKS the database and creates a new one. A running
+# riskety-demo-web still holds the old inode open and goes on reading the
+# deleted file -- so the demo served a ghost board, /api/day reported 0, and
+# every replay 404'd, all while the new database on disk was perfectly correct.
+# Nothing about that failure looks like a stale file.
+if systemctl is-enabled riskety-demo-web.service >/dev/null 2>&1; then
+  say "restarting riskety-demo-web onto the new database"
+  systemctl restart riskety-demo-web.service
+fi
+
 say "done"
