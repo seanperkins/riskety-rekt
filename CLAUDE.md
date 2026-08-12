@@ -186,15 +186,6 @@ that seems obviously right — it may already have been considered and declined.
 
 What is left before a competitive season:
 
-- **The rule catalogue fails its own bounded-swing gate.** The 2026-08-11
-  rules run (`docs/superpowers/reviews/2026-08-11-balance-run-rules.md`) moves
-  Blitz +4.03 points (CI [3.12, 4.94]) in the voted regime — past the 3-point
-  gate, in the only regime a real season produces. No single rule does it;
-  it is the catalogue's composition, and Truce contributes most of it. Two
-  levers: retune, or expand the catalogue so each rule is drawn less often.
-  **Re-run the voted arm before a competitive season.** Note the run's first
-  finding: forced-daily activation does *not* upper-bound the voted regime, so
-  a per-rule forced arm cannot clear a catalogue on its own.
 - **A fresh look at snowballing.** The 2026-08-11 balance run
   (`docs/superpowers/reviews/2026-08-11-balance-run-modules.md`) found the
   module system behavior-identical to main — and found main itself drifted:
@@ -211,7 +202,8 @@ What is left before a competitive season:
 | `docs/superpowers/reviews/2026-08-09-balance-run.md` | Superseded — the original policy/economy run |
 | `docs/superpowers/reviews/2026-08-10-balance-run-world.md` | Superseded — describes the pre-troop-movement game |
 | `docs/superpowers/reviews/2026-08-11-balance-run-modules.md` | **Current.** 10k-season run; module system verified behavior-identical; the snowballing finding |
-| `docs/superpowers/reviews/2026-08-11-balance-run-rules.md` | **Current.** The rule catalogue's bounded-swing gate. Boom is clean; the catalogue as a whole **fails on Blitz (+4.03) in the voted regime**, and forced-daily is shown NOT to upper-bound it |
+| `docs/superpowers/reviews/2026-08-11-balance-run-rules.md` | Superseded — the three-rule catalogue, which failed on Blitz (+4.03). Kept for its finding that forced-daily does NOT upper-bound the voted regime |
+| `docs/superpowers/reviews/2026-08-11-balance-run-rules-expanded.md` | **Current.** Thirteen rules on a three-slot ballot: PASSES, max movement 1.13 points |
 | `docs/superpowers/reviews/2026-08-10-balance-run-14day.md` | Superseded — the 21-vs-14 day measurement behind `SEASON_LENGTH` |
 | `docs/map-rendering.md` | The pane stack, what the shape build generates, and the rendering traps that cost a day |
 | `docs/superpowers/plans/` | Each carries a "Spec deltas" section recording where reality corrected the design |

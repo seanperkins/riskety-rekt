@@ -44,11 +44,14 @@ numeral-reaction votes in `rule_reactions`, the 21:00 tally frozen into
 **860 tests passing**, none of which touch the network —
 `test/no-network.ts` replaces `fetch` in every run, so it is enforced.
 
-**Not built:** nothing from the pluggable-mechanics spec. Two open balance
-questions remain before a competitive season, both in CLAUDE.md's "Not built":
-the snowballing finding, and the fact that **the shipped three-rule catalogue
-fails its own bounded-swing gate** on Blitz (+4.03, CI [3.12, 4.94]) in the
-voted regime. The catalogue is built and correct; it is not yet balanced.
+**Not built:** nothing from the pluggable-mechanics spec. The catalogue now
+**passes** its bounded-swing gate — thirteen rules on a three-slot ballot move
+no policy more than 1.13 points in the voted regime
+(`reviews/2026-08-11-balance-run-rules-expanded.md`). The three-rule catalogue
+had failed on Blitz at +4.03; expanding it diluted each rule's share of days
+from ~1/3 to ~1/13 and cleared it without cutting a rule. One balance question
+remains before a competitive season: the snowballing finding in CLAUDE.md's
+"Not built".
 
 ```bash
 npm install
