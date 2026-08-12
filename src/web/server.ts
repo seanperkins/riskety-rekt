@@ -1,6 +1,6 @@
 import { createServer } from "node:http"
 import type { Server } from "node:http"
-import { hashToken, newToken } from "../auth/token.js"
+import { MAX_LIVE_TOKENS, hashToken, newToken } from "../auth/token.js"
 import { serializeSessionCookie } from "./session.js"
 import type {
   AuthStore,
@@ -103,13 +103,37 @@ function boardPage(deps: WebDeps, faction: string, now: Date): string | undefine
   )
 }
 
-/** Shown when there is no session. Deliberately says nothing about the game. */
+/**
+ * Shown when there is no session. Deliberately says nothing about the game —
+ * no faction, no board, no day, not even whether a season is running. A
+ * stranger who guesses the URL learns only how to sign in.
+ *
+ * Two different dead ends land here and only one is fixed by running the
+ * command again, so the page names both. Somebody off the roster can run
+ * `/login` all day and never get a link; the reply hands them the `roster:add`
+ * line instead (`src/slack/login.ts`), and this page is where they find out
+ * that is the expected answer rather than a failure.
+ *
+ * The "ask before it starts" warning is load-bearing, not politeness:
+ * `season-init` sizes and deals the board from the roster, so a latecomer owns
+ * nothing and earns nothing, permanently. It is phrased WITHOUT naming any
+ * game noun — the test's leak list holds this page to that, because copy that
+ * explains the rules to a stranger is the slow way to lose the invariant.
+ */
 function signInPage(): string {
   return page(
     "Riskety Rekt",
     `<div class="rail"><h1 class="title">Riskety&nbsp;Rekt</h1>
-     <p class="sub">Run <code>/login</code> in Slack and follow the link.</p>
-     <p class="note">Links last ten minutes and work once.</p></div>`,
+     <p class="sub">Run <code>/login</code> in Slack and follow the link it sends you.</p>
+     <p class="note">The link is good for ten minutes and works once. Run
+       <code>/login</code> as often as you like — your last ${MAX_LIVE_TOKENS} links all
+       keep working, so asking for a new one never breaks the one you were about to tap.</p>
+     <h2 class="h2">No link came back?</h2>
+     <p class="note">Then you are not on the roster yet, and <code>/login</code> replied
+       with the one-line command to add you instead. Send that line to whoever runs the
+       season — joining is not self-service on purpose.</p>
+     <p class="note">Ask <strong>before</strong> a season starts. Everything is handed out
+       when it begins, so joining partway through leaves you with nothing to play.</p></div>`,
   )
 }
 

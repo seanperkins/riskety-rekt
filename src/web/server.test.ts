@@ -59,6 +59,25 @@ describe("the web server", () => {
     expect(res.body).not.toContain("__RR__")
   })
 
+  it("tells a stranger both things they might need: the command, and the roster", async () => {
+    // Two different dead ends land on this page, and only one is fixed by
+    // running the command again. Somebody not on the roster can run /login all
+    // day and never get a link, so the page has to name that case.
+    const res = await request("/")
+    expect(res.body).toContain("/login")
+    expect(res.body).toMatch(/roster/i)
+
+    // Still says nothing about the game itself. Asserted on the BODY, not the
+    // whole document: `page()` inlines the stylesheet, whose authoring comments
+    // mention territories and factions, so a whole-document check would fail on
+    // CSS commentary while a real leak in the copy slipped through a reworded
+    // list. The copy is what this test owns.
+    const body = res.body.slice(res.body.indexOf("<body>"))
+    for (const leak of ["__RR__", "territor", "garrison", "reserve", "faction", "wager"]) {
+      expect(body.toLowerCase(), leak).not.toContain(leak)
+    }
+  })
+
   it("ignores a query parameter it does not know", async () => {
     // The URL is parsed for its pathname, so an unrelated param -- a cache
     // buster, a tracking tag -- must not miss the route.
