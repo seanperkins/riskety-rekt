@@ -136,7 +136,7 @@ export function runTick(deps: TickDeps): TickOutcome {
       postedToday: irl.postedToday,
       settlements,
       tickInstant: tickInstant(season, day).toISOString(),
-      modules: [...DEFAULT_MODULES],
+      modules: season.modules ?? [...DEFAULT_MODULES],
       rules: [],
     }
 

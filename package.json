@@ -13,6 +13,7 @@
     "poll-settlements": "tsx src/jobs/cli.ts poll-settlements",
     "season:init": "tsx src/jobs/cli.ts season-init",
     "tick": "tsx src/jobs/cli.ts tick",
+    "modules:set": "tsx src/jobs/cli.ts modules-set",
     "tick:rerun": "tsx src/jobs/cli.ts tick-rerun",
     "recap": "tsx src/jobs/cli.ts recap",
     "order": "tsx src/jobs/cli.ts order",

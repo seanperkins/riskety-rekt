@@ -216,6 +216,13 @@ export function openStore(
       }
     },
 
+    setSeasonModules(seasonId: string, modules: string[]): void {
+      const res = db
+        .prepare("UPDATE seasons SET modules = ? WHERE season_id = ?")
+        .run(JSON.stringify(modules), seasonId)
+      if (Number(res.changes) === 0) throw new Error(`unknown season ${seasonId}`)
+    },
+
     insertSeason(season: SeasonRow, seed: number): void {
       // No ON CONFLICT clause. A second call must fail, not rewrite start_date
       // under a season whose every saved day is derived from it.

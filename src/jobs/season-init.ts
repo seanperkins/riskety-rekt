@@ -1,6 +1,8 @@
 import { createSeason } from "../engine/index.js"
 import type { Faction, GameMap } from "../engine/index.js"
 import { ENGINE_VERSION } from "../engine/index.js"
+import { DEFAULT_MODULES, MODULE_REGISTRY } from "../engine/modules/index.js"
+import { validateModules } from "../engine/registry.js"
 import { MAX_FACTIONS, MIN_FACTIONS } from "../config.js"
 import { clusteredOrder } from "../map/deal.js"
 import { selectSubMap } from "../map/select.js"
@@ -45,6 +47,8 @@ export interface SeasonInitDeps {
   lengthDays: number
   seed: number
   map?: GameMap
+  /** Enabled modules; omitted means the column default (all three). */
+  modules?: string[]
 }
 
 
@@ -77,6 +81,13 @@ export function runSeasonInit(deps: SeasonInitDeps): InitOutcome {
   }
   if (!Number.isSafeInteger(seed)) {
     return { status: "refused", reason: `seed must be an integer` }
+  }
+  // A bad module configuration is refused HERE, not discovered at tick time:
+  // unknown ids, duplicates, veto-without-irl.
+  try {
+    validateModules(deps.modules ?? [...DEFAULT_MODULES], MODULE_REGISTRY)
+  } catch (err) {
+    return { status: "refused", reason: err instanceof Error ? err.message : String(err) }
   }
   if (store.season(seasonId) !== undefined) {
     return { status: "refused", reason: `season ${seasonId} already exists` }
@@ -126,6 +137,7 @@ export function runSeasonInit(deps: SeasonInitDeps): InitOutcome {
 
   store.transaction(() => {
     store.insertSeason({ seasonId, startDate, lengthDays }, seed)
+    if (deps.modules !== undefined) store.setSeasonModules(seasonId, deps.modules)
     store.saveState(state, ENGINE_VERSION)
   })
 

@@ -33,6 +33,7 @@ import { runPublishSlate } from "./publish-slate.js"
 import { runPollSettlements } from "./poll-settlements.js"
 import { runPollPrices } from "./poll-prices.js"
 import { runSeasonInit } from "./season-init.js"
+import { runModulesSet } from "./modules-set.js"
 import { runTick } from "./tick.js"
 import { runRerun } from "./rerun.js"
 import type { RerunRefusal } from "./rerun.js"
@@ -181,6 +182,13 @@ try {
       `season ${required("RR_SEASON_ID")}: day 0 dealt ${startDate}, ${lengthDays} ticks, ` +
         `${out.factions} factions on ${out.territories} territories, seed ${out.seed}`,
     )
+  } else if (command === "modules-set") {
+    // The operator's mid-season module change, between ticks. Refusals exit 2
+    // (an operator mistake or a write the rules rejected), via UsageError.
+    const modules = process.argv.slice(3).filter((a) => !a.startsWith("--"))
+    const out = runModulesSet({ store, seasonId: required("RR_SEASON_ID"), modules, log })
+    if (out.status === "refused") throw new UsageError(`modules-set refused: ${out.reason}`)
+    log(`modules set to [${out.modules.join(", ")}]`)
   } else if (command === "tick") {
     const seasonId = required("RR_SEASON_ID")
     const out = runTick({ store, seasonId, now: new Date(), log })

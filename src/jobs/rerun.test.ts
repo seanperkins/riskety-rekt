@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs"
+import { createRequire } from "node:module"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { ENGINE_VERSION, RISK_MAP, createSeason } from "../engine/index.js"
 import type { Faction, GameState, Market } from "../engine/index.js"
@@ -218,5 +222,70 @@ describe("runRerun", () => {
       /unknown season/,
     )
     d.store.close()
+  })
+})
+
+describe("runRerun — pre-change frozen contexts (the backfill)", () => {
+  // Simulating rows written BEFORE the pluggable-mechanics change needs raw
+  // SQL: the store's API always writes the new shape.
+  const require_ = createRequire(import.meta.url)
+  const { DatabaseSync } = require_("node:sqlite") as typeof import("node:sqlite")
+
+  function preChangeSeason() {
+    const dir = mkdtempSync(join(tmpdir(), "rr-backfill-"))
+    const path = join(dir, "riskety.db")
+    const store = openStore(path)
+    store.upsertSeason(SEASON)
+    store.transaction(() => store.saveState(dealt(), ENGINE_VERSION))
+    for (let day = 1; day <= 2; day++) {
+      store.publishSlate("s1", day, [market(`KX-${day}`, day)], at(day, 8))
+      const out = runTick({ store, seasonId: "s1", now: at(day, 21, 30) })
+      if (out.status !== "resolved") throw new Error(`seed tick ${day}: ${out.status}`)
+    }
+    store.close()
+    // Strip the three new fields from every frozen context — the exact shape
+    // a pre-change row has.
+    const db = new DatabaseSync(path)
+    db.exec(
+      `UPDATE tick_context SET context =
+         json_remove(context, '$.tickInstant', '$.modules', '$.rules')`,
+    )
+    db.close()
+    return { path, dir }
+  }
+
+  it("synthesizes tickInstant/modules/rules — and modules is the LITERAL, never the season row", () => {
+    const { path, dir } = preChangeSeason()
+    const store = openStore(path)
+    // The trap this test exists for: an operator disables irl mid-season.
+    // A backfill reading the season row would replay pre-change days under
+    // ["markets"] — not the set the original ticks ran under — then LAUNDER
+    // it into frozen history via saveTickContext.
+    store.setSeasonModules("s1", ["markets"])
+
+    const out = runRerun({ store, seasonId: "s1", day: 1, now: at(3, 10), confirm: true })
+    expect(out.status).toBe("replayed")
+
+    for (const day of [1, 2]) {
+      const frozen = store.loadTickContext("s1", day)!
+      expect(frozen.context.modules).toEqual(["markets", "irl", "veto"])
+      expect(frozen.context.rules).toEqual([])
+      // The calendar computation the original tick performed: 21:00 ET.
+      expect(frozen.context.tickInstant).toBe(at(day, 21).toISOString())
+    }
+    store.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it("replays a pre-change day to the same state the live tick produced", () => {
+    const { path, dir } = preChangeSeason()
+    const store = openStore(path)
+    const before = [store.loadState("s1", 1)!, store.loadState("s1", 2)!]
+    const out = runRerun({ store, seasonId: "s1", day: 1, now: at(3, 10), confirm: true })
+    expect(out.status).toBe("replayed")
+    expect(store.loadState("s1", 1)).toEqual(before[0])
+    expect(store.loadState("s1", 2)).toEqual(before[1])
+    store.close()
+    rmSync(dir, { recursive: true, force: true })
   })
 })

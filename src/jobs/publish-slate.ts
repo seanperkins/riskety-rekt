@@ -5,7 +5,12 @@ import type { Market } from "../engine/index.js"
 import type { MarketAdapter } from "../adapters/types.js"
 import type { SlateStore } from "../store/types.js"
 
-export type SkipReason = "before-season" | "after-season" | "final-day" | "already-published"
+export type SkipReason =
+  | "before-season"
+  | "after-season"
+  | "final-day"
+  | "already-published"
+  | "markets-off"
 
 export type PublishOutcome =
   | { status: "published"; day: number; count: number }
@@ -45,6 +50,11 @@ export async function runPublishSlate(deps: PublishDeps): Promise<PublishOutcome
   const today = etDate(now)
   const day = etDaysBetween(season.startDate, today)
 
+  // A markets-off season publishes nothing, deliberately: exit-0 skip, the
+  // condition never clears with time.
+  if (!(season.modules ?? ["markets"]).includes("markets")) {
+    return { status: "skipped", day, reason: "markets-off" }
+  }
   if (day < 1) return { status: "skipped", day, reason: "before-season" }
   if (day > season.lengthDays) return { status: "skipped", day, reason: "after-season" }
   // Day-N wagers escrow at tick N and settle at tick N+1, so the final day's

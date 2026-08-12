@@ -36,6 +36,12 @@ export interface SeasonStore {
   upsertSeason(season: SeasonRow): void
   /** Insert-only, and records the shuffle seed. Throws if the season exists. */
   insertSeason(season: SeasonRow, seed: number): void
+  /**
+   * The operator's mid-season module change, between ticks. Recorded in each
+   * subsequent day's frozen context; never retroactive. The escrow gate lives
+   * in the job (`runModulesSet`), not here — the store only writes.
+   */
+  setSeasonModules(seasonId: string, modules: string[]): void
 }
 
 export interface SlateStore {

@@ -129,7 +129,7 @@ export function runRerun(deps: RerunDeps): RerunOutcome {
         log(`day ${d}: no recorded context, assembled one from live tables`)
       } else {
         orders = frozen.orders
-        context = frozen.context
+        context = backfillContext(frozen.context, season, d)
         // Logged and proceeded, never refused. "Fix the code, then rerun" is
         // this command's documented purpose, so refusing on a version change
         // would block the exact case it exists for.
@@ -149,6 +149,34 @@ export function runRerun(deps: RerunDeps): RerunOutcome {
     }
     return { status: "replayed", days, states }
   })
+}
+
+/**
+ * Backfill EXACTLY three fields on a frozen context written before the
+ * pluggable-mechanics change, each from an authoritative, deterministic
+ * source — anything else missing still refuses loudly downstream:
+ *
+ * - tickInstant: the calendar computation the original tick performed. The
+ *   season row's startDate is immutable (insertSeason is insert-only), so
+ *   this reproduces the historical instant exactly.
+ * - modules: the LITERAL all-three. NEVER the season row — this spec makes
+ *   the row mutable, and rerun saves the synthesized context back via
+ *   saveTickContext, so a season-row read would launder a mid-season module
+ *   change into a permanently frozen pre-change record.
+ * - rules: [] — no rules existed before this change.
+ */
+function backfillContext(
+  frozen: DailyContext,
+  season: { startDate: string; lengthDays: number; seasonId: string },
+  day: number,
+): DailyContext {
+  if (frozen.tickInstant !== undefined && frozen.modules !== undefined) return frozen
+  return {
+    ...frozen,
+    tickInstant: frozen.tickInstant ?? tickInstant(season, day).toISOString(),
+    modules: frozen.modules ?? ["markets", "irl", "veto"],
+    rules: frozen.rules ?? [],
+  }
 }
 
 /** The same context the tick builds, for a day that never had one recorded. */
@@ -171,7 +199,7 @@ function assembleContext(
     postedToday: irl.postedToday,
     settlements,
     tickInstant: tickInstant(season, day).toISOString(),
-    modules: [...DEFAULT_MODULES],
+    modules: season.modules ?? [...DEFAULT_MODULES],
     rules: [],
   }
 }

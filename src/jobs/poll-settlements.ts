@@ -1,6 +1,6 @@
 import { SETTLEMENT_HORIZON_DAYS } from "../config.js"
 import type { MarketAdapter } from "../adapters/types.js"
-import type { SlateStore, Transactional } from "../store/types.js"
+import type { SeasonStore, SlateStore, Transactional } from "../store/types.js"
 
 export interface PollResult {
   checked: number
@@ -9,7 +9,7 @@ export interface PollResult {
 }
 
 export interface PollDeps {
-  store: SlateStore & Transactional
+  store: SlateStore & SeasonStore & Transactional
   adapter: MarketAdapter
   seasonId: string
   now: Date
@@ -27,6 +27,13 @@ export interface PollDeps {
 export async function runPollSettlements(deps: PollDeps): Promise<PollResult> {
   const { store, adapter, seasonId, now } = deps
   const log = deps.log ?? (() => {})
+
+  // Markets off: a deliberate zero-work skip — nothing awaits settlement.
+  const season = store.season(seasonId)
+  if (season !== undefined && !(season.modules ?? ["markets"]).includes("markets")) {
+    log("markets module is off; settlement poll skipped")
+    return { checked: 0, recorded: 0, stillOpen: 0 }
+  }
 
   const ids = store.marketsAwaitingSettlement(seasonId, now, SETTLEMENT_HORIZON_DAYS)
   if (ids.length === 0) return { checked: 0, recorded: 0, stillOpen: 0 }

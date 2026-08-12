@@ -37,6 +37,11 @@ export async function runPollPrices(deps: PricePollDeps): Promise<PricePollResul
   if (season === undefined) throw new Error(`pollPrices: unknown season ${deps.seasonId}`)
 
   const day = currentDay(season, deps.now)
+  // Markets off: a deliberate zero-work skip — no slate exists to price.
+  if (!(season.modules ?? ["markets"]).includes("markets")) {
+    log("markets module is off; price poll skipped")
+    return { day, markets: 0, refreshed: 0 }
+  }
   const slate = deps.store.loadSlate(deps.seasonId, day)
   if (slate.length === 0) return { day, markets: 0, refreshed: 0 }
 
