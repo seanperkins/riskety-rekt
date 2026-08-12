@@ -51,14 +51,18 @@ say "roster"
 sudo -u riskety --preserve-env=TZ,RR_DB_PATH,RR_SEASON_ID \
   npm --prefix "$APP" run --silent roster:list -- 2>&1 | tail -12
 
-# Day 0 is dealt two days BACK by default, which leaves day 1 resolvable: a
-# demo whose board has never ticked cannot show the replay, and the replay is
-# most of what there is to show. Pass a date to override, or `today` for the
-# original still photograph.
+# Day 0 is dealt FOUR days back by default. A demo that has never ticked cannot
+# show the replay, and the replay is most of what there is to show -- but the
+# distance matters as much as the fact.
 #
-# No timer points at this database either way, so the demo never drifts on its
-# own -- days are resolved deliberately, by seed-demo-night.sh.
-START=${1:-$(date -d '2 days ago' +%F 2>/dev/null || date -v-2d +%F)}
+# Four pairs with the three nights seed-demo-night.ts plays: days 1-3 land in
+# the past and TODAY stays unresolved. Two days back left the generated states
+# ahead of the calendar, so the current day was already resolved and every
+# wager or order on the demo was refused with "already-resolved" -- a demo where
+# nothing can be tried is not much of a demo.
+#
+# Pass a date to override, or `today` for the original still photograph.
+START=${1:-$(date -d '4 days ago' +%F 2>/dev/null || date -v-4d +%F)}
 if [ "$START" = "today" ]; then START=$(date +%F); fi
 say "dealing day 0 for $START"
 sudo -u riskety --preserve-env=TZ,RR_DB_PATH,RR_SEASON_ID \

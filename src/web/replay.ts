@@ -173,15 +173,40 @@ function travel(from, to, color, ms) {
 // event variant degrades to a caption instead of throwing.
 const beats = R.beats
 
+// Every soldier who leaves home tonight, totalled per origin.
+//
+// The engine sums ALL departures before ANY arrival lands -- that is what "a
+// territory defends with its post-departure garrison" means -- so the replay
+// has to as well. Applying them in log order instead gets a territory that is
+// both attacked and attacking-out wrong: Austria was captured down to its
+// survivors, and only THEN did the five it had already sent to Bavaria get
+// subtracted, taking it to zero where the engine says one.
+const departures = {}
+for (const b of R.beats) {
+  if (b.kind === "attack") departures[b.from] = (departures[b.from] || 0) + b.committed + b.fee
+  else if (b.kind === "move") departures[b.from] = (departures[b.from] || 0) + b.count
+}
+let marched = false
+function march() {
+  if (marched) return
+  marched = true
+  for (const id of Object.keys(departures)) {
+    gar[id] = Math.max(0, (gar[id] || 0) - departures[id])
+  }
+}
+
 function runBeat(b, ms) {
   if (b.kind === "deploy") {
     gar[b.territory] = (gar[b.territory] || 0) + b.count
     flash(b.territory, "lit-own")
     return
   }
+  // The first thing that moves is the moment every army leaves home, which is
+  // the engine's own ordering and reads correctly on screen: garrisons empty,
+  // then the fighting resolves.
+  march()
   if (b.kind === "move") {
     travel(b.from, b.to, colorOf(b.faction), ms * 0.7)
-    gar[b.from] = (gar[b.from] || 0) - b.count
     setTimeout(() => { gar[b.to] = (gar[b.to] || 0) + b.count; paint() }, ms * 0.7)
     return
   }
@@ -189,8 +214,9 @@ function runBeat(b, ms) {
   if (b.kind === "protect") { flash(b.territory, "lit-shield"); return }
   if (b.kind === "attack") {
     travel(b.from, b.to, colorOf(b.attacker), ms * 0.6)
-    gar[b.from] = Math.max(0, (gar[b.from] || 0) - b.committed - b.fee)
     setTimeout(() => {
+      // Both numbers are the engine's own, not arithmetic: survivors for a
+      // capture, defenderLost for a repulse.
       if (b.captured) { own[b.to] = b.attacker; gar[b.to] = b.survivors; flash(b.to, "lit-taken") }
       else { gar[b.to] = Math.max(0, (gar[b.to] || 0) - b.defenderLost); flash(b.to, "lit-hit") }
       paint()
@@ -269,6 +295,7 @@ function play() {
     i = -1
     Object.assign(own, R.before.ownership)
     Object.assign(gar, R.before.garrisons)
+    marched = false
     paint()
   }
   playing = true
