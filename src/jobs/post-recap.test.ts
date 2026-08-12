@@ -12,14 +12,14 @@ const state = (day: number) => ({ ...createSeason("s1", factions, ids), day, log
 
 describe("runPostRecap", () => {
   it("posts the rendered recap", async () => {
-    const post = vi.fn(async (_m: SlackMessage) => {})
+    const post = vi.fn(async (_m: SlackMessage) => undefined)
     await runPostRecap({ poster: { post }, state: state(3), previous: state(2), lengthDays: 21 })
     expect(post).toHaveBeenCalledOnce()
     expect(post.mock.calls[0]![0].text).toContain("day 3")
   })
 
   it("marks a correction", async () => {
-    const post = vi.fn(async (_m: SlackMessage) => {})
+    const post = vi.fn(async (_m: SlackMessage) => undefined)
     await runPostRecap({
       poster: { post },
       state: state(3),
@@ -43,7 +43,7 @@ describe("runPostRecap", () => {
 
 describe("runPostRecap — the idempotency ledger", () => {
   const ledgered = (over: Partial<Parameters<typeof runPostRecap>[0]> = {}) => {
-    const post = vi.fn(async (_m: SlackMessage) => {})
+    const post = vi.fn(async (_m: SlackMessage) => undefined)
     const store = openStore(":memory:")
     return {
       post,
@@ -90,7 +90,7 @@ describe("runPostRecap — the idempotency ledger", () => {
     }
     await expect(runPostRecap({ ...base, poster: { post: failing } })).rejects.toThrow()
 
-    const ok = vi.fn(async (_m: SlackMessage) => {})
+    const ok = vi.fn(async (_m: SlackMessage) => undefined)
     expect(await runPostRecap({ ...base, poster: { post: ok } })).toMatchObject({
       status: "suppressed",
     })
@@ -142,7 +142,7 @@ describe("runPostRecap — the idempotency ledger", () => {
   })
 
   it("posts unconditionally when no ledger is supplied", async () => {
-    const post = vi.fn(async (_m: SlackMessage) => {})
+    const post = vi.fn(async (_m: SlackMessage) => undefined)
     for (let i = 0; i < 3; i++) {
       await runPostRecap({ poster: { post }, state: state(3), previous: state(2), lengthDays: 21 })
     }

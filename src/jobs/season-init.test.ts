@@ -42,6 +42,7 @@ describe("runSeasonInit", () => {
       startDate: "2026-09-01",
       modules: ["markets", "irl", "veto"],
       lengthDays: SEASON_LENGTH,
+      seed: 4711, // recorded by insertSeason; the rule-offer draw folds it in
     })
     store.close()
   })

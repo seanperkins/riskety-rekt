@@ -10,6 +10,8 @@
     "sim": "tsx src/sim/cli.ts",
     "sample:kalshi": "tsx scripts/sample-kalshi.ts",
     "publish-slate": "tsx src/jobs/cli.ts publish-slate",
+    "rules:publish": "tsx src/jobs/cli.ts publish-rules",
+    "sim:rules": "tsx src/sim/rule-gate.ts",
     "poll-settlements": "tsx src/jobs/cli.ts poll-settlements",
     "season:init": "tsx src/jobs/cli.ts season-init",
     "tick": "tsx src/jobs/cli.ts tick",

@@ -1,0 +1,16 @@
+[Unit]
+Description=Riskety Rekt — post the daily rule-vote offer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=riskety
+WorkingDirectory=/srv/riskety-rekt
+EnvironmentFile=/etc/riskety-rekt/env
+ExecStart=/usr/bin/npm run rules:publish
+# The claim-then-post ledger makes a retry safe: a crash before the post
+# re-posts the claimed draw; a crash after it re-posts with a supersession
+# line. An early failure still leaves the whole day for votes, so retry.
+Restart=on-failure
+RestartSec=300

@@ -1,0 +1,12 @@
+[Unit]
+Description=Riskety Rekt — 08:05 rule-vote offer
+
+[Timer]
+# Five minutes after the slate, so the two morning posts land in order.
+OnCalendar=*-*-* 08:05:00
+# OnCalendar fires exactly once on DST-transition days when the system timezone
+# is America/New_York. Do not replace this with an interval timer.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

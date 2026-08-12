@@ -2,6 +2,7 @@
  * Entrypoint for the systemd timers.
  *
  *   tsx src/jobs/cli.ts publish-slate
+ *   tsx src/jobs/cli.ts publish-rules
  *   tsx src/jobs/cli.ts poll-settlements
  *   tsx src/jobs/cli.ts poll-prices
  *   tsx src/jobs/cli.ts season-init <start-date> [--length N] [--seed N]
@@ -30,6 +31,7 @@ import { SEASON_LENGTH } from "../config.js"
 import { createKalshiAdapter } from "../adapters/kalshi/index.js"
 import { openStore } from "../store/sqlite.js"
 import { runPublishSlate } from "./publish-slate.js"
+import { runPublishRules } from "./publish-rules.js"
 import { runPollSettlements } from "./poll-settlements.js"
 import { runPollPrices } from "./poll-prices.js"
 import { runSeasonInit } from "./season-init.js"
@@ -316,6 +318,22 @@ try {
       ...(announce === undefined ? {} : { announce }),
     })
     if (out.status === "skipped") log(`skipped day ${out.day}: ${out.reason}`)
+  } else if (command === "publish-rules") {
+    // Optional poster, same concession as the slate announcement: an
+    // unconfigured workspace still claims the day's draw, and a later
+    // configured run posts it.
+    const poster =
+      process.env.SLACK_BOT_TOKEN === undefined || process.env.SLACK_BOT_TOKEN === ""
+        ? undefined
+        : createPoster(loadSlackEnv())
+    const out = await runPublishRules({
+      store,
+      seasonId: required("RR_SEASON_ID"),
+      now: new Date(),
+      log,
+      ...(poster === undefined ? {} : { poster }),
+    })
+    if (out.status === "skipped") log(`skipped day ${out.day}: ${out.reason}`)
   } else if (command === "poll-prices") {
     const out = await runPollPrices({
       store,
@@ -337,8 +355,8 @@ try {
   } else {
     throw new UsageError(
       `unknown command: ${String(command)}\n` +
-        `expected one of: publish-slate, poll-settlements, poll-prices, season-init, tick, ` +
-          `recap, tick-rerun, order, wager, roster-add, roster-list`,
+        `expected one of: publish-slate, publish-rules, poll-settlements, poll-prices, ` +
+          `season-init, tick, recap, tick-rerun, order, wager, roster-add, roster-list`,
     )
   }
 } catch (err) {

@@ -18,6 +18,12 @@ export interface SeasonRow {
    * Absent on write means the all-three default (the column's DEFAULT).
    */
   modules?: string[]
+  /**
+   * The deal's shuffle seed, recorded by insertSeason. Absent on rows written
+   * before the deal existed. Read-only here — upsertSeason never writes it.
+   * The rule-offer draw folds it into its own per-day seed.
+   */
+  seed?: number
 }
 
 /**

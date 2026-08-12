@@ -175,10 +175,16 @@ export function openStore(
   const seasonRow = (seasonId: string): SeasonRow => {
     const row = db
       .prepare(
-        "SELECT season_id, start_date, length_days, modules FROM seasons WHERE season_id = ?",
+        "SELECT season_id, start_date, length_days, modules, seed FROM seasons WHERE season_id = ?",
       )
       .get(seasonId) as
-      | { season_id: string; start_date: string; length_days: number; modules: string }
+      | {
+          season_id: string
+          start_date: string
+          length_days: number
+          modules: string
+          seed: number | null
+        }
       | undefined
     if (row === undefined) throw new Error(`unknown season ${seasonId}`)
     return {
@@ -186,6 +192,7 @@ export function openStore(
       startDate: row.start_date,
       lengthDays: Number(row.length_days),
       modules: parseModules(row.modules),
+      ...(row.seed == null ? {} : { seed: Number(row.seed) }),
     }
   }
 

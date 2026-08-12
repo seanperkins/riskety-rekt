@@ -1,6 +1,6 @@
 # Deployment — market jobs and the Slack bot
 
-Five timers and two long-running services, all on a single DigitalOcean droplet
+Six timers and two long-running services, all on a single DigitalOcean droplet
 alongside the SQLite file.
 
 ## The live droplet
@@ -82,7 +82,8 @@ into the browser bundle; `loadSlackEnv` asserts it at boot and refuses to start.
 ```bash
 sudo cp deploy/*.service deploy/*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now riskety-publish-slate.timer riskety-poll-settlements.timer \
+sudo systemctl enable --now riskety-publish-slate.timer riskety-publish-rules.timer \
+  riskety-poll-settlements.timer \
   riskety-poll-prices.timer riskety-tick.timer
 sudo systemctl enable --now riskety-slack.service riskety-web.service
 systemctl list-timers 'riskety-*'

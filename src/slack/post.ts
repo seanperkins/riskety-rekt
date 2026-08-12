@@ -7,7 +7,12 @@ export interface SlackMessage {
 }
 
 export interface Poster {
-  post(message: SlackMessage): Promise<void>
+  /**
+   * Resolves to the posted message's ts — claim-then-post ledgers (the rule
+   * offer) record it so reactions can find their message. Callers that don't
+   * need it ignore the return value.
+   */
+  post(message: SlackMessage): Promise<string | undefined>
 }
 
 /** The narrow slice of WebClient this file uses, so tests can fake it. */
@@ -27,14 +32,15 @@ export function createPoster(env: SlackEnv, client?: ChatClient): Poster {
   // Constructed lazily so a test that injects a client never builds a real one.
   const web: ChatClient = client ?? (new WebClient(env.botToken) as unknown as ChatClient)
   return {
-    async post(message: SlackMessage): Promise<void> {
-      await web.chat.postMessage({
+    async post(message: SlackMessage): Promise<string | undefined> {
+      const res = await web.chat.postMessage({
         channel: env.channelId,
         text: message.text,
         blocks: message.blocks,
         unfurl_links: false,
         unfurl_media: false,
       })
+      return (res as { ts?: string }).ts
     },
   }
 }
