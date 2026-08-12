@@ -138,13 +138,25 @@ export function resolve(state: GameState, orders: Order[], context: DailyContext
     }
   }
 
-  // 4 — locks: union across mechanics; idempotent; the engine logs each
-  // first-seen territory's supplied event.
+  // 4 — locks: union across mechanics; idempotent.
+  //
+  // Event suppression is keyed on territories that already LOGGED an event,
+  // never on lock-set membership. The two are not the same thing, and
+  // conflating them loses records: mechanics run id-sorted, so on a Truce day
+  // `truce` locks the whole map — supplying no events, deliberately — before
+  // `veto` runs, and a membership-keyed guard would swallow every `protected`
+  // event behind it. An eliminated player's one veto would vanish from the log
+  // and the recap. Two mechanics that BOTH supply an event for one territory
+  // still log once, which is what the guard is actually for.
   const allocated: GameState = { ...state, garrisons, reserves }
   const locked = new Set<TerritoryId>()
+  const logged = new Set<TerritoryId>()
   for (const m of active) {
     for (const r of m.lock?.(allocated, clean, context) ?? []) {
-      if (!locked.has(r.territory) && r.event) log.push(r.event)
+      if (r.event && !logged.has(r.territory)) {
+        log.push(r.event)
+        logged.add(r.territory)
+      }
       locked.add(r.territory)
     }
   }

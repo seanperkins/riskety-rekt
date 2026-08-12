@@ -305,4 +305,36 @@ describe("rule dispatch", () => {
     const ctx = { ...emptyCtx, rules: ["boom"] }
     expect(resolve(s, [], ctx)).toEqual(resolve(s, [], ctx))
   })
+
+  it("a Truce day still logs the veto's protected event", () => {
+    // Mechanics run id-sorted, so `truce` locks the whole map — supplying no
+    // events by design — BEFORE `veto` runs. Suppressing events on lock-set
+    // membership rather than on already-logged territories would swallow the
+    // veto here, and an eliminated player's one pick would vanish from the
+    // log and the recap with no trace.
+    const s = createSeason("s1", factions, ids)
+    const target = territoriesOf(s, "f2")[0]!
+    for (const t of RISK_MAP.territories) s.ownership[t.id] = "f2" // f1 eliminated
+    const next = resolve(
+      s,
+      [order({ factionId: "f1", protect: target })],
+      { ...emptyCtx, postedToday: ["f1"], rules: ["truce"] },
+    )
+    expect(next.log).toContainEqual({ t: "protected", territory: target, byCount: 1 })
+  })
+
+  it("logs one protected event per territory when two mechanics both supply one", () => {
+    // What the guard is actually for. The veto is the only shipped mechanic
+    // that supplies lock events, and it returns each territory once, so this
+    // pins the dedupe against a future second event-supplying mechanic.
+    const s = createSeason("s1", factions, ids)
+    const target = territoriesOf(s, "f2")[0]!
+    for (const t of RISK_MAP.territories) s.ownership[t.id] = "f2"
+    const next = resolve(
+      s,
+      [order({ factionId: "f1", protect: target })],
+      { ...emptyCtx, postedToday: ["f1"] },
+    )
+    expect(next.log.filter((e) => e.t === "protected")).toHaveLength(1)
+  })
 })
