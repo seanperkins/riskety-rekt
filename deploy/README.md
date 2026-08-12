@@ -186,11 +186,20 @@ Create the app at api.slack.com/apps with these bot scopes:
 |---|---|
 | `channels:history` | read `message` events in the public game channel |
 | `reactions:read` | read `reaction_added` / `reaction_removed` |
-| `chat:write` | post the slate and the recap |
+| `chat:write` | post the slate, the recap, and the daily rule offer |
 
 Subscribe to these bot events: `message.channels`, `reaction_added`,
 `reaction_removed`. Point the Request URL at `https://<host>/slack/events` —
 Bolt's default path.
+
+**The daily rule vote needs no additional scopes or subscriptions.** It rides
+the same `reaction_added` / `reaction_removed` events approvals already use —
+the ingest branches on the emoji, routing numerals (`:one:`…`:nine:`) to the
+day's offer message and 👍 to workout posts. The one thing it does NOT do is
+pre-seed the numeral reactions on the offer, which would need
+`reactions:write`; players add their own. If that is ever added, note that the
+bot's own reactions are harmless — the bot user is not on the roster, so
+`factionForSlackUser` drops them.
 
 **Event Subscriptions can only be saved once that endpoint is live.** Slack
 POSTs a `url_verification` challenge when the URL is entered and refuses to save
