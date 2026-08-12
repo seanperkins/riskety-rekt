@@ -30,6 +30,34 @@ into `ctx.rules`. The engine change is one line of dispatch — rules join `acti
 - The golden file does **not** regenerate in this plan: `ctx.rules` defaults to `[]`, no `TickEvent` variant changes, and rules-off behavior is byte-identical. If the golden test goes red, something is wrong — stop and diagnose.
 - Commit after every green test cycle; `npm test` and `npm run typecheck` must pass at every commit.
 
+## Spec deltas — where reality corrected the design
+
+Recorded per repo convention, after execution:
+
+1. **The sim's rule vote draws from a separate rng stream.** The plan had
+   `voteRules` drawing from the season's main `rng`, and noted in passing that
+   the voted arm was therefore "not seed-comparable with baseline". That was a
+   defect, not a caveat: the extra draws shifted the board, the deal, every
+   slate price and every settlement coin, so a measured voted-vs-baseline
+   difference was mostly a reshuffled world. Fixed by giving the vote its own
+   `makeRng((seed ^ 0x5bf03635) >>> 0)` stream, which makes *every* arm paired
+   with baseline. `src/sim/run.test.ts` pins it via same-board/same-seats.
+   This mattered because the catalogue's gate verdict rests on the voted arm.
+2. **The gate is read against the voted regime, with forced-daily as the stress
+   envelope.** Boom passes everywhere. Truce and Attrition fail forced-daily by
+   large margins, and the balance doc records why that is not disqualifying:
+   forced-daily is a regime the vote cannot produce, the movement is
+   anti-snowball (the leader-most policies lose, the passive one gains — the
+   opposite of the amplification the gate exists to catch), and both rules sit
+   inside the gate in the voted regime. Full reasoning and both tables in
+   `docs/superpowers/reviews/2026-08-11-balance-run-rules.md`.
+3. **`SeasonRow` gained `seed`.** The offer draw needs the season's shuffle
+   seed to derive its own per-day seed; the row already stored it (migration 2)
+   but never surfaced it. Read-only — `upsertSeason` still never writes it.
+4. **`runVoteDynamics` was folded into `runVoteGate`.** Once the voted arm was
+   paired, an unpaired win-rate summary added nothing the gate table did not
+   already report with a CI.
+
 ## Plan decisions (recorded per repo convention; each is a delta the spec left open)
 
 1. **The offer is posted by a new 08:05 job, `publish-rules`,** for the current

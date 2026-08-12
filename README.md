@@ -34,20 +34,21 @@ bets that are secretly the same bet.
 
 ## State
 
-The pure rules engine (now module-dispatched: markets, IRL and the veto are
-pluggable mechanics), the offline season simulator, the Kalshi market adapter, the
-Slack ingress, the 21:00 tick runner, the order-entry CLI and the player web app are
-built and tested. **759 tests, none of which touch the network** —
-`test/no-network.ts` replaces `fetch` in every test run, so that is enforced rather
-than asserted.
+The pure rules engine (module-dispatched: markets, IRL and the veto are pluggable
+mechanics, and a voted daily rule catalogue rides the same hooks), the offline
+season simulator, the Kalshi market adapter, the Slack ingress, the 21:00 tick
+runner, the order-entry CLI and the player web app are built and tested.
+**824 tests, none of which touch the network** — `test/no-network.ts` replaces
+`fetch` in every test run, so that is enforced rather than asserted.
 
 The player app is built: sign in with `/login` in Slack, act on a real map,
-orders autosave and lock at 21:00. What still blocks a *competitive* season is
-the wager economy — see "Not built" in `CLAUDE.md`.
+orders autosave and lock at 21:00. Each morning the bot posts a rule vote; the
+winner applies to that night's tick. What still blocks a *competitive* season is
+snowballing — see "Not built" in `CLAUDE.md`.
 
 ```bash
 npm install
-npm test          # 646 tests
+npm test          # 824 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom policy roster
