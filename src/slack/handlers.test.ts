@@ -137,3 +137,82 @@ describe("ingest handlers", () => {
     d.store.close()
   })
 })
+
+const numeral = (user: string, name: string, offerTs: string, at: string) => ({
+  eventId: `Ev-${user}-${name}-${at}`,
+  teamId: "T1",
+  event: {
+    type: "reaction_added" as const,
+    user,
+    reaction: name,
+    item_user: "UBOT",
+    item: { type: "message", channel: "C1", ts: offerTs },
+    event_ts: at,
+  },
+})
+
+describe("the vote branch through both gates", () => {
+  const OFFER_TS = ts(8, 5)
+
+  const withOffer = () => {
+    const d = deps()
+    d.store.claimRuleOffers("s1", 3, ["boom", "truce", "attrition"], "7")
+    d.store.recordOfferMessage("s1", 3, OFFER_TS)
+    return d
+  }
+
+  it("a numeral reaction on the offer message survives both ingest gates", () => {
+    // THE reachability test: the emoji filter (events.ts) and the postFor gate
+    // (handlers.ts) would each drop this — the vote branch bypasses both.
+    const d = withOffer()
+    expect(handleReactionEvent(numeral("U2", "two", OFFER_TS, ts(10, 0)), d)).toEqual({
+      kind: "vote",
+    })
+    expect(d.store.ruleReactionsFor("s1", 3)).toMatchObject([{ factionId: "f2", ordinal: 2 }])
+    d.store.close()
+  })
+
+  it("drops a numeral on a message that is not the offer, storing nothing", () => {
+    const d = withOffer()
+    expect(handleReactionEvent(numeral("U2", "two", ts(7, 0), ts(10, 0)), d)).toEqual({
+      kind: "drop",
+      reason: "not-an-offer",
+    })
+    expect(d.store.ruleReactionsFor("s1", 3)).toEqual([])
+    d.store.close()
+  })
+
+  it("drops an unmapped numeral at ingest — it must not void a valid earlier vote", () => {
+    const d = withOffer()
+    handleReactionEvent(numeral("U2", "one", OFFER_TS, ts(10, 0)), d)
+    expect(handleReactionEvent(numeral("U2", "nine", OFFER_TS, ts(11, 0)), d)).toEqual({
+      kind: "drop",
+      reason: "unmapped-numeral",
+    })
+    // The earlier vote stands; the nine was never stored.
+    expect(d.store.ruleReactionsFor("s1", 3)).toMatchObject([{ factionId: "f2", ordinal: 1 }])
+    d.store.close()
+  })
+
+  it("removes the row on reaction_removed", () => {
+    const d = withOffer()
+    handleReactionEvent(numeral("U2", "two", OFFER_TS, ts(10, 0)), d)
+    const removal = numeral("U2", "two", OFFER_TS, ts(11, 0))
+    expect(
+      handleReactionEvent(
+        { ...removal, event: { ...removal.event, type: "reaction_removed" as const } },
+        d,
+      ),
+    ).toEqual({ kind: "unvote" })
+    expect(d.store.ruleReactionsFor("s1", 3)).toEqual([])
+    d.store.close()
+  })
+
+  it("dedupes a redelivered vote event", () => {
+    const d = withOffer()
+    const vote = numeral("U2", "two", OFFER_TS, ts(10, 0))
+    expect(handleReactionEvent(vote, d)).toEqual({ kind: "vote" })
+    expect(handleReactionEvent(vote, d)).toEqual({ kind: "duplicate" })
+    d.store.close()
+  })
+})

@@ -16,6 +16,22 @@ export const EMOJI_ALIASES: Readonly<Record<string, string>> = {
   "+1": "+1",
 }
 
+/**
+ * Numeral reactions on the daily rule offer — a vote is WHICH numeral you
+ * picked. Keys are post-normalizeEmoji names; values are the offer ordinal.
+ */
+export const NUMERAL_EMOJI: Readonly<Record<string, number>> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+}
+
 /** The order lock and approval cutoff, in America/New_York. */
 export const TICK_HOUR = 21
 

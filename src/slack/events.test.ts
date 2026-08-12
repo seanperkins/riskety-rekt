@@ -168,4 +168,42 @@ describe("interpretReaction", () => {
       messageTs: "1723237200.000200",
     })
   })
+
+  describe("the vote branch", () => {
+    const numeral = { ...reaction, event: { ...reaction.event, reaction: "two" } }
+
+    it("reads a numeral as a vote — before the approval filter would drop it", () => {
+      expect(interpretReaction(numeral, SCOPE)).toEqual({
+        kind: "vote",
+        slackUserId: "U2",
+        messageTs: "1723237200.000200",
+        ordinal: 2,
+        reactedAt: "1723237800.000100",
+      })
+    })
+
+    it("reads a numeral removal as an un-vote", () => {
+      const removed = { ...numeral, event: { ...numeral.event, type: "reaction_removed" as const } }
+      expect(interpretReaction(removed, SCOPE)).toEqual({
+        kind: "unvote",
+        slackUserId: "U2",
+        messageTs: "1723237200.000200",
+        ordinal: 2,
+      })
+    })
+
+    it("does its own roster check", () => {
+      // The shipped gate order puts roster AFTER the emoji filter, which the
+      // vote branch bypasses — so the branch checks the roster itself.
+      const guest = { ...numeral, event: { ...numeral.event, user: "U404" } }
+      expect(interpretReaction(guest, SCOPE)).toEqual({ kind: "drop", reason: "not-on-roster" })
+    })
+
+    it("has no self-approval check — the offer message is bot-authored", () => {
+      // item_user is never a player on the offer message. Pinned so nobody
+      // re-adds the check and silently drops votes.
+      const self = { ...numeral, event: { ...numeral.event, user: "U1", item_user: "U1" } }
+      expect(interpretReaction(self, SCOPE)).toMatchObject({ kind: "vote", slackUserId: "U1" })
+    })
+  })
 })

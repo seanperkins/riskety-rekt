@@ -1,13 +1,13 @@
 import { App } from "@slack/bolt"
 import type { App as AppType } from "@slack/bolt"
-import type { ApprovalStore, AuthStore, RosterStore } from "../store/types.js"
+import type { ApprovalStore, AuthStore, RosterStore, RuleVoteStore } from "../store/types.js"
 import type { SlackEnv } from "./env.js"
 import { handleMessageEvent, handleReactionEvent, type IngestDeps } from "./handlers.js"
 import { handleLoginCommand } from "./login.js"
 
 export interface SlackAppDeps {
   env: SlackEnv
-  store: ApprovalStore & RosterStore & AuthStore
+  store: ApprovalStore & RosterStore & AuthStore & RuleVoteStore
   log: (msg: string) => void
 }
 

@@ -1,4 +1,4 @@
-import { APPROVAL_EMOJI, EMOJI_ALIASES } from "./config.js"
+import { APPROVAL_EMOJI, EMOJI_ALIASES, NUMERAL_EMOJI } from "./config.js"
 
 export interface Scope {
   teamId: string
@@ -16,6 +16,8 @@ export type DropReason =
   | "not-a-message"
   | "not-an-approval"
   | "self-approval"
+  | "not-an-offer"
+  | "unmapped-numeral"
 
 export type MessageDecision =
   | { kind: "post"; slackUserId: string; messageTs: string }
@@ -25,6 +27,8 @@ export type MessageDecision =
 export type ReactionDecision =
   | { kind: "approve"; slackUserId: string; messageTs: string; reactedAt: string }
   | { kind: "unapprove"; slackUserId: string; messageTs: string }
+  | { kind: "vote"; slackUserId: string; messageTs: string; ordinal: number; reactedAt: string }
+  | { kind: "unvote"; slackUserId: string; messageTs: string; ordinal: number }
   | { kind: "drop"; reason: DropReason }
 
 /**
@@ -112,6 +116,32 @@ export function interpretReaction(input: ReactionInput, scope: Scope): ReactionD
   if (input.teamId !== scope.teamId) return { kind: "drop", reason: "wrong-team" }
   if (event.item?.type !== "message") return { kind: "drop", reason: "not-a-message" }
   if (event.item.channel !== scope.channelId) return { kind: "drop", reason: "wrong-channel" }
+
+  // The vote branch. Sits BEFORE the approval-emoji filter, which would drop
+  // every numeral. It does its own roster check (the shipped gate order puts
+  // roster after the emoji filter) and skips the self-approval check on
+  // purpose: the offer message is bot-authored, so item_user is never a
+  // player — stated so nobody re-adds it.
+  const numeral =
+    event.reaction === undefined ? undefined : NUMERAL_EMOJI[normalizeEmoji(event.reaction)]
+  if (numeral !== undefined) {
+    if (event.user === undefined || !scope.roster.has(event.user)) {
+      return { kind: "drop", reason: "not-on-roster" }
+    }
+    if (event.item.ts === undefined) return { kind: "drop", reason: "not-a-message" }
+    if (event.type === "reaction_removed") {
+      return { kind: "unvote", slackUserId: event.user, messageTs: event.item.ts, ordinal: numeral }
+    }
+    if (event.event_ts === undefined) return { kind: "drop", reason: "not-a-message" }
+    return {
+      kind: "vote",
+      slackUserId: event.user,
+      messageTs: event.item.ts,
+      ordinal: numeral,
+      reactedAt: event.event_ts,
+    }
+  }
+
   if (event.reaction === undefined || !APPROVAL_EMOJI.has(normalizeEmoji(event.reaction))) {
     return { kind: "drop", reason: "not-an-approval" }
   }

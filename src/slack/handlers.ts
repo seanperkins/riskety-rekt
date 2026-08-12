@@ -1,4 +1,4 @@
-import type { ApprovalStore, RosterStore } from "../store/types.js"
+import type { ApprovalStore, RosterStore, RuleVoteStore } from "../store/types.js"
 import {
   interpretMessage,
   interpretReaction,
@@ -8,13 +8,13 @@ import {
 } from "./events.js"
 
 export interface IngestDeps {
-  store: ApprovalStore & RosterStore
+  store: ApprovalStore & RosterStore & RuleVoteStore
   scope: { teamId: string; channelId: string }
   log: (msg: string) => void
 }
 
 export type IngestOutcome =
-  | { kind: "post" | "delete" | "approve" | "unapprove" }
+  | { kind: "post" | "delete" | "approve" | "unapprove" | "vote" | "unvote" }
   | { kind: "duplicate" }
   | { kind: "drop"; reason: DropReason | "unknown-post" }
 
@@ -73,6 +73,38 @@ export function handleReactionEvent(
 
   const decision = interpretReaction({ teamId: input.teamId, event: input.event }, scopeFor(deps))
   if (decision.kind === "drop") return decision
+
+  // The vote branch — before the postFor gate, because the day's offer
+  // message is bot-authored and never enters `posts`. The offer is
+  // recognized by its stored ts, the analogue of that gate.
+  if (decision.kind === "vote" || decision.kind === "unvote") {
+    const offer = deps.store.offerForMessage(decision.messageTs)
+    if (offer === undefined) return { kind: "drop", reason: "not-an-offer" }
+
+    const factionId = deps.store.factionForSlackUser(decision.slackUserId)
+    if (factionId === undefined) return { kind: "drop", reason: "not-on-roster" }
+
+    // Dropped at ingest, not stored: `nine` on a three-candidate day must not
+    // become the player's "latest" and silently void a valid earlier vote.
+    if (!offer.ordinals.includes(decision.ordinal)) {
+      return { kind: "drop", reason: "unmapped-numeral" }
+    }
+
+    if (decision.kind === "unvote") {
+      deps.store.removeRuleReaction(offer.seasonId, offer.day, factionId, decision.ordinal)
+      deps.log(`unvote day ${offer.day} ordinal ${decision.ordinal} by ${factionId}`)
+      return { kind: "unvote" }
+    }
+    deps.store.recordRuleReaction({
+      seasonId: offer.seasonId,
+      day: offer.day,
+      factionId,
+      ordinal: decision.ordinal,
+      reactedAt: decision.reactedAt,
+    })
+    deps.log(`vote day ${offer.day} ordinal ${decision.ordinal} by ${factionId}`)
+    return { kind: "vote" }
+  }
 
   // A reaction on ordinary channel chatter. Storing it would leave a row no
   // query reads.
