@@ -117,6 +117,8 @@ async function postRecapFor(
     log(`day ${state.day} resolved; SLACK_BOT_TOKEN is not set, so no recap was posted`)
     return
   }
+  // The day's winning rule, from the frozen context — the recap announces it.
+  const ruleIds = s.loadTickContext(seasonId, state.day)?.context.rules ?? []
   const out = await runPostRecap({
     poster: createPoster(loadSlackEnv()),
     state,
@@ -127,6 +129,7 @@ async function postRecapFor(
     now: new Date(),
     correction,
     force,
+    ...(ruleIds.length === 0 ? {} : { ruleIds }),
     log,
   })
   if (out.status === "suppressed") {

@@ -289,3 +289,37 @@ describe("runRerun — pre-change frozen contexts (the backfill)", () => {
     rmSync(dir, { recursive: true, force: true })
   })
 })
+
+describe("runRerun — frozen rule selection", () => {
+  it("replays the frozen winner even after the votes are gone", () => {
+    // Rule SELECTION is frozen in the context; the raw reactions are not
+    // consulted on replay. Delete the vote after the tick and the rerun must
+    // still resolve day 3 under boom — a re-derivation would silently replay
+    // a different game.
+    const d = ticked(2)
+    d.store.claimRuleOffers("s1", 3, ["boom", "truce"], "7")
+    d.store.recordOfferMessage("s1", 3, "1756758000.000100")
+    d.store.recordRuleReaction({
+      seasonId: "s1",
+      day: 3,
+      factionId: "f1",
+      ordinal: 1,
+      reactedAt: `${at(3, 12).getTime() / 1000}.000100`,
+    })
+    const live = runTick({ store: d.store, seasonId: "s1", now: at(3, 21, 30) })
+    if (live.status !== "resolved") throw new Error(`tick: ${live.status}`)
+    expect(d.store.loadTickContext("s1", 3)!.context.rules).toEqual(["boom"])
+    const liveState = d.store.loadState("s1", 3)!
+
+    d.store.removeRuleReaction("s1", 3, "f1", 1)
+
+    const out = runRerun({ store: d.store, seasonId: "s1", day: 3, now: at(4, 10), confirm: true })
+    expect(out.status).toBe("replayed")
+    expect(d.store.loadTickContext("s1", 3)!.context.rules).toEqual(["boom"])
+    expect(d.store.loadState("s1", 3)).toEqual(liveState)
+    expect(d.store.loadState("s1", 3)!.log.some((e) => e.t === "grant" && e.source === "boom")).toBe(
+      true,
+    )
+    d.store.close()
+  })
+})

@@ -4,9 +4,11 @@ import { DEFAULT_MODULES, marketIdsOf } from "../engine/modules/index.js"
 import type { DailyContext, GameState, MarketId, Settlement } from "../engine/index.js"
 import { currentDay, tickInstant } from "../season.js"
 import { dailyApprovals } from "../slack/approvals.js"
+import { dailyRuleSelection } from "../slack/rule-vote.js"
 import type {
   ApprovalStore,
   OrderStore,
+  RuleVoteStore,
   SeasonStore,
   SlateStore,
   StateStore,
@@ -25,7 +27,13 @@ export type RerunOutcome =
   | { status: "refused"; refusal: RerunRefusal }
 
 export interface RerunDeps {
-  store: SeasonStore & SlateStore & ApprovalStore & OrderStore & StateStore & Transactional
+  store: SeasonStore &
+    SlateStore &
+    ApprovalStore &
+    OrderStore &
+    RuleVoteStore &
+    StateStore &
+    Transactional
   seasonId: string
   /** The first day to replay. */
   day: number
@@ -179,9 +187,13 @@ function backfillContext(
   }
 }
 
-/** The same context the tick builds, for a day that never had one recorded. */
+/**
+ * The same context the tick builds, for a day that never had one recorded.
+ * The rule tally is re-derived from live rule_reactions — part of the same
+ * named concession as the live posts and settlements this path reads.
+ */
 function assembleContext(
-  store: SlateStore & ApprovalStore & SeasonStore,
+  store: SlateStore & ApprovalStore & SeasonStore & RuleVoteStore,
   seasonId: string,
   day: number,
   previous: GameState,
@@ -193,13 +205,14 @@ function assembleContext(
   const ids = new Set<MarketId>(slate.map((m) => m.id))
   for (const id of marketIdsOf(previous)) ids.add(id)
   const settlements: Record<MarketId, Settlement> = store.loadSettlements([...ids].sort())
+  const instant = tickInstant(season, day).toISOString()
   return {
     slate,
     approvals: irl.approvals,
     postedToday: irl.postedToday,
     settlements,
-    tickInstant: tickInstant(season, day).toISOString(),
+    tickInstant: instant,
     modules: season.modules ?? [...DEFAULT_MODULES],
-    rules: [],
+    rules: dailyRuleSelection(store, seasonId, day, instant),
   }
 }

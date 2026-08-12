@@ -1,4 +1,5 @@
 import { territoriesOf } from "../engine/index.js"
+import { RULE_REGISTRY } from "../engine/rules/index.js"
 import type { FactionId, GameState, TickEvent } from "../engine/index.js"
 import {
   MAX_RECAP_BLOCKS,
@@ -16,6 +17,12 @@ export interface RecapInput {
   lengthDays: number
   /** A rerun. Marked visibly rather than posted as a silent second recap. */
   correction?: boolean
+  /**
+   * The day's winning rule ids, from the frozen tick_context. Rendered with
+   * name and description — the user-visible record of why the day resolved
+   * the way it did (a Truce day's recap says why no attacks landed).
+   */
+  ruleIds?: string[]
 }
 
 /**
@@ -75,6 +82,13 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
   const blocks: Block[] = [header(`Day ${state.day} of ${lengthDays}`)]
   if (input.correction === true) {
     blocks.push(context(["Correction — this tick was re-run. It replaces the earlier recap."]))
+  }
+  for (const id of input.ruleIds ?? []) {
+    // An id the registry no longer knows renders as the bare id — frozen
+    // history must outlive a catalogue edit, not crash the recap.
+    const r = RULE_REGISTRY.get(id)
+    const label = r === undefined ? id : `${r.name} — ${r.description}`
+    blocks.push(context([safeText(`Rule in force: ${label}`, 200)]))
   }
 
   const of = <T extends TickEvent["t"]>(t: T) =>

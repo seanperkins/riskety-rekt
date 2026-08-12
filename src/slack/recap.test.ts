@@ -210,4 +210,32 @@ describe("recap event coverage", () => {
     })
     expect(texts(blocks).join("\n")).toContain("(boom)")
   })
+
+  it("announces the day's rule with name AND description", () => {
+    // The user-visible record of why a Truce day had no captures — and the
+    // description says moves still run, so the copy never promises stillness.
+    const { blocks } = renderRecap({
+      state: stateWith([]),
+      previous: stateWith([], 2),
+      lengthDays: 21,
+      ruleIds: ["truce"],
+    })
+    const all = texts(blocks).join("\n")
+    expect(all).toContain("Rule in force: Truce — No attacks land today. Moves and deploys still run.")
+  })
+
+  it("renders an id the catalogue no longer knows as the bare id, without throwing", () => {
+    const { blocks } = renderRecap({
+      state: stateWith([]),
+      previous: stateWith([], 2),
+      lengthDays: 21,
+      ruleIds: ["retired-rule"],
+    })
+    expect(texts(blocks).join("\n")).toContain("Rule in force: retired-rule")
+  })
+
+  it("renders no rule block when the day had no winning rule", () => {
+    const { blocks } = renderRecap({ state: stateWith([]), previous: stateWith([], 2), lengthDays: 21 })
+    expect(texts(blocks).join("\n")).not.toContain("Rule in force")
+  })
 })

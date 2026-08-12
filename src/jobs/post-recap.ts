@@ -29,6 +29,8 @@ export interface PostRecapDeps {
    * so a plain retry would see it and silently skip.
    */
   force?: boolean
+  /** The day's winning rule ids, read from the frozen tick_context. */
+  ruleIds?: string[]
   log?: (msg: string) => void
 }
 
@@ -74,6 +76,7 @@ export async function runPostRecap(deps: PostRecapDeps): Promise<RecapResult> {
     previous: deps.previous,
     lengthDays: deps.lengthDays,
     ...(deps.correction === undefined ? {} : { correction: deps.correction }),
+    ...(deps.ruleIds === undefined ? {} : { ruleIds: deps.ruleIds }),
   })
   await deps.poster.post(message)
   log(`recap posted for day ${day}`)

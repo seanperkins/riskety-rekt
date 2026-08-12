@@ -280,3 +280,48 @@ describe("runTick — behaviour", () => {
     d.store.close()
   })
 })
+
+describe("runTick — the rule tally", () => {
+  const slackTs = (d: Date) => `${d.getTime() / 1000}.000100`
+
+  const withOffer = () => {
+    const d = seeded({ latestSavedDay: 4 })
+    d.store.claimRuleOffers("s1", 5, ["boom", "truce"], "7")
+    d.store.recordOfferMessage("s1", 5, "1756758000.000100")
+    return d
+  }
+
+  it("freezes the winner into ctx.rules and the rule's effect lands", () => {
+    const d = withOffer()
+    d.store.recordRuleReaction({
+      seasonId: "s1", day: 5, factionId: "f1", ordinal: 1, reactedAt: slackTs(at(5, 12)),
+    })
+    const out = runTick({ ...d, now: at(5, 21, 30) })
+    if (out.status !== "resolved") throw new Error("expected resolved")
+    expect(d.store.loadTickContext("s1", 5)!.context.rules).toEqual(["boom"])
+    expect(out.next.log.some((e) => e.t === "grant" && e.source === "boom")).toBe(true)
+    d.store.close()
+  })
+
+  it("a day with offers but no votes freezes rules: [] and resolves normally", () => {
+    const d = withOffer()
+    const out = runTick({ ...d, now: at(5, 21, 30) })
+    expect(out).toMatchObject({ status: "resolved", day: 5 })
+    expect(d.store.loadTickContext("s1", 5)!.context.rules).toEqual([])
+    d.store.close()
+  })
+
+  it("the delayed-tick regression: a post-21:00 reaction is present but never counts", () => {
+    // The reaction row is stored (its webhook landed before the late tick's
+    // transaction), but reacted_at is 21:30 — past the tick instant. The
+    // explicit cutoff predicate excludes it end to end.
+    const d = withOffer()
+    d.store.recordRuleReaction({
+      seasonId: "s1", day: 5, factionId: "f1", ordinal: 1, reactedAt: slackTs(at(5, 21, 30)),
+    })
+    const out = runTick({ ...d, now: at(5, 22, 0) })
+    expect(out).toMatchObject({ status: "resolved", day: 5 })
+    expect(d.store.loadTickContext("s1", 5)!.context.rules).toEqual([])
+    d.store.close()
+  })
+})

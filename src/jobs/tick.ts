@@ -4,9 +4,11 @@ import { DEFAULT_MODULES, marketIdsOf } from "../engine/modules/index.js"
 import type { DailyContext, GameState, MarketId, Settlement } from "../engine/index.js"
 import { currentDay, tickInstant } from "../season.js"
 import { dailyApprovals } from "../slack/approvals.js"
+import { dailyRuleSelection } from "../slack/rule-vote.js"
 import type {
   ApprovalStore,
   OrderStore,
+  RuleVoteStore,
   SeasonStore,
   SlateStore,
   StateStore,
@@ -28,7 +30,13 @@ export type TickOutcome =
   | { status: "refused"; reason: "no-deal" }
 
 export interface TickDeps {
-  store: SeasonStore & SlateStore & ApprovalStore & OrderStore & StateStore & Transactional
+  store: SeasonStore &
+    SlateStore &
+    ApprovalStore &
+    OrderStore &
+    RuleVoteStore &
+    StateStore &
+    Transactional
   seasonId: string
   /** Injected: the job holds no clock of its own, so tests can pin the day. */
   now: Date
@@ -130,14 +138,20 @@ export function runTick(deps: TickDeps): TickOutcome {
     for (const id of marketIdsOf(previous)) ids.add(id)
     const settlements: Record<MarketId, Settlement> = store.loadSettlements([...ids].sort())
 
+    // The tally runs inside this transaction: it counts a reaction row only
+    // if it is present when the transaction reads AND reacted_at <= the tick
+    // instant — the explicit cutoff predicate, so a delayed tick cannot count
+    // a post-21:00 vote. The winner freezes into ctx.rules, the durable
+    // record of what won.
+    const instant = tickInstant(season, day).toISOString()
     const context: DailyContext = {
       slate,
       approvals: irl.approvals,
       postedToday: irl.postedToday,
       settlements,
-      tickInstant: tickInstant(season, day).toISOString(),
+      tickInstant: instant,
       modules: season.modules ?? [...DEFAULT_MODULES],
-      rules: [],
+      rules: dailyRuleSelection(store, seasonId, day, instant),
     }
 
     const next = resolve(previous, orders, context)
