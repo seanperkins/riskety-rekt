@@ -40,6 +40,7 @@ describe("runSeasonInit", () => {
     expect(store.season("s1")).toEqual({
       seasonId: "s1",
       startDate: "2026-09-01",
+      modules: ["markets", "irl", "veto"],
       lengthDays: SEASON_LENGTH,
     })
     store.close()
