@@ -99,6 +99,24 @@ export interface Mechanic {
   escrowed?(own: ModuleStateValue): number
 }
 
+export type RuleId = string
+
+/**
+ * A rule is a mechanic with a one-day lifetime, display fields for the vote
+ * and the recap, and a narrow offer filter. `needs` is a DISPLAY-side filter —
+ * the daily draw skips rules whose modules are off, so the vote can never
+ * select a rule the engine would refuse — not a dependency system.
+ */
+export interface Rule extends Mechanic {
+  id: RuleId
+  /** Shown in the vote offer and the recap. */
+  name: string
+  /** One line; every render sink caps and escapes it itself. */
+  description: string
+  /** Modules this rule's OFFER requires. Checked at catalogue load. */
+  needs?: ModuleId[]
+}
+
 /**
  * Engine-internal: a claim tagged with the mechanic that returned it. The tag
  * is applied by the engine as it collects hook results — never asserted by
