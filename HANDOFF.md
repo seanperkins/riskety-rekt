@@ -36,18 +36,20 @@ clamp), and the **pluggable-mechanics module system**: markets/irl/veto as engin
 modules, the seniority allocation phase (the deploy-inflation fix),
 `GameState.moduleState`, the `seasons.modules` column with migration and
 `modules:set`, module-off gating across jobs/web/Slack, and the departure-cost
-combat dial. **759 tests passing**, none of which touch the network —
+combat dial — and the **rule catalogue + voting** that completes that spec:
+three rules (Boom, Attrition, Truce), the 08:05 offer job with its
+claim-then-post ledger, numeral-reaction votes in `rule_reactions`, the 21:00
+tally frozen into `ctx.rules`, and the bounded-swing balance gate.
+**824 tests passing**, none of which touch the network —
 `test/no-network.ts` replaces `fetch` in every run, so it is enforced.
 
-**Not built:** the rule catalogue + voting (the second half of the
-pluggable-mechanics spec): the `Rule` interface, three traced rules,
-`rule_offers`/`rule_reactions` with the Slack vote branch, and the per-rule
-bounded-swing balance gate. See CLAUDE.md's "Not built" for the snowballing
-finding the 2026-08-11 balance run surfaced.
+**Not built:** nothing from the pluggable-mechanics spec. See CLAUDE.md's "Not
+built" for the snowballing finding the 2026-08-11 balance run surfaced, which is
+the remaining open question before a competitive season.
 
 ```bash
 npm install
-npm test          # 646 tests
+npm test          # 824 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom roster
@@ -145,6 +147,34 @@ or may not have existed. Deriving makes removal one `DELETE`.
 
 **Payout uses `round`, not `floor`.** Under `floor` the intended +10% only existed for
 stakes above `10p`; below that it was negative-EV, worst case ≈ −45% just above p=0.55.
+
+**The day's rule is derived too, and its cutoff has two parts.** `rule_reactions`
+holds raw numeral reactions; the tally computes the winner at 21:00 and freezes it
+into `ctx.rules`. A row counts only if it is present when the tick's transaction
+reads AND `reacted_at <= tickInstant` — without the second half, a tick delayed to
+22:00 counts votes cast after the deadline. It is a separate table from `reactions`
+because that one structurally cannot hold a vote: no emoji column (a vote is *which*
+numeral), one row per player per message (changing your vote needs two live rows),
+and `INSERT OR IGNORE` first-wins semantics (votes are latest-wins). An unmapped
+numeral — `nine` on a three-candidate day — is dropped at ingest rather than stored,
+or it would become the player's "latest" reaction and void a valid earlier vote.
+
+**Rule selection is frozen; rule behavior is not.** A rerun replays the frozen id
+from `tick_context`, never a re-derived tally, so deleting the votes afterwards
+cannot change the replay. Behavior changes ride `engineVersion` like every other
+engine change — `tick:rerun` warns and proceeds. There is deliberately no second
+versioning scheme for rules.
+
+**The offer's crash window is accepted, not closed.** Claim-then-post means a crash
+*before* the post replays cleanly (the next run finds claimed rows and posts them,
+marked as superseding). A crash *after* the post but before the ts is recorded
+orphans that message: its ts exists nowhere, so its reactions can never map to a
+row. That loss is by construction and one systemd retry wide. The test asserts votes
+on the *re-posted* message count — it does not pretend the orphan's votes survive.
+
+**The kill criterion.** The vote apparatus exists to ship a catalogue. If the
+catalogue ever holds fewer than three rules, delete the apparatus and keep the module
+system — the machinery must keep re-earning its weight.
 
 ## What the simulation says
 

@@ -23,6 +23,9 @@ Pipeline, `src/engine/resolve.ts` — fixed order, mechanics never reorder it:
 | 6 | combat | reinforcements → field battles → simultaneous attacks, parameterized by the merged dial |
 | 7 | advance | each stateful module returns its complete next `moduleState[id]`, seeing ITS OWN honored claims |
 
+`active` = `validateModules(ctx.modules)` ∪ `validateRules(ctx.rules)`, id-sorted.
+Modules are season-scoped, rules day-scoped; dispatch is identical.
+
 Why this order (all panel-reviewed, all pinned by tests):
 
 - **Allocation before movement validation**: caps derive from post-deploy
@@ -49,6 +52,32 @@ CombatDials  { attackDepartureCost }             // sum across mechanics, clamp 
 `validateModules(enabled, MODULE_REGISTRY)`: unknown/duplicate ids refused,
 `veto` without `irl` refused (hardcoded, no `requires` field), `advance`
 without `escrowed` refused (the one-sided invariant can't see uncounted escrow).
+
+## Rules (`rules/`) — the voted daily catalogue
+
+```ts
+Rule extends Mechanic { id, name, description, needs? }   // needs = OFFER filter
+```
+
+A rule is a mechanic with a one-day lifetime. `resolve` merges
+`validateRules(ctx.rules, RULE_REGISTRY)` into `active` and id-sorts the union,
+so rules dispatch through the same hooks as modules — the only engine change.
+Namespaces are separate registries and validated separately: a module id in
+`ctx.rules` is an "unknown rule", and `buildCatalogue` refuses a rule id that
+collides with a module id.
+
+| Rule | Hook | Effect |
+|---|---|---|
+| `boom` | grant | recomputes core `territoryIncome` and grants it again, logged `{t:"grant", source:"boom"}`; zero-income factions skipped |
+| `attrition` | combatDials | `{attackDepartureCost: 1}` — the one flat dial |
+| `truce` | lock | every territory, NO per-territory events (a whole-map lock would bury the log); the recap names the rule |
+
+`buildCatalogue` runs at import and throws on: duplicate id, module-id
+collision, empty name, description outside 1..`RULE_DESCRIPTION_MAX_CHARS`
+(100), or a `needs` entry naming an unregistered module — an unknown `needs`
+refuses at catalogue load rather than silently filtering the rule out of every
+offer forever. `eligibleRules(modules)` is the offer filter; the engine itself
+never reads `needs`.
 
 | Module | Hooks | State |
 |---|---|---|

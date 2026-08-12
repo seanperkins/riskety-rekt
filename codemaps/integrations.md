@@ -99,17 +99,24 @@ Everything else is pure, which is what keeps the suite offline.
 | `events.ts` | `interpretMessage`, `interpretReaction`, `normalizeEmoji` — pure decisions |
 | `handlers.ts` | `handleMessageEvent`, `handleReactionEvent` — dedupe, roster lookup, writes |
 | `approvals.ts` | `dailyApprovals(store, seasonId, day)` → `{ approvals, postedToday }` |
-| `recap.ts` | `renderRecap(input)` → `{ text, blocks }` |
+| `recap.ts` | `renderRecap(input)` → `{ text, blocks }`; `ruleIds` renders "Rule in force" |
 | `announce.ts` | `renderSlate(day, slate)` → `{ text, blocks }` |
+| `offer.ts` | `renderRuleOffer(day, offers, {supersedes})` — the numeral ballot |
+| `rule-vote.ts` | `tallyRuleVote` (pure), `dailyRuleSelection` — derived at the 21:00 tick |
 | `login.ts` | the `/login` slash command → hashed magic link DM (web session entry) |
 | `post.ts` | `createPoster(env, client?)` → `Poster` |
 | `text.ts` | `safeText(value, max)` |
 | `cli.ts` | the long-running bot; `PORT` default 3001 |
 
-Gate order in `interpretReaction` (events.ts): team → channel →
-`APPROVAL_EMOJI` filter → roster → self-approval. The rule-catalogue plan's
-vote branch inserts after team/channel and BEFORE the emoji filter, doing its
-own roster lookup.
+Gate order in `interpretReaction` (events.ts): team → channel → **vote branch**
+→ `APPROVAL_EMOJI` filter → roster → self-approval. The vote branch sits before
+the emoji filter (which would drop every numeral), does its OWN roster lookup
+(the shipped order puts roster after that filter), and deliberately skips the
+self-approval check — the offer message is bot-authored, so `item_user` is
+never a player. `handleReactionEvent` mirrors it: the vote branch runs before
+the `postFor` gate, because a bot-authored offer never enters `posts`; it
+recognizes the day's offer by its stored `ts` via `offerForMessage`. An
+ordinal with no offer row is dropped at ingest, never stored.
 
 ### Env
 
@@ -176,6 +183,14 @@ visibly instead of posting a silent second recap.
 `renderSlate` shows whole-cent prices and each market's own close time, because
 wagers lock per-market at that close, not at 21:00. An empty slate posts "the day
 runs as plain Risk."
+
+`renderRuleOffer` numbers candidates `:one:`…`:nine:` and states the vote rules
+in the message itself (latest reaction counts, remove to un-vote, tally at 9pm).
+A recap renders `ruleIds` as name + description — an id the catalogue no longer
+knows renders bare rather than throwing, so frozen history outlives an edit.
+
+`Poster.post` returns the posted message's `ts`, which is what lets the offer's
+claim-then-post ledger map later reactions back to a row.
 
 `createPoster` sets `unfurl_links: false` and `unfurl_media: false` — a Kalshi
 preview is fetched live and could reveal an outcome the recap has not stated.

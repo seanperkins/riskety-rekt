@@ -11,6 +11,7 @@ never clears with time; non-zero would restart-loop all night.
 |---|---|---|
 | `runSeasonInit` | once | `season-init.ts` — roster → deal day 0; validates modules |
 | `runPublishSlate` | 08:00 daily | `publish-slate.ts` |
+| `runPublishRules` | 08:05 daily | `publish-rules.ts` — the rule-vote offer |
 | `runPollSettlements` | every 30 min | `poll-settlements.ts` |
 | `runPollPrices` | every 30 min | `poll-prices.ts` — reuses `getCandidates`, writes `market_prices` |
 | `runTick` | 21:00 daily | `tick.ts` |
@@ -27,8 +28,12 @@ before-cutoff (a 14:00 manual run must not resolve an open day). Then ONE
 transaction: `stateExists` re-check (concurrency belt) → `assembleOrders` +
 `loadSlate` + `dailyApprovals` → settlements for slate ∪ `marketIdsOf(previous)`
 (prior pending markets are not on today's slate) → context
-`{…, tickInstant: tickInstant(season, day).toISOString(), modules: season.modules, rules: []}`
+`{…, tickInstant, modules: season.modules, rules: dailyRuleSelection(...)}`
 → `resolve` → `saveState` → `saveTickContext`. No lock table — see CLAUDE.md.
+
+The rule tally runs INSIDE the transaction: a `rule_reactions` row counts only
+if present when the transaction reads AND `reacted_at <= tickInstant`. The
+second half is what stops a delayed tick from counting post-21:00 votes.
 
 ## rerun (`runRerun`)
 
@@ -52,6 +57,17 @@ the gate is the escrow, not slot presence (`{pending: []}` is idle). A
 permitted disable needs no slot surgery: `resolve` rebuilds `moduleState` from
 active modules, so the slot drops at the next tick and re-enable starts fresh.
 Applied between ticks; visible in the NEXT day's frozen context only.
+
+## publish-rules (`runPublishRules`)
+
+The 08:05 offer. Seeded draw (`(season.seed ^ day·0x9e3779b9) >>> 0`, stored on
+every row) over `eligibleRules(season.modules)`, capped at 9 — the numeral
+alphabet is the ballot. **Claim-then-post**, the recap ledger's pattern:
+rows land with `message_ts` NULL, then the post, then the ts. A crash BEFORE
+the post replays cleanly and re-posts with supersession copy; a crash AFTER it
+orphans that message's reactions — bounded, accepted, and NOT asserted away.
+Days `1..lengthDays` inclusive: rules apply to the same night's tick, unlike a
+slate whose wagers settle a tick later. No poster configured → `claimed`.
 
 ## publish-slate / pollers
 
@@ -80,7 +96,7 @@ Applied between ticks; visible in the NEXT day's frozen context only.
 season-init <YYYY-MM-DD> [--length N] [--seed N]   modules-set <id...>
 tick   recap <day> [--force]   tick-rerun <day> [--confirm] [--assemble-missing]
 order|wager <faction> --file|--stdin   roster-add | roster-list
-publish-slate | poll-prices | poll-settlements
+publish-slate | publish-rules | poll-prices | poll-settlements
 ```
 
 Flags parse by name (`flags.ts`), never by position. **Never
@@ -88,7 +104,8 @@ Flags parse by name (`flags.ts`), never by position. **Never
 
 ## systemd (`deploy/`)
 
-`riskety-publish-slate.timer` 08:00; `riskety-poll-settlements.timer` `*:00/30`;
+`riskety-publish-slate.timer` 08:00; `riskety-publish-rules.timer` 08:05;
+`riskety-poll-settlements.timer` `*:00/30`;
 `riskety-poll-prices.timer` `*:15/30` (offset, not simultaneous);
 `riskety-tick.timer` `21:00:30` (refusals exit 0 on purpose, so
 `Restart=on-failure` cannot loop); `riskety-slack.service` and

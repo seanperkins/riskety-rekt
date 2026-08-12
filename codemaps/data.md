@@ -71,10 +71,13 @@ a shipped migration.** Seven ship (indices 0–6):
 | 4 | `market_prices` (30-min live prices), `order_wagers.price` (placement price; NULL = slate fallback) |
 | 5 | `login_tokens_v2` rebuild (≤ `MAX_LIVE_TOKENS` per user instead of exactly one) |
 | 6 | `seasons.modules` (default `'["markets","irl","veto"]'`); **DATA migration** rewriting `states.state` JSON `pending` → `moduleState.markets.pending` (pinned SQL; a real pre-migration row is loaded through it in `migration.test.ts`) |
+| 7 | `rule_offers` (the day's numbered draw + shuffle seed; `message_ts` NULL between claim and post), `rule_reactions` (RAW numeral reactions, latest-wins upsert) |
 
 Load-bearing details: `settlements.observed_at` (markets can close early;
 wagers lock at `min(close_time, observed_at)` — `saveWager`'s `stillOpen`
-gate); approvals are **derived, never stored** (`dailyApprovals` at read time);
+gate); approvals are **derived, never stored** (`dailyApprovals` at read time)
+and so is the day's rule (`tallyRuleVote` over `rule_reactions`, cutoff
+`reacted_at <= ctx.tickInstant` AND present at read);
 `tick_context.context` carries the whole `DailyContext` as JSON — pre-change
 rows are backfilled at read time from literals, never the mutable season row.
 
@@ -88,6 +91,7 @@ rows are backfilled at read time from literals, never the mutable season row.
 | `OrderStore` | `saveOrder`, `saveWager` (orderGate: day range, deadline, resolved, market-locked; + `markets-off`), `orderFor`, `wagersFor`, `assembleOrders` |
 | `StateStore` | `saveState` (JSON round-trip assert), `loadState` (`parseState` validates; requires `moduleState`), `latestSavedDay`, `stateExists`, `saveTickContext`, `loadTickContext`, `deleteStatesFrom` |
 | `AuthStore` / `RecapLedger` | hashed login tokens; `claimRecap` (attempt-keyed) |
+| `RuleVoteStore` | `claimRuleOffers` (validates ids against the closed catalogue BEFORE insert), `ruleOffersFor`, `recordOfferMessage`, `offerForMessage` (the ingest's offer gate), `recordRuleReaction` (upsert — latest ts wins, the OPPOSITE of `recordApproval`), `removeRuleReaction`, `ruleReactionsFor` |
 | `Transactional` | `transaction(fn)` — the ONLY `BEGIN` owner (`migrate` is the documented exemption) |
 
 `node:sqlite` loads via `createRequire` (Vite strips the `node:` prefix). Rows

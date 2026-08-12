@@ -5,13 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm test                                  # vitest run — 658 tests, none touch the network
+npm test                                  # vitest run — 824 tests, none touch the network
 npm test -- src/engine/combat.test.ts     # a single file
 npm test -- -t "largest surviving force"  # a single test by name
 npm run test:watch
 npm run typecheck                         # tsc --noEmit
 npm run sim                               # 2,000-season balance run, ~7s
 npm run sim -- Slacker Blitz GymRat       # custom policy roster
+npm run sim:rules                         # the per-rule bounded-swing gate, 10k/arm (~20 min)
+npm run sim:rules -- 200                  # a smoke run
 npm run sample:kalshi                     # re-derive VOLUME_FLOOR from live data (hits the network)
 ```
 
@@ -25,6 +27,7 @@ export RR_DB_PATH=./riskety.db RR_SEASON_ID=season-1
 npm run roster:add -- U01ABCDEF f1 "Ada L."   # do this BEFORE season:init
 npm run season:init -- 2026-09-01 --seed 4711 # deals day 0 from the roster
 npm run publish-slate                         # the 08:00 job
+npm run rules:publish                         # the 08:05 rule-vote offer
 npm run poll-settlements                      # the 30-minute settlement job
 npm run poll-prices                           # the 30-minute price job
 npm run tick                                  # the 21:00 job
@@ -126,6 +129,21 @@ exploitable. Full list with reasoning in `HANDOFF.md`; the ones most likely to b
 - **An approved action is derived, never stored.** The store holds raw posts and
   reactions; `dailyApprovals` computes it at read time. Storing approvals makes
   `reaction_removed` a state machine.
+- **So is the day's rule.** `rule_reactions` holds RAW numeral reactions and the
+  tally derives the winner at 21:00. It is a separate table from `reactions`
+  because that one cannot represent a vote: no emoji column, one row per player
+  per message, and `INSERT OR IGNORE` first-timestamp-wins — votes are
+  latest-wins. **The cutoff predicate is two-part**: a row counts only if it is
+  present when the tick's transaction reads AND `reacted_at <= tickInstant`, or
+  a delayed tick counts votes cast after 21:00.
+- **Rule *selection* is frozen in `ctx.rules`; rule *behavior* is engine code.**
+  A rerun replays the frozen id, never a re-derived tally — deleting the votes
+  afterwards cannot change the replay. Behavior drift is `engineVersion`'s
+  concern, exactly like every other engine change; there is no second
+  versioning scheme.
+- **An unmapped numeral is dropped at ingest, never stored.** `nine` on a
+  three-candidate day must not become a player's "latest" reaction and silently
+  void their valid earlier vote.
 
 Check the spec's **"Rejected review findings"** section before acting on a change
 that seems obviously right — it may already have been considered and declined.
@@ -168,13 +186,6 @@ that seems obviously right — it may already have been considered and declined.
 
 What is left before a competitive season:
 
-- **The rule catalogue + voting** — the second half of
-  `docs/superpowers/specs/2026-08-10-pluggable-mechanics-design.md` (the
-  module system core is BUILT: `src/engine/mechanics.ts`, `src/engine/modules/`,
-  the allocation pipeline, `moduleState`, `seasons.modules`, `modules:set`).
-  Remaining: the `Rule` interface with `needs`, the three traced rules,
-  `rule_offers`/`rule_reactions` + the Slack vote branch, the freeze of
-  `ctx.rules`, and the per-rule bounded-swing balance gate.
 - **A fresh look at snowballing.** The 2026-08-11 balance run
   (`docs/superpowers/reviews/2026-08-11-balance-run-modules.md`) found the
   module system behavior-identical to main — and found main itself drifted:
@@ -191,6 +202,7 @@ What is left before a competitive season:
 | `docs/superpowers/reviews/2026-08-09-balance-run.md` | Superseded — the original policy/economy run |
 | `docs/superpowers/reviews/2026-08-10-balance-run-world.md` | Superseded — describes the pre-troop-movement game |
 | `docs/superpowers/reviews/2026-08-11-balance-run-modules.md` | **Current.** 10k-season run; module system verified behavior-identical; the snowballing finding |
+| `docs/superpowers/reviews/2026-08-11-balance-run-rules.md` | **Current.** The rule catalogue's bounded-swing gate: per-rule forced-daily arms, the voted regime, and why the catalogue is gated on the voted one |
 | `docs/superpowers/reviews/2026-08-10-balance-run-14day.md` | Superseded — the 21-vs-14 day measurement behind `SEASON_LENGTH` |
 | `docs/map-rendering.md` | The pane stack, what the shape build generates, and the rendering traps that cost a day |
 | `docs/superpowers/plans/` | Each carries a "Spec deltas" section recording where reality corrected the design |
