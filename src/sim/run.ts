@@ -7,9 +7,10 @@ import {
   territoriesOf,
 } from "../engine/index.js"
 import { pendingWagersOf } from "../engine/modules/index.js"
+import { RULE_CATALOGUE } from "../engine/rules/index.js"
 import { SEASON_LENGTH } from "../config.js"
 import { POLICIES } from "./policies.js"
-import { makeRng, type Rng } from "../rng.js"
+import { makeRng, shuffle, type Rng } from "../rng.js"
 import { clusteredOrder } from "../map/deal.js"
 import { selectSubMap } from "../map/select.js"
 import { WORLD } from "../map/world.js"
@@ -110,7 +111,7 @@ export function seatsFor(policyNames: string[]): Seat[] {
 export function runSeason(
   policyNames: string[],
   seed: number,
-  opts: { modules?: string[] } = {},
+  opts: { modules?: string[]; rules?: string[]; voteRules?: boolean } = {},
 ): SeasonResult {
   const modules = opts.modules ?? ["markets", "irl", "veto"]
   const rng = makeRng(seed)
@@ -173,6 +174,32 @@ export function runSeason(
       settlements[w.marketId] = rng() < pYes ? "yes" : "no"
     }
 
+    // Forced rules are the balance gate's stress arm; voteRules is the
+    // dynamics arm — a seeded daily draw with uniform-random seat votes
+    // (abstain ½), plurality, ties to the lowest rule id. The model is
+    // deliberately strategy-free; the balance review doc states it. The
+    // forced arms consume NO extra randomness, so they stay seed-comparable
+    // with baseline (common random numbers); the voteRules arm does not.
+    let rules: string[] = opts.rules ?? []
+    if (opts.voteRules === true) {
+      const offered = shuffle([...RULE_CATALOGUE], rng).slice(0, 9)
+      const counts = new Map<string, number>()
+      for (let i = 0; i < seatIds.length; i++) {
+        if (rng() < 0.5) continue
+        const pick = offered[Math.floor(rng() * offered.length)]!
+        counts.set(pick.id, (counts.get(pick.id) ?? 0) + 1)
+      }
+      let winner: string | undefined
+      let best = 0
+      for (const [id, n] of counts) {
+        if (n > best || (n === best && winner !== undefined && id < winner)) {
+          winner = id
+          best = n
+        }
+      }
+      rules = winner === undefined ? [] : [winner]
+    }
+
     const context: DailyContext = {
       slate,
       approvals,
@@ -180,7 +207,7 @@ export function runSeason(
       settlements,
       tickInstant: simInstant(day, 21),
       modules,
-      rules: [],
+      rules,
     }
     const orders = policies.map((p, i) => p.decide(state, seatIds[i]!, slate, rng))
     state = resolve(state, orders, context)

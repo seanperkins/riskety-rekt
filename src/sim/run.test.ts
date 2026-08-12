@@ -117,3 +117,38 @@ describe("seats", () => {
     expect(parseInstant(simInstant(5, 18))).toBeLessThan(parseInstant(simInstant(5, 21)))
   })
 })
+
+describe("rule arms", () => {
+  const roster = ["Blitz", "Turtle", "Hunter", "Consolidator"]
+
+  it("completes forced-rule seasons — a wrong rule id would refuse every tick", () => {
+    for (const rule of ["boom", "truce", "attrition"]) {
+      const out = runSeason(roster, 7, { rules: [rule] })
+      expect(out.winner).toBeDefined()
+      // Conservation smoke: every territory still accounted for.
+      expect(Object.values(out.finalTerritories).reduce((a, b) => a + b, 0)).toBe(out.territories)
+    }
+  })
+
+  it("forced truce differs from baseline on the same seed", () => {
+    const base = runSeason(roster, 7)
+    const truce = runSeason(roster, 7, { rules: ["truce"] })
+    expect(truce.finalTerritories).not.toEqual(base.finalTerritories)
+  })
+
+  it("completes a vote-dynamics season", () => {
+    const out = runSeason(roster, 7, { voteRules: true })
+    expect(out.winner).toBeDefined()
+  })
+
+  it("the gate is deterministic and pairs both arms on the same seeds", async () => {
+    const { runRuleGate } = await import("./rule-gate.js")
+    const a = runRuleGate(roster, 20, "boom")
+    const b = runRuleGate(roster, 20, "boom")
+    expect(a).toEqual(b)
+    for (const row of a.perPolicy) {
+      expect(Number.isFinite(row.diffPct)).toBe(true)
+      expect(Number.isFinite(row.pairedSePct)).toBe(true)
+    }
+  })
+})
