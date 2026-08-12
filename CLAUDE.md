@@ -14,6 +14,9 @@ npm run sim                               # 2,000-season balance run, ~7s
 npm run sim -- Slacker Blitz GymRat       # custom policy roster
 npm run sim:rules                         # the per-rule bounded-swing gate, 10k/arm (~20 min)
 npm run sim:rules -- 200                  # a smoke run
+npm run sim:balance                       # the committed run: authoritative six, then + Swarm/Ghost
+npm run sim:balance -- 10000 Swarm Swarm Swarm Swarm Swarm Swarm   # a symmetric roster
+npm run sim:balance -- 10000 --shuffled   # the pre-`ec692fd` scattered deal arm
 npm run sample:kalshi                     # re-derive VOLUME_FLOOR from live data (hits the network)
 ```
 
@@ -186,12 +189,22 @@ that seems obviously right — it may already have been considered and declined.
 
 What is left before a competitive season:
 
-- **A fresh look at snowballing.** The 2026-08-11 balance run
-  (`docs/superpowers/reviews/2026-08-11-balance-run-modules.md`) found the
-  module system behavior-identical to main — and found main itself drifted:
-  the troop-movement feature pushed Consolidator to 27.7% and day-3 leader
-  conversion to 39%, and the 2026-08-10 balance doc describes the pre-moves
-  game.
+- **A dial for multi-front attack.** The 2026-08-12 run
+  (`docs/superpowers/reviews/2026-08-12-balance-run-snowballing.md`) added
+  `Swarm`, the first policy to attack on more than one front per tick, and it
+  wins **71.4%** against the authoritative five — 4.3× baseline, breaking no
+  rule and drawing no cap rejections. The spec's "no dominant strategy"
+  property was evidenced against a policy set that all voluntarily attacked
+  once per tick. A human finds this on day two. Candidate dials are listed in
+  that doc; none has been measured.
+
+- **Snowballing: answered, and it is the deal.** Same run. On symmetric seats
+  the day-3 leader converts 36.5%–42.0% against a 16.7% baseline regardless of
+  policy, so the 39% is real rather than a weak-roster artifact — but
+  scattering the starting holdings drops it by ~14–16 points, while giving
+  every seat multi-front capability moves it by 3. The contiguous deal
+  (`ec692fd`), not combat and **not** troop movement, is the lever. Whether to
+  pull it is a design call.
 
 ## Docs
 
@@ -200,8 +213,9 @@ What is left before a competitive season:
 | `docs/superpowers/specs/2026-08-09-riskety-rekt-design.md` | The spec. Every rule, and why it is that rule. |
 | `HANDOFF.md` | Current state and the full list of rules a newcomer gets wrong |
 | `docs/superpowers/reviews/2026-08-09-balance-run.md` | Superseded — the original policy/economy run |
-| `docs/superpowers/reviews/2026-08-10-balance-run-world.md` | Superseded — describes the pre-troop-movement game |
-| `docs/superpowers/reviews/2026-08-11-balance-run-modules.md` | **Current.** 10k-season run; module system verified behavior-identical; the snowballing finding |
+| `docs/superpowers/reviews/2026-08-10-balance-run-world.md` | Superseded — describes the game before the contiguous deal (`ec692fd`) |
+| `docs/superpowers/reviews/2026-08-11-balance-run-modules.md` | **Current for the module comparison** (verified behavior-identical). Its attribution of the balance drift to troop movement is WRONG — corrected by the 2026-08-12 run |
+| `docs/superpowers/reviews/2026-08-12-balance-run-snowballing.md` | **Current.** Strengthened roster (`Swarm`, `Ghost`); multi-front attack is dominant at 71.4%; the day-3 snowball is the contiguous deal |
 | `docs/superpowers/reviews/2026-08-11-balance-run-rules.md` | Superseded — the three-rule catalogue, which failed on Blitz (+4.03). Kept for its finding that forced-daily does NOT upper-bound the voted regime |
 | `docs/superpowers/reviews/2026-08-11-balance-run-rules-expanded.md` | **Current.** Thirteen rules on a three-slot ballot: PASSES, max movement 1.13 points |
 | `docs/superpowers/reviews/2026-08-10-balance-run-14day.md` | Superseded — the 21-vs-14 day measurement behind `SEASON_LENGTH` |

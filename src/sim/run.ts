@@ -47,6 +47,14 @@ export interface SeasonResult {
   finalTerritories: Record<string, number>
   finalReserves: Record<string, number>
   day3Leader: string
+  /** Seat ids holding zero territories at the final tick. */
+  eliminated: string[]
+  /** Veto picks submitted by an eliminated faction, across the season. */
+  vetoesOffered: number
+  /** Of those, silently dropped because the faction had not posted that day. */
+  vetoesGated: number
+  /** `protected` events the engine logged — offers that survived the parity. */
+  protectionsApplied: number
 }
 
 export interface Report {
@@ -58,6 +66,12 @@ export interface Report {
   wins: Record<string, number>
   day3LeaderWinRate: number
   meanFinalTerritories: Record<string, number>
+  /** Share of a policy's seat-seasons that ended with zero territories. */
+  eliminationRate: Record<string, number>
+  /** Season totals for the veto gate, summed across the run. */
+  vetoesOffered: number
+  vetoesGated: number
+  protectionsApplied: number
 }
 
 /**
@@ -108,10 +122,20 @@ export function seatsFor(policyNames: string[]): Seat[] {
   })
 }
 
+/**
+ * `clustered` is what season-init deals and therefore the only figure worth
+ * committing. `shuffled` is the pre-`ec692fd` scattered deal, kept as a
+ * measurement arm: that commit named the contiguous holding as the reason an
+ * early lead persists, and this is how the claim stays checkable rather than
+ * remembered. The two arms consume the rng differently, so they are NOT paired
+ * on a seed — compare them at large n, never season by season.
+ */
+export type Deal = "clustered" | "shuffled"
+
 export function runSeason(
   policyNames: string[],
   seed: number,
-  opts: { modules?: string[]; rules?: string[]; voteRules?: boolean } = {},
+  opts: { modules?: string[]; rules?: string[]; voteRules?: boolean; deal?: Deal } = {},
 ): SeasonResult {
   const modules = opts.modules ?? ["markets", "irl", "veto"]
   const rng = makeRng(seed)
@@ -137,11 +161,19 @@ export function runSeason(
     factions,
     // The same deal season-init uses. Two things that drift apart until the
     // measurement describes a game nobody plays.
-    clusteredOrder(map, factions.length, rng),
+    opts.deal === "shuffled"
+      ? shuffle(
+          map.territories.map((t) => t.id),
+          rng,
+        )
+      : clusteredOrder(map, factions.length, rng),
     map,
   )
   const seatIds = seats.map((s) => s.id)
   let day3Leader = seatIds[0]!
+  let vetoesOffered = 0
+  let vetoesGated = 0
+  let protectionsApplied = 0
 
   for (let day = 1; day <= SEASON_LENGTH; day++) {
     // No slate on the final day: a day-21 stake would pay out at a tick that
@@ -223,7 +255,19 @@ export function runSeason(
       rules,
     }
     const orders = policies.map((p, i) => p.decide(state, seatIds[i]!, slate, rng))
+
+    // Veto accounting, read BEFORE resolve: an offer that the post gate drops
+    // leaves no trace in the log at all — `lock` filters it silently — so the
+    // only place the gate is observable is here, against the input state.
+    const posted = new Set(context.postedToday)
+    for (const o of orders) {
+      if (o.protect === null || territoriesOf(state, o.factionId).length > 0) continue
+      vetoesOffered++
+      if (!posted.has(o.factionId)) vetoesGated++
+    }
+
     state = resolve(state, orders, context)
+    protectionsApplied += state.log.filter((e) => e.t === "protected").length
 
     if (day === 3) {
       day3Leader = [...seatIds].sort(
@@ -263,6 +307,10 @@ export function runSeason(
     finalTerritories,
     finalReserves: Object.fromEntries(seatIds.map((n) => [n, state.reserves[n] ?? 0])),
     day3Leader,
+    eliminated: seatIds.filter((n) => finalTerritories[n] === 0),
+    vetoesOffered,
+    vetoesGated,
+    protectionsApplied,
   }
 }
 
@@ -276,7 +324,7 @@ export function runSeason(
  * win rate against a one-seat policy's without it would be wrong by a factor of
  * two.
  */
-export function runMany(policyNames: string[], seasons: number): Report {
+export function runMany(policyNames: string[], seasons: number, opts: { deal?: Deal } = {}): Report {
   const seats = seatsFor(policyNames)
   const policyOf = new Map(seats.map((s) => [s.id, s.policy]))
   const seatCount: Record<string, number> = {}
@@ -285,16 +333,27 @@ export function runMany(policyNames: string[], seasons: number): Report {
   const names = [...new Set(policyNames)]
   const wins: Record<string, number> = Object.fromEntries(names.map((n) => [n, 0]))
   const totals: Record<string, number> = Object.fromEntries(names.map((n) => [n, 0]))
+  const deaths: Record<string, number> = Object.fromEntries(names.map((n) => [n, 0]))
   let day3Converted = 0
   let territories = 0
+  let vetoesOffered = 0
+  let vetoesGated = 0
+  let protectionsApplied = 0
 
   for (let i = 0; i < seasons; i++) {
-    const r = runSeason(policyNames, i + 1)
+    const r = runSeason(policyNames, i + 1, opts)
     const winnerPolicy = policyOf.get(r.winner)
     if (winnerPolicy !== undefined) wins[winnerPolicy] = (wins[winnerPolicy] ?? 0) + 1
     for (const s of seats) totals[s.policy] = totals[s.policy]! + r.finalTerritories[s.id]!
+    for (const id of r.eliminated) {
+      const p = policyOf.get(id)
+      if (p !== undefined) deaths[p] = (deaths[p] ?? 0) + 1
+    }
     if (r.day3Leader === r.winner) day3Converted++
     territories += r.territories
+    vetoesOffered += r.vetoesOffered
+    vetoesGated += r.vetoesGated
+    protectionsApplied += r.protectionsApplied
   }
 
   return {
@@ -308,5 +367,12 @@ export function runMany(policyNames: string[], seasons: number): Report {
     meanFinalTerritories: Object.fromEntries(
       names.map((n) => [n, totals[n]! / seasons / (seatCount[n] ?? 1)]),
     ),
+    // Per SEAT-season, for the same reason mean territories is.
+    eliminationRate: Object.fromEntries(
+      names.map((n) => [n, deaths[n]! / seasons / (seatCount[n] ?? 1)]),
+    ),
+    vetoesOffered,
+    vetoesGated,
+    protectionsApplied,
   }
 }

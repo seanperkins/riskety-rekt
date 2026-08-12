@@ -103,6 +103,77 @@ function frontLineDeploys(state: GameState, f: FactionId): Order["deploys"] {
   return [{ territory: target, count: reserve }]
 }
 
+interface Front {
+  from: TerritoryId
+  to: TerritoryId
+  def: number
+  /** Troops the origin must receive before `avail` exceeds `def`. */
+  need: number
+}
+
+/**
+ * Buy as many simultaneous winning attacks as the reserve affords.
+ *
+ * Every other attacking policy funds ONE front — `frontLineDeploys` stacks the
+ * whole reserve on a single territory and the policy then emits a single
+ * attack line. That is not a stylistic difference: it structurally caps how
+ * fast any faction, including a runaway leader, can be punished in a tick, so
+ * a roster made only of such policies cannot measure snowballing. This plans
+ * across origins instead.
+ *
+ * Each border origin is costed against its SOFTEST enemy neighbour at
+ * `need = def + 2 - g` — enough that `avail = g + need - 1` clears `def` by
+ * one. Cheapest fronts are funded first, so the plan maximizes the number of
+ * fronts rather than the depth of any one. A target already claimed by a
+ * cheaper front is skipped: legs from two origins do combine in the engine,
+ * but each was sized to win alone, so the second is waste.
+ */
+function multiFrontPlan(state: GameState, f: FactionId): { deploys: Order["deploys"]; fronts: Front[] } {
+  const softest = new Map<TerritoryId, { to: TerritoryId; def: number }>()
+  for (const b of borders(state, f)) {
+    const def = state.garrisons[b.to] ?? 0
+    const cur = softest.get(b.from)
+    if (cur === undefined || def < cur.def) softest.set(b.from, { to: b.to, def })
+  }
+
+  const candidates: Front[] = [...softest]
+    .map(([from, t]) => ({
+      from,
+      to: t.to,
+      def: t.def,
+      need: Math.max(0, t.def + 2 - (state.garrisons[from] ?? 0)),
+    }))
+    .sort((a, b) => a.need - b.need || b.def - a.def || cmp(a.from + a.to, b.from + b.to))
+
+  let left = state.reserves[f] ?? 0
+  const fronts: Front[] = []
+  const claimed = new Set<TerritoryId>()
+  const added = new Map<TerritoryId, number>()
+  for (const c of candidates) {
+    if (c.need > left || claimed.has(c.to)) continue
+    left -= c.need
+    claimed.add(c.to)
+    fronts.push(c)
+    if (c.need > 0) added.set(c.from, c.need)
+  }
+
+  // Leftover thickens the hardest fight funded, where a one-troop capture is
+  // likeliest to be taken straight back. With no front funded at all there is
+  // nothing to thicken, so fall back to the shared front-line deploy.
+  if (fronts.length === 0) return { deploys: frontLineDeploys(state, f), fronts }
+  if (left > 0) {
+    const anchor = [...fronts].sort((a, b) => b.def - a.def || cmp(a.from, b.from))[0]!
+    added.set(anchor.from, (added.get(anchor.from) ?? 0) + left)
+  }
+
+  return {
+    deploys: [...added]
+      .sort((a, b) => cmp(a[0], b[0]))
+      .map(([territory, count]) => ({ territory, count })),
+    fronts,
+  }
+}
+
 function withDeploys(
   state: GameState,
   deploys: Order["deploys"],
@@ -222,6 +293,48 @@ export const POLICIES: Policy[] = [
           wagers: [],
         }
       }),
+  },
+
+  {
+    // Presses on every front it can afford at once, instead of the single best
+    // edge. The one policy in the roster that attacks more than once per tick.
+    //
+    // It does not use `play`: that helper computes `frontLineDeploys` before
+    // calling the builder, so a policy overriding the deploys would be handed
+    // garrisons for deploys it never makes.
+    name: "Swarm",
+    irlActionsPerDay: 1,
+    decide: (s, f) => {
+      const protect = kingmakerProtect(s, f)
+      if (protect !== null) return { ...empty(f), protect }
+
+      const { deploys, fronts } = multiFrontPlan(s, f)
+      const g = withDeploys(s, deploys)
+      // Re-checked against post-deploy garrisons rather than trusted from the
+      // plan: the plan costs each origin in isolation, and an origin that
+      // borders two enemies is capped once.
+      const viable = new Map(viableAttacks(s, f, g).map((a) => [`${a.from}|${a.to}`, a]))
+      const attacks = fronts
+        .map((x) => viable.get(`${x.from}|${x.to}`))
+        .filter((a): a is AttackOption => a !== undefined)
+        .map((a) => ({ from: a.from, to: a.to, count: a.avail }))
+
+      return { ...empty(f), deploys, attacks }
+    },
+  },
+
+  {
+    // Never posts AND never plays: the only policy that reliably reaches zero
+    // territories. Slacker also posts nothing, but it fights, and it ended
+    // eliminated in 0 of 2,000 seasons — which left the veto's post gate with
+    // no simulation coverage at all. Ghost still submits a kingmaker protect
+    // once it dies, so the gate has something to refuse.
+    name: "Ghost",
+    irlActionsPerDay: 0,
+    decide: (s, f) => {
+      const protect = kingmakerProtect(s, f)
+      return protect !== null ? { ...empty(f), protect } : empty(f)
+    },
   },
 
   {

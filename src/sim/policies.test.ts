@@ -22,15 +22,17 @@ function eliminated(self: string): GameState {
 }
 
 describe("policy roster", () => {
-  it("includes all eight named policies", () => {
+  it("includes all ten named policies", () => {
     expect(POLICIES.map((p) => p.name).sort()).toEqual([
       "Arbitrageur",
       "Blitz",
       "Consolidator",
       "Gambler",
+      "Ghost",
       "GymRat",
       "Hunter",
       "Slacker",
+      "Swarm",
       "Turtle",
     ])
   })
@@ -114,6 +116,72 @@ describe("attacking policies", () => {
   })
 })
 
+/** Three isolated f1 holdings, each on a 1-troop enemy border. */
+function threeFronts(reserve: number): GameState {
+  const s = createSeason("s", factions, ids)
+  for (const t of RISK_MAP.territories) {
+    s.ownership[t.id] = "f2"
+    s.garrisons[t.id] = 1
+  }
+  for (const t of ["alaska", "brazil", "japan"]) s.ownership[t] = "f1"
+  s.reserves["f1"] = reserve
+  return s
+}
+
+describe("Swarm", () => {
+  it("opens a front everywhere it can afford one, where Blitz opens exactly one", () => {
+    const s = threeFronts(10) // each front needs def + 2 - g = 2
+    const swarm = policy("Swarm").decide(s, "f1", slate, makeRng(1))
+    expect(swarm.attacks).toHaveLength(3)
+    expect(policy("Blitz").decide(s, "f1", slate, makeRng(1)).attacks).toHaveLength(1)
+  })
+
+  it("never attacks the same territory twice — each front is sized to win alone", () => {
+    const s = threeFronts(10)
+    const attacks = policy("Swarm").decide(s, "f1", slate, makeRng(1)).attacks
+    expect(new Set(attacks.map((a) => a.to)).size).toBe(attacks.length)
+  })
+
+  it("funds the cheapest fronts first when the reserve covers only some", () => {
+    const s = threeFronts(2) // enough for exactly one front
+    expect(policy("Swarm").decide(s, "f1", slate, makeRng(1)).attacks).toHaveLength(1)
+  })
+
+  it("never commits more than a garrison cap allows", () => {
+    const s = threeFronts(10)
+    const o = policy("Swarm").decide(s, "f1", slate, makeRng(1))
+    const after = { ...s.garrisons }
+    for (const d of o.deploys) after[d.territory] = (after[d.territory] ?? 0) + d.count
+    const spent: Record<string, number> = {}
+    for (const a of o.attacks) spent[a.from] = (spent[a.from] ?? 0) + a.count
+    for (const [from, count] of Object.entries(spent)) {
+      expect(count, from).toBeLessThanOrEqual((after[from] ?? 0) - 1)
+    }
+  })
+
+  it("spends its whole reserve — nothing is left idle", () => {
+    const s = threeFronts(10)
+    const o = policy("Swarm").decide(s, "f1", slate, makeRng(1))
+    expect(o.deploys.reduce((n, d) => n + d.count, 0)).toBe(10)
+  })
+})
+
+describe("Ghost", () => {
+  it("posts nothing and does nothing — the policy that actually dies", () => {
+    const s = threeFronts(10)
+    const o = policy("Ghost").decide(s, "f1", slate, makeRng(1))
+    expect(policy("Ghost").irlActionsPerDay).toBe(0)
+    expect(o.attacks).toHaveLength(0)
+    expect(o.deploys).toHaveLength(0)
+    expect(o.wagers).toHaveLength(0)
+  })
+
+  it("still offers a veto once eliminated, so the post gate has something to refuse", () => {
+    const o = policy("Ghost").decide(eliminated("f1"), "f1", slate, makeRng(1))
+    expect(o.protect).not.toBeNull()
+  })
+})
+
 describe("Gambler", () => {
   it("plays the map as well as wagering", () => {
     const s = createSeason("s", factions, ids)
@@ -133,7 +201,8 @@ describe("Gambler", () => {
 
 describe("kingmaker protection", () => {
   it("an eliminated policy submits a protect pick instead of orders", () => {
-    for (const name of ["Turtle", "Blitz", "Consolidator", "Hunter", "Gambler", "Slacker", "GymRat"]) {
+    const names = ["Turtle", "Blitz", "Consolidator", "Hunter", "Gambler", "Slacker", "GymRat", "Swarm", "Ghost"]
+    for (const name of names) {
       const s = eliminated("f1")
       expect(territoriesOf(s, "f1")).toHaveLength(0)
       const o = policy(name).decide(s, "f1", slate, makeRng(1))

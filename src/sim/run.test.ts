@@ -58,6 +58,35 @@ describe("runMany", () => {
     expect(rep.day3LeaderWinRate).toBeLessThanOrEqual(1)
   })
 
+  it("counts eliminations, and Ghost is the policy that supplies them", () => {
+    // Before Ghost the whole roster survived: Slacker, the only other
+    // non-poster, ended eliminated in 0 of 2,000 seasons, so the veto's post
+    // gate had no simulation coverage at all.
+    const rep = runMany(["Ghost", "Blitz", "Consolidator", "Hunter"], 200)
+    expect(rep.eliminationRate["Ghost"]!).toBeGreaterThan(rep.eliminationRate["Blitz"]!)
+  })
+
+  it("observes the veto post gate, which leaves no trace in the log", () => {
+    // A protect from a faction that did not post is dropped silently by the
+    // lock hook — no rejection event — so the counter is the only evidence.
+    const rep = runMany(["Ghost", "Blitz", "Consolidator", "Hunter"], 200)
+    expect(rep.vetoesOffered).toBeGreaterThan(0)
+    expect(rep.vetoesGated).toBeGreaterThan(0)
+    expect(rep.vetoesGated).toBeLessThanOrEqual(rep.vetoesOffered)
+    expect(rep.protectionsApplied).toBeLessThanOrEqual(rep.vetoesOffered - rep.vetoesGated)
+  })
+
+  it("a scattered deal makes an early lead far less durable than the shipped one", () => {
+    // The measurement behind the snowballing finding: on symmetric seats the
+    // day-3 leader's edge is mostly the contiguous holding, not the combat
+    // rules. Loose bounds — this pins the DIRECTION, and the committed
+    // magnitudes live in the balance-run doc.
+    const six = Array(6).fill("Blitz") as string[]
+    const clustered = runMany(six, 150)
+    const scattered = runMany(six, 150, { deal: "shuffled" })
+    expect(clustered.day3LeaderWinRate).toBeGreaterThan(scattered.day3LeaderWinRate + 0.05)
+  })
+
   it("does not let the Arbitrageur dominate — the key regression signal", () => {
     // If the both-sides hedge, the over-commit, the over-deploy or the
     // live-faction protect ever come back, this policy wins nearly everything.

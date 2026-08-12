@@ -1,6 +1,6 @@
 # Riskety Rekt — Handoff
 
-**Last updated:** 2026-08-11 · **Branch:** `main` · **State:** the pluggable-mechanics spec is complete — module system, rule catalogue and voting all shipped. Open question is balance, not build.
+**Last updated:** 2026-08-12 · **Branch:** `main` · **State:** the pluggable-mechanics spec is complete — module system, rule catalogue and voting all shipped. Open question is balance, not build: multi-front attack is a dominant strategy and needs a dial.
 
 A Risk-like conquest game for a private group of friends. One tick per day, orders
 resolved simultaneously. Reinforcements come from two places beyond territory income:
@@ -49,9 +49,18 @@ numeral-reaction votes in `rule_reactions`, the 21:00 tally frozen into
 no policy more than 1.13 points in the voted regime
 (`reviews/2026-08-11-balance-run-rules-expanded.md`). The three-rule catalogue
 had failed on Blitz at +4.03; expanding it diluted each rule's share of days
-from ~1/3 to ~1/13 and cleared it without cutting a rule. One balance question
-remains before a competitive season: the snowballing finding in CLAUDE.md's
-"Not built".
+from ~1/3 to ~1/13 and cleared it without cutting a rule.
+
+**The blocker before a competitive season is now a dominant strategy, not
+snowballing.** `reviews/2026-08-12-balance-run-snowballing.md` added `Swarm`,
+the first policy to attack on more than one front per tick, and it wins
+**71.4%** against the authoritative five — legal play, no cap rejections, 4.3×
+baseline. Every prior "no dominant strategy" figure was measured over a policy
+set that all voluntarily attacked once per tick. The same run settled the
+snowballing question: on symmetric seats the day-3 leader converts 36.5%–42.0%
+whatever policy fills them, so the 39% is real, and the lever is the contiguous
+deal (`ec692fd`) rather than combat — scattering the holdings costs 14–16
+points, multi-front capability costs 3.
 
 ```bash
 npm install
@@ -188,15 +197,24 @@ Full detail in the balance-run doc. Headlines:
 
 - **The exploit fixes hold.** The `Arbitrageur` policy probes all four known exploits
   and wins 0.1% of seasons. If that number ever moves, something regressed.
-- **Pacing is fine.** Day-3 leader converts 19.5% against 16.7% chance.
-- **No dominant strategy.** 9.1%–20.8% across six policies; mean territories 6.4–7.2
-  against an even split of 7.0.
+- **Pacing is not fine any more.** The day-3 leader converts **39.0%** against 16.7%,
+  up from the 19.5% this section used to report. The rise is the contiguous deal, and
+  it survives a roster that can punish a leader — see the 2026-08-12 run.
+- **There IS a dominant strategy**, and the old 9.1%–20.8% spread was measured without
+  it. `Swarm` — attack on every front you can afford, not just the best one — takes
+  71.4%. Fixing this is the open work.
 
 **A cautionary tale worth internalizing:** the first balance run said the day-3 leader
 won 87.4% of seasons and Blitz won 100%. Both numbers were artifacts — Blitz was the
 only policy that attacked, so the run measured one aggressor against four pacifists. A
 simulation measures the policies you wrote. A weak policy set produces confident numbers
 about nothing.
+
+**It fired a second time on 2026-08-12.** The "no dominant strategy" result above was
+measured over six policies that each attacked once per tick — not because the engine
+required it, but because that is how they happened to be written. One policy that
+presses every affordable front instead takes 71.4%. The failure mode is not "weak
+policies" specifically; it is any strategy the roster cannot express.
 
 ## Open decision: how strong should the IRL channel be?
 
@@ -248,8 +266,9 @@ no other faction's `protect` leaks into `__NEXT_DATA__`; SQLite in WAL mode with
 `claimTick` for idempotency; systemd timers. Deploy to a DigitalOcean droplet — **not**
 App Platform, whose ephemeral filesystem wipes SQLite on redeploy.
 
-Smaller follow-ups, all in the balance-run doc: report a protection counter from the
-runner, and add a policy that attacks more than once per tick.
+Both smaller follow-ups from the balance-run doc are **done** — the runner reports
+protection counters, and `Swarm` attacks more than once per tick. What they turned up
+is the dominant-strategy finding above.
 
 ## Gotchas
 
@@ -291,9 +310,12 @@ runner, and add a policy that attacks more than once per tick.
   in the scripted ten-day season, so no order in it can legally carry a `protect` pick.
   Its doc comment claimed otherwise until Plan 3 corrected it. `combat.test.ts` covers
   that path directly.
-- **The sim cannot observe the post gate either.** `Slacker` is the only policy with
-  `irlActionsPerDay: 0`, and it ends eliminated in 0 of 2,000 seasons. A `Ghost` policy
-  that posts nothing *and* plays weakly would give the gate real coverage.
+- **The post gate is observed by a counter, not by the log.** An offer from a faction
+  that did not post is dropped silently inside the veto module's `lock` — no rejection
+  event — so `runSeason` reads `vetoesOffered`/`vetoesGated` from the orders *before*
+  calling `resolve`. `Ghost` is what supplies them: it posts nothing and plays nothing,
+  and ends eliminated in 40.4% of its seat-seasons. `Slacker` posts nothing but fights,
+  and used to die in 0 of 2,000 seasons, which left the gate with no coverage at all.
 - **`exactOptionalPropertyTypes` is on.** Passing `correction: undefined` is not the same
   as omitting the key — spread a conditional object instead.
 - **The design spec has a "Rejected review findings" section.** Check it before acting

@@ -78,16 +78,24 @@ Mid-season changes go through `modules:set`, refused while escrow > 0.
 
 | Symbol | File | Note |
 |---|---|---|
-| `POLICIES` | `policies.ts` | Turtle, Blitz, Consolidator, Hunter, Gambler, Slacker, GymRat, Arbitrageur |
-| `runSeason(names, seed, {modules?})` | `run.ts` | 14 days, selected world sub-map, synthetic 1-market slate |
-| `runMany(names, seasons)` | `run.ts` | → `Report { seasons, seats, wins, day3LeaderWinRate, … }` |
+| `POLICIES` | `policies.ts` | Turtle, Blitz, Consolidator, Hunter, Gambler, Slacker, GymRat, Swarm, Ghost, Arbitrageur |
+| `runSeason(names, seed, {modules?, rules?, voteRules?, deal?})` | `run.ts` | 14 days, selected world sub-map, synthetic 1-market slate |
+| `runMany(names, seasons, {deal?})` | `run.ts` | → `Report { seasons, seats, wins, day3LeaderWinRate, eliminationRate, vetoes*, … }` |
 | `seatsFor(names)` | `run.ts` | repeated policies get `Blitz#1`/`Blitz#2` seat ids |
 | `simInstant(day, hour)` | `run.ts` | synthetic calendar; close (18:00) strictly before tick (21:00) — load-bearing for claim seniority |
 
 Winner tiebreak: territories → garrisons + reserves (escrow excluded) → region
 bonuses → id. `Arbitrageur` probes the known exploits; its win rate leaving ~0%
-means a regression. Current balance record:
-`docs/superpowers/reviews/2026-08-11-balance-run-modules.md`.
+means a regression.
+
+`Swarm` is the only policy that attacks on more than one front per tick, and it
+dominates (71.4%) — the dial for that is open work. `Ghost` posts nothing and
+plays nothing, and is the only source of coverage for the veto's post gate,
+which drops a refused offer silently and so is counted from the orders BEFORE
+`resolve`. `deal: "shuffled"` is the pre-`ec692fd` scattered-holdings arm, kept
+so the contiguous deal's effect on snowballing stays checkable; the arms are
+NOT rng-paired. Current balance record:
+`docs/superpowers/reviews/2026-08-12-balance-run-snowballing.md`.
 
 ## Commands
 
