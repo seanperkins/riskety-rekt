@@ -66,11 +66,35 @@ Namespaces are separate registries and validated separately: a module id in
 `ctx.rules` is an "unknown rule", and `buildCatalogue` refuses a rule id that
 collides with a module id.
 
-| Rule | Hook | Effect |
-|---|---|---|
-| `boom` | grant | recomputes core `territoryIncome` and grants it again, logged `{t:"grant", source:"boom"}`; zero-income factions skipped |
-| `attrition` | combatDials | `{attackDepartureCost: 1}` — the one flat dial |
-| `truce` | lock | every territory, NO per-territory events (a whole-map lock would bury the log); the recap names the rule |
+Thirteen rules ship. **Ids are permanent** — frozen into
+`tick_context.context.rules` and logged as `grant.source` — while `name` and
+`description` are read from the registry at render time and may change freely.
+That is why the first three keep bland ids under witty names.
+
+| id | Name | Hook | Effect |
+|---|---|---|---|
+| `boom` | Quantitative Easing | grant | recomputes core `territoryIncome` and grants it again |
+| `attrition` | Leg Day | combatDials | `{attackDepartureCost: 1}` — the one flat dial |
+| `truce` | Log Off | lock | every territory, no per-territory events |
+| `underdog` | Participation Trophy | grant | +3 to the fewest-territory faction(s); EVERY tie paid |
+| `eat-the-rich` | Eat the Rich | grant | +2 to everyone but the leader(s); no-op when all tied (no leader to tax) |
+| `touch-grass` | Touch Grass | grant | +3 to factions with no `attack` in YESTERDAY's `state.log`; empty log = day 1 = everyone |
+| `bring-a-friend` | Bring a Friend | grant | +3 flat to every survivor |
+| `sole-survivor` | Sole Survivor | lock | garrisons of exactly 1 — read POST-allocation, so a deploy forfeits it |
+| `regional-manager` | Regional Manager | lock | the region with the most distinct owners, region-id tiebreak |
+| `too-big-to-fail` | Too Big to Fail | lock | each faction's largest garrison, territory-id tiebreak |
+| `main-character` | Main Character Energy | lock | today's most-attacked territory (reads ORDERS), with its `protected` event |
+| `gains` | Gains | grant, `needs:["irl"]` | +2 to factions in `ctx.postedToday` |
+| `diamond-hands` | Diamond Hands | grant, `needs:["markets"]` | +1 to factions holding a pending wager, via `pendingWagersOf` |
+
+Only `main-character` supplies a lock event — it locks exactly one territory.
+The other lock rules stay silent because a whole-map or whole-region lock would
+bury the log; the recap names the rule instead.
+
+**`grant` receives no orders; `lock` does.** That asymmetry is why
+`main-character` is a lock and why no rule can pay out on today's declarations.
+`grant` also cannot subtract (`amount` is a non-negative integer), so "tax the
+leader" is written as "pay everyone else".
 
 `buildCatalogue` runs at import and throws on: duplicate id, module-id
 collision, empty name, description outside 1..`RULE_DESCRIPTION_MAX_CHARS`

@@ -1,6 +1,6 @@
 # Riskety Rekt — Handoff
 
-**Last updated:** 2026-08-11 · **Branch:** `main` · **State:** everything through the pluggable-mechanics module system; the rule catalogue + voting remain
+**Last updated:** 2026-08-11 · **Branch:** `main` · **State:** the pluggable-mechanics spec is complete — module system, rule catalogue and voting all shipped. Open question is balance, not build.
 
 A Risk-like conquest game for a private group of friends. One tick per day, orders
 resolved simultaneously. Reinforcements come from two places beyond territory income:
@@ -37,10 +37,11 @@ modules, the seniority allocation phase (the deploy-inflation fix),
 `GameState.moduleState`, the `seasons.modules` column with migration and
 `modules:set`, module-off gating across jobs/web/Slack, and the departure-cost
 combat dial — and the **rule catalogue + voting** that completes that spec:
-three rules (Boom, Attrition, Truce), the 08:05 offer job with its
-claim-then-post ledger, numeral-reaction votes in `rule_reactions`, the 21:00
-tally frozen into `ctx.rules`, and the bounded-swing balance gate.
-**824 tests passing**, none of which touch the network —
+thirteen rules across grant, lock and dial hooks, a three-slot daily ballot
+drawn by seeded shuffle, the 08:05 offer job with its claim-then-post ledger,
+numeral-reaction votes in `rule_reactions`, the 21:00 tally frozen into
+`ctx.rules`, and the bounded-swing balance gate.
+**860 tests passing**, none of which touch the network —
 `test/no-network.ts` replaces `fetch` in every run, so it is enforced.
 
 **Not built:** nothing from the pluggable-mechanics spec. Two open balance
@@ -51,7 +52,7 @@ voted regime. The catalogue is built and correct; it is not yet balanced.
 
 ```bash
 npm install
-npm test          # 824 tests
+npm test          # 860 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom roster

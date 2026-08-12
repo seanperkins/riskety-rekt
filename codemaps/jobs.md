@@ -61,8 +61,10 @@ Applied between ticks; visible in the NEXT day's frozen context only.
 ## publish-rules (`runPublishRules`)
 
 The 08:05 offer. Seeded draw (`(season.seed ^ day·0x9e3779b9) >>> 0`, stored on
-every row) over `eligibleRules(season.modules)`, capped at 9 — the numeral
-alphabet is the ballot. **Claim-then-post**, the recap ledger's pattern:
+every row) over `eligibleRules(season.modules)`, sliced to
+**`RULES_PER_OFFER = 3`** — a thirteen-rule ballot would decide most days by
+one or two votes and truncate the rest away. Three is also the balance lever:
+each rule then wins ~1/13 of days instead of ~1/3. **Claim-then-post**, the recap ledger's pattern:
 rows land with `message_ts` NULL, then the post, then the ts. A crash BEFORE
 the post replays cleanly and re-posts with supersession copy; a crash AFTER it
 orphans that message's reactions — bounded, accepted, and NOT asserted away.
