@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { PRICE_CEIL, PRICE_FLOOR } from "./engine/index.js"
+import { RULE_CATALOGUE } from "./engine/rules/index.js"
 import {
   MAX_FACTIONS,
   MAX_TERRITORIES_PER_FACTION,
@@ -7,6 +9,7 @@ import {
   MIN_TERRITORIES_PER_FACTION,
   PRICE_MAX,
   PRICE_MIN,
+  RULES_PER_OFFER,
   SLATE_MAX,
   SLATE_MIN,
   VOLUME_FLOOR,
@@ -16,6 +19,25 @@ import { TICK_HOUR } from "./slack/config.js"
 import { PALETTE } from "./jobs/season-init.js"
 
 describe("config", () => {
+  it("draws the same ballot in the simulator as in the season", () => {
+    // The sim's voted arm and the offer job must slice the catalogue to the
+    // SAME size. Each rule's share of days is the catalogue's main balance
+    // lever, so a sim offering nine while production offers three measures a
+    // game nobody plays — and the gate would clear a catalogue on a dilution
+    // the season never applies. Both read this one constant; this pins that
+    // they do, and that it is small enough to matter against the catalogue.
+    expect(RULES_PER_OFFER).toBeGreaterThan(0)
+    expect(RULES_PER_OFFER).toBeLessThan(RULE_CATALOGUE.length)
+    for (const src of [
+      readFileSync("src/sim/run.ts", "utf8"),
+      readFileSync("src/jobs/publish-rules.ts", "utf8"),
+    ]) {
+      expect(src).toContain("RULES_PER_OFFER")
+      // Neither may re-hardcode a slice width beside the shared constant.
+      expect(src).not.toMatch(/\.slice\(0,\s*\d+\)/)
+    }
+  })
+
   it("keeps the slate price band identical to the engine payout clamp", () => {
     // If these drift, a market is published at a price the engine clamps away,
     // and a player's payout silently stops matching the odds they were shown.

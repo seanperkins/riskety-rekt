@@ -8,7 +8,7 @@ import {
 } from "../engine/index.js"
 import { pendingWagersOf } from "../engine/modules/index.js"
 import { RULE_CATALOGUE } from "../engine/rules/index.js"
-import { SEASON_LENGTH } from "../config.js"
+import { RULES_PER_OFFER, SEASON_LENGTH } from "../config.js"
 import { POLICIES } from "./policies.js"
 import { makeRng, shuffle, type Rng } from "../rng.js"
 import { clusteredOrder } from "../map/deal.js"
@@ -192,7 +192,10 @@ export function runSeason(
     // exactly the confound the gate exists to exclude.
     let rules: string[] = opts.rules ?? []
     if (opts.voteRules === true) {
-      const offered = shuffle([...RULE_CATALOGUE], voteRng).slice(0, 9)
+      // The SAME ballot size the season draws (src/config.ts). Each rule's
+      // share of days is the catalogue's main balance lever, so a sim that
+      // offered a different number would measure a game nobody plays.
+      const offered = shuffle([...RULE_CATALOGUE], voteRng).slice(0, RULES_PER_OFFER)
       const counts = new Map<string, number>()
       for (let i = 0; i < seatIds.length; i++) {
         if (voteRng() < 0.5) continue

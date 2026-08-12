@@ -1,25 +1,10 @@
+import { RULES_PER_OFFER } from "../config.js"
 import { RULE_REGISTRY, eligibleRules } from "../engine/rules/index.js"
 import { makeRng, shuffle } from "../rng.js"
 import { etDate, etDaysBetween } from "../time.js"
 import { renderRuleOffer } from "../slack/offer.js"
 import type { Poster } from "../slack/post.js"
 import type { RuleVoteStore, SeasonStore, Transactional } from "../store/types.js"
-
-/**
- * Ballot size.
- *
- * Three, not "every eligible rule". With a thirteen-rule catalogue and eight
- * players a nine-option ballot decides most days by one or two votes with ties
- * falling to the lowest rule id, and truncates the remaining rules away
- * entirely — they would never appear. Three against ~8 voters produces real
- * pluralities, keeps the Slack message readable, and makes scarcity its own
- * strategic event.
- *
- * It is also the balance lever: each rule then wins roughly 1/13 of days
- * rather than 1/3, diluting any single rule's contribution to the catalogue's
- * measured swing.
- */
-export const RULES_PER_OFFER = 3
 
 export type PublishRulesSkipReason =
   | "before-season"

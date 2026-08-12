@@ -57,6 +57,23 @@ export const MAX_ATTEMPTS = 20
 export const SLATE_MIN = 3
 export const SLATE_MAX = 5
 
+/**
+ * Rule-vote ballot size — how many of the catalogue's rules are offered daily.
+ *
+ * Three, not "every eligible rule". With a thirteen-rule catalogue and eight
+ * players a nine-option ballot decides most days by one or two votes with ties
+ * falling to the lowest rule id, and truncates the remaining rules away
+ * entirely. Three against ~8 voters produces real pluralities and keeps the
+ * Slack message readable.
+ *
+ * It lives HERE rather than beside the offer job because the simulator must
+ * draw the same ballot the season does: each rule's share of days is the
+ * catalogue's main balance lever, so a sim offering nine while production
+ * offers three would measure a game nobody plays — the same class of defect as
+ * measuring balance on a map no season is dealt from.
+ */
+export const RULES_PER_OFFER = 3
+
 /** Candidate close window, in America/New_York hours on the slate's own day. */
 export const WINDOW_OPEN_HOUR = 9
 export const WINDOW_CLOSE_HOUR = 21
