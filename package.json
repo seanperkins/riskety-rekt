@@ -22,6 +22,7 @@
     "order": "tsx src/jobs/cli.ts order",
     "wager": "tsx src/jobs/cli.ts wager",
     "roster:add": "tsx src/jobs/cli.ts roster-add",
+    "roster:sync": "tsx src/jobs/cli.ts roster-sync",
     "roster:list": "tsx src/jobs/cli.ts roster-list",
     "slack": "tsx src/slack/cli.ts",
     "build:shapes": "tsx scripts/build-shapes.ts",

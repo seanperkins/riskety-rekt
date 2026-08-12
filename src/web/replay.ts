@@ -77,8 +77,35 @@ for (const t of R.territories) {
   }
 }
 
+// ---- frame the action ------------------------------------------------------
+// Fitting the whole board wastes the frame: a night happens along two or three
+// borders and the rest of the map is scenery, so the soldiers that matter end
+// up a few pixels wide.
+//
+// So fit to the territories the night actually TOUCHES, with a pixel margin
+// and nothing else.
+//
+// NOT a ratio pad(): a busy night touches territories at both ends of the
+// board, so its action box is already about the size of the board -- and
+// growing THAT by a ratio pushes the view outside the map and zooms further
+// out than fitting the whole board did. The first cut used pad(0.35) and made
+// the board smaller, which is the opposite of the point.
+//
+// maxZoom is the other half. A night that happens inside three neighbouring
+// countries would otherwise fill the screen with one border and no context;
+// capping it keeps a recognisable slice of map around the fighting.
+const involved = new Set()
+for (const b of R.beats) {
+  for (const id of [b.territory, b.from, b.to, b.a, b.b]) if (id) involved.add(id)
+}
+const focus = [...involved].map((id) => layers[id]).filter(Boolean)
 const drawn = R.territories.map((t) => layers[t.id]).filter(Boolean)
-if (drawn.length) map.fitBounds(L.featureGroup(drawn).getBounds(), { padding: [24, 24] })
+if (focus.length) {
+  map.fitBounds(L.featureGroup(focus).getBounds(), { padding: [44, 44], maxZoom: 5 })
+} else if (drawn.length) {
+  // A night where nothing moved -- income only. Show the whole board.
+  map.fitBounds(L.featureGroup(drawn).getBounds(), { padding: [24, 24] })
+}
 
 // ---- working state ---------------------------------------------------------
 // Starts at the night's opening board and is walked forward by the beats.
@@ -172,6 +199,13 @@ function runBeat(b, ms) {
 }
 
 // ---- playback --------------------------------------------------------------
+// Halved from the first cut, which read like a slideshow being flipped: a beat
+// is a sentence to read AND a thing to watch cross the map, and 1.1s was not
+// enough for either. 1x is now the pace you would narrate it at; the 2x and 4x
+// buttons are there for anyone who has already seen it.
+const BEAT_MS = 2200
+// Kept under BEAT_MS so a traveller lands before the next beat starts.
+const BEAT_EFFECT = 1800
 let i = -1
 let playing = false
 let speed = 1
@@ -187,11 +221,18 @@ function renderBank() {
         esc(by[f].join(", ")) + '</td></tr>').join("")
 }
 
+// Newest FIRST, and only what has already happened.
+//
+// Two reasons, and the second is the real one. Chronological order meant the
+// playing line marched down a short box and the reader chased it. And rendering
+// all thirty beats up front spoiled the night: every capture was sitting there
+// greyed out, readable, before it happened. A list that grows cannot spoil
+// anything, and the line you care about is always in the same place -- the top.
 function renderSteps() {
-  $("steps").innerHTML = beats.map((b, n) =>
-    '<li class="prow' + (n === i ? " on" : "") + (n < i ? " done" : "") + '"><span>' + esc(b.text) + "</span></li>").join("")
-  const el = $("steps").children[i]
-  if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" })
+  const shown = beats.slice(0, i + 1).reverse()
+  $("steps").innerHTML = shown.map((b, n) =>
+    '<li class="prow' + (n === 0 ? " on" : " done") + '"><span>' + esc(b.text) + "</span></li>").join("")
+  $("steps").scrollTop = 0
   $("progress").textContent = beats.length === 0 ? "nothing happened" : (Math.max(0, i + 1) + " of " + beats.length)
   $("btn-play").textContent = playing ? "Pause" : (i >= beats.length - 1 ? "Replay" : "Play")
 }
@@ -209,7 +250,7 @@ function stepTo(n) {
   while (i < n) {
     i++
     const b = beats[i]
-    if (b) runBeat(b, 900 / speed)
+    if (b) runBeat(b, BEAT_EFFECT / speed)
   }
   paint()
   renderSteps()
@@ -220,7 +261,7 @@ function tick() {
   if (!playing) return
   if (i >= beats.length - 1) { playing = false; finish(); renderSteps(); return }
   stepTo(i + 1)
-  if (playing) timer = setTimeout(tick, 1100 / speed)
+  if (playing) timer = setTimeout(tick, BEAT_MS / speed)
 }
 
 function play() {

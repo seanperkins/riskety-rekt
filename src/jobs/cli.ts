@@ -44,7 +44,8 @@ import { ParseError, parseOrderBody, parseWagers } from "./order-entry.js"
 import { UsageError, parseFlags, seedFromDate } from "./flags.js"
 import { currentDay } from "../season.js"
 import { renderSlate } from "../slack/announce.js"
-import { createPoster } from "../slack/post.js"
+import { createDirectory, createPoster } from "../slack/post.js"
+import { runRosterSync } from "./roster-sync.js"
 import { loadSlackEnv } from "../slack/env.js"
 import { RISK_MAP } from "../engine/index.js"
 import type { GameState, Market } from "../engine/index.js"
@@ -292,12 +293,45 @@ try {
     }
   } else if (command === "roster-add") {
     const [slackUserId, factionId, ...nameParts] = process.argv.slice(3)
-    const displayName = nameParts.join(" ")
-    if (!slackUserId || !factionId || displayName === "") {
-      throw new UsageError("usage: roster-add <slack-user-id> <faction-id> <display name>")
+    let displayName = nameParts.join(" ")
+    if (!slackUserId || !factionId) {
+      throw new UsageError("usage: roster-add <slack-user-id> <faction-id> [display name]")
+    }
+    if (displayName === "") {
+      // Slack already knows what this person is called; asking an operator to
+      // retype it is how a roster ends up with "Sean " and "sean".
+      const token = required("SLACK_BOT_TOKEN")
+      const found = await createDirectory(token).nameFor(slackUserId)
+      if (found === undefined) {
+        throw new UsageError(
+          `Slack has no readable name for ${slackUserId} — pass one: roster-add ${slackUserId} ${factionId} "Their Name"`,
+        )
+      }
+      displayName = found
     }
     store.addRosterMember({ slackUserId, factionId, displayName })
     log(`roster: ${slackUserId} -> ${factionId} (${displayName})`)
+  } else if (command === "roster-sync") {
+    // Everyone joins the channel; this reads it. Reports by default and writes
+    // only with --confirm, because the faction ids it invents are what every
+    // later log line and saved state will carry.
+    const apply = takeBool(["--confirm"])
+    const out = await runRosterSync({
+      store,
+      directory: createDirectory(required("SLACK_BOT_TOKEN")),
+      channelId: required("SLACK_CHANNEL_ID"),
+      apply,
+      log,
+    })
+    if (!apply) {
+      log(
+        out.added.length + out.updated.length === 0
+          ? "roster already matches the channel"
+          : "\nnothing written — re-run with --confirm",
+      )
+    } else {
+      log(`\nroster: ${out.added.length} added, ${out.updated.length} renamed`)
+    }
   } else if (command === "roster-list") {
     for (const m of store.roster()) {
       log(`${m.factionId}\t${m.slackUserId}\t${m.displayName}`)
@@ -359,7 +393,7 @@ try {
     throw new UsageError(
       `unknown command: ${String(command)}\n` +
         `expected one of: publish-slate, publish-rules, poll-settlements, poll-prices, ` +
-          `season-init, tick, recap, tick-rerun, order, wager, roster-add, roster-list`,
+          `season-init, tick, recap, tick-rerun, order, wager, roster-add, roster-sync, roster-list`,
     )
   }
 } catch (err) {
