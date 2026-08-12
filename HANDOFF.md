@@ -43,9 +43,11 @@ tally frozen into `ctx.rules`, and the bounded-swing balance gate.
 **824 tests passing**, none of which touch the network —
 `test/no-network.ts` replaces `fetch` in every run, so it is enforced.
 
-**Not built:** nothing from the pluggable-mechanics spec. See CLAUDE.md's "Not
-built" for the snowballing finding the 2026-08-11 balance run surfaced, which is
-the remaining open question before a competitive season.
+**Not built:** nothing from the pluggable-mechanics spec. Two open balance
+questions remain before a competitive season, both in CLAUDE.md's "Not built":
+the snowballing finding, and the fact that **the shipped three-rule catalogue
+fails its own bounded-swing gate** on Blitz (+4.03, CI [3.12, 4.94]) in the
+voted regime. The catalogue is built and correct; it is not yet balanced.
 
 ```bash
 npm install
