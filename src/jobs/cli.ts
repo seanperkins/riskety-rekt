@@ -323,14 +323,21 @@ try {
       apply,
       log,
     })
+    // `unchanged` is a report and is never written, so it must not decide
+    // whether there is anything to confirm — a roster whose only difference is
+    // a Slack rename is already in its final state, and offering --confirm
+    // would promise a write that never happens.
     if (!apply) {
       log(
-        out.added.length + out.updated.length === 0
-          ? "roster already matches the channel"
+        out.added.length === 0
+          ? "roster already has everyone in the channel"
           : "\nnothing written — re-run with --confirm",
       )
     } else {
-      log(`\nroster: ${out.added.length} added, ${out.updated.length} renamed`)
+      log(`\nroster: ${out.added.length} added`)
+    }
+    if (out.unchanged.length > 0) {
+      log(`${out.unchanged.length} name(s) differ from Slack and were kept as they are`)
     }
   } else if (command === "roster-list") {
     for (const m of store.roster()) {

@@ -122,6 +122,20 @@ export const VOLUME_FLOOR = 500
 /** Third-party text cap. A 5,000-char title wrecks the recap layout. */
 export const QUESTION_MAX_CHARS = 200
 
+/**
+ * Display-name cap, for a name a player chose themselves.
+ *
+ * Deliberately BELOW `RECAP_NAME_MAX_CHARS` (40), which is where `safeText`
+ * truncates. A stored name longer than that would render with an ellipsis in
+ * every recap, and the player would have no way to see why — `src/roster.test.ts`
+ * pins the inequality.
+ *
+ * Names are refused at this length rather than truncated. `safeText` truncating
+ * a Kalshi question is right, because nobody typed it; silently storing a
+ * different name from the one somebody just chose is not.
+ */
+export const DISPLAY_NAME_MAX_CHARS = 32
+
 export const TIMEZONE = "America/New_York"
 
 export const KALSHI_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
