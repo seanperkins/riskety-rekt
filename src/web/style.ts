@@ -696,4 +696,132 @@ button.chip:not(:disabled):hover { border-color: var(--accent); color: var(--acc
 .doc strong { font-weight: 650; }
 .doc a { color: var(--accent); }
 .doc .back { display: inline-block; margin-top: 28px; font-size: 13px; }
+
+/* --- landing ------------------------------------------------------------
+ *
+ * Wider than /rules: the prose wants a document measure but the board wants
+ * room, so the column is set for the picture and the text blocks are held to a
+ * measure inside it. One column at every width -- a landing page read on a
+ * phone in the Slack thread that sent it is the common case, not the fallback.
+ */
+.land { max-width: 76ch; margin: 0 auto; padding: 56px 24px 80px; }
+.land-hero { max-width: 52ch; }
+.land-title { font-size: 38px; font-weight: 650; margin: 0; letter-spacing: -0.02em; }
+.land-hook { font-size: 18px; line-height: 1.5; margin: 14px 0 0; }
+.land-hook-2 { margin: 10px 0 0; color: var(--accent); font-weight: 650; }
+.land-s { margin-top: 52px; padding-top: 22px; border-top: 1px solid var(--rule); }
+.land-s h2 { font-size: 19px; font-weight: 650; margin: 0 0 10px; letter-spacing: -0.01em; }
+.land-s p { margin: 0 0 12px; max-width: 62ch; }
+.land-lede { color: var(--muted); }
+.land-note { font-size: 13px; color: var(--muted); }
+.land-s strong, .land-s b { font-weight: 650; }
+.land-s code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px; color: var(--accent); }
+.land a { color: var(--accent); }
+.land-ul { margin: 0 0 12px; padding-left: 20px; max-width: 62ch; }
+.land-ul li { margin: 0 0 8px; }
+.land-out { margin-top: 24px; font-size: 13px; }
+
+/* The screenshot frame. A border and a lifted ground, so the rendered board
+   and the mocked panels read as things pulled out of the app rather than as
+   more page. */
+.shot { margin: 28px 0 0; }
+.shot-narrow { max-width: 44ch; }
+.shot-frame { background: var(--sea); border: 1px solid var(--rule); border-radius: 10px;
+  overflow: hidden; box-shadow: 0 1px 2px rgba(6, 14, 20, .06), 0 8px 24px rgba(6, 14, 20, .08); }
+.shot-cap { font-size: 12.5px; color: var(--muted); margin: 9px 0 0; max-width: 58ch; }
+.shot-slack, .shot-panel { background: var(--surface); padding: 14px; }
+
+/* The demo board. Territory fills carry the faction colours, which are the
+   season palette and therefore not theme-aware -- so the hairline between them
+   is a translucent ink rather than a token, and works on either ground. */
+.dm { display: block; width: 100%; height: auto; }
+.dm-t { stroke: rgba(6, 14, 20, .55); stroke-width: .8; stroke-linejoin: round; }
+/* Ground nobody was dealt. Inert, and far enough back that it never competes
+   with a faction colour for attention. */
+.dm-off { fill: var(--edge); opacity: .34; }
+/* Sized in the SVG's user units, which the viewBox scales down by roughly a
+   third at the width the frame actually gets -- so 20 here reads as ~13. */
+.dm-n { font: 700 20px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  fill: #fff; text-anchor: middle; dominant-baseline: central;
+  paint-order: stroke fill; stroke: rgba(6, 14, 20, .8); stroke-width: 4.5px;
+  font-variant-numeric: tabular-nums; pointer-events: none; }
+.dm-pin circle { fill: #ffd479; stroke: rgba(6, 14, 20, .85); stroke-width: 2.5; }
+.dm-pin text { font: 700 19px/1 ui-sans-serif, system-ui, sans-serif; fill: #14232b;
+  text-anchor: middle; dominant-baseline: central; }
+
+/* The callouts under the board. Numbered to match the pins on it. */
+.pins { list-style: none; margin: 18px 0 0; padding: 0; max-width: 62ch; }
+.pins li { display: flex; gap: 10px; align-items: baseline; margin: 0 0 11px;
+  font-size: 14px; }
+.pin-n { flex: none; width: 21px; height: 21px; border-radius: 50%;
+  background: #ffd479; color: #14232b; font: 700 12px/21px ui-sans-serif, system-ui, sans-serif;
+  text-align: center; }
+
+/* A Slack message. Close enough to be recognisable, not a forgery -- no Slack
+   marks, no real avatars, and the copy says it is an example. */
+.sk { display: flex; gap: 9px; }
+.sk-av { flex: none; width: 34px; height: 34px; border-radius: 7px; background: var(--accent);
+  color: var(--ground); font: 650 15px/34px ui-sans-serif, system-ui, sans-serif;
+  text-align: center; }
+.sk-msg { min-width: 0; }
+.sk-who { font-weight: 650; font-size: 13.5px; margin: 0 0 3px; }
+.sk-b { margin: 0 0 5px; font-size: 13.5px; line-height: 1.5; }
+/* Stands in for the photo. A bare gradient box read as an image that failed to
+   load, which on a page arguing the mechanic is real is the wrong impression --
+   so it carries a photo glyph and says what it is. */
+.sk-img { height: 86px; border-radius: 6px; margin: 7px 0 2px; display: grid;
+  place-items: center; gap: 4px; color: var(--muted); font-size: 11px;
+  background: linear-gradient(135deg, var(--sea), var(--rule)); }
+.sk-img svg { width: 26px; height: 26px; opacity: .55; }
+
+/* Emoji sit tight against the word after them at these sizes. */
+.em { margin-right: 6px; }
+.sk-rx { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.sk-r { font-size: 12px; border: 1px solid var(--rule); border-radius: 10px;
+  padding: 1px 7px; color: var(--muted); }
+.sk-r.on { border-color: var(--accent); color: var(--accent); }
+.sk-r b { font-weight: 650; }
+
+/* The wagers sheet, mocked. Reuses none of the live panel's classes on
+   purpose: this is a picture of it, and wiring it to the real ones would mean
+   a change to the panel silently reflowed a landing page nobody re-checked. */
+.wg-h { display: flex; justify-content: space-between; font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: .1em; font-weight: 650;
+  color: var(--muted); margin: 0 0 10px; }
+.wg-r b { color: var(--ink); }
+.wg-m { border-top: 1px solid var(--rule); padding: 9px 0 4px; }
+.wg-q { margin: 0 0 4px; font-size: 13.5px; line-height: 1.45; }
+.wg-p { margin: 0 0 7px; font-size: 11.5px; color: var(--muted); }
+.wg-s { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin: 0;
+  font-size: 12px; color: var(--muted); }
+.wg-side { font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 3px 7px; }
+.wg-side.on { background: var(--accent); border-color: var(--accent);
+  color: var(--ground); font-weight: 650; }
+.wg-stake, .wg-pay { margin-left: 4px; }
+.wg-stake b, .wg-pay b { color: var(--ink); font-weight: 650; }
+
+/* The tick, as three beats. A list rather than prose because the whole point
+   is that it is the same three every day. */
+.beats { list-style: none; margin: 0 0 14px; padding: 0; max-width: 62ch; }
+.beats li { display: grid; grid-template-columns: 13ch 1fr; gap: 12px;
+  padding: 10px 0; border-top: 1px solid var(--rule); font-size: 14px; }
+.beats li b { font-weight: 650; color: var(--accent); }
+
+@media (max-width: 620px) {
+  .land { padding: 36px 18px 64px; }
+  .land-title { font-size: 27px; }
+  .land-hook { font-size: 16px; }
+  .beats li { grid-template-columns: 1fr; gap: 2px; }
+
+  /* The board is one render at every width, and the viewBox scales it down by
+     roughly two thirds on a phone -- so a count sized for the desktop frame
+     arrives at about 6px and the picture loses the thing it is there to show.
+     landing.ts tests each territory for room against THESE sizes, not the
+     desktop ones, so nothing printed here overflows the country it names. */
+  .dm-n { font-size: 32px; stroke-width: 7px; }
+  .dm-pin circle { r: 26px; }
+  .dm-pin text { font-size: 30px; }
+}
 `

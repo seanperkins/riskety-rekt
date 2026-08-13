@@ -51,8 +51,9 @@ describe("the web server", () => {
     expect(res.body).toContain("<svg")
   })
 
-  it("serves a sign-in page at / when there is no session", async () => {
-    // Never a default faction, and deliberately says nothing about the game.
+  it("serves the landing page at / when there is no session", async () => {
+    // Never a default faction. The page argues for the game now, but it is
+    // still built from a constant seed and reads nothing.
     const res = await request("/")
     expect(res.status).toBe(200)
     expect(res.body).toContain("/login")
@@ -66,16 +67,22 @@ describe("the web server", () => {
     const res = await request("/")
     expect(res.body).toContain("/login")
     expect(res.body).toMatch(/roster/i)
+  })
 
-    // Still says nothing about the game itself. Asserted on the BODY, not the
-    // whole document: `page()` inlines the stylesheet, whose authoring comments
-    // mention territories and factions, so a whole-document check would fail on
-    // CSS commentary while a real leak in the copy slipped through a reworded
-    // list. The copy is what this test owns.
-    const body = res.body.slice(res.body.indexOf("<body>"))
-    for (const leak of ["__RR__", "territor", "garrison", "reserve", "faction", "wager"]) {
-      expect(body.toLowerCase(), leak).not.toContain(leak)
-    }
+  it("puts no live season on the signed-out page", async () => {
+    // This page USED to be held to naming no game noun at all, which is the
+    // invariant the landing page was written to break — a stranger who cannot
+    // be told what the game is cannot be persuaded to join it. What survives is
+    // the half that was ever about disclosure: no season reaches it.
+    //
+    // Asserted as an identity rather than a word list. `renderLanding` takes no
+    // arguments and no store, so a page equal to its output cannot contain
+    // anything read from one — and unlike a list of forbidden nouns, this does
+    // not quietly stop covering the leak when the copy is reworded.
+    const { renderLanding } = await import("./landing.js")
+    const res = await request("/")
+    expect(res.body).toBe(renderLanding())
+    expect(res.body).not.toContain("__RR__")
   })
 
   it("serves /rules without a session, like /map", async () => {

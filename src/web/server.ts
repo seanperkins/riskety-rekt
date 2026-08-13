@@ -1,6 +1,6 @@
 import { createServer } from "node:http"
 import type { Server } from "node:http"
-import { MAX_LIVE_TOKENS, hashToken, newToken } from "../auth/token.js"
+import { hashToken, newToken } from "../auth/token.js"
 import { serializeSessionCookie } from "./session.js"
 import type {
   AuthStore,
@@ -20,6 +20,7 @@ import { currentDay, tickInstant } from "../season.js"
 import { projectionFor } from "./projection-data.js"
 import { replayFor } from "./replay-data.js"
 import { esc, page, renderBoard, renderMap, renderReplay, renderRules } from "./render.js"
+import { renderLanding } from "./landing.js"
 import { sessionFactionFor } from "./session.js"
 import { parseOrderBody, parseWagers } from "../jobs/order-entry.js"
 
@@ -64,9 +65,11 @@ function vendor(path: string): { body: string; type: string } | undefined {
  */
 const ROUTES: Record<string, (params: URLSearchParams) => string | undefined> = {
   "/map": (p) => mapPage(p),
-  // Session-free like /map, and for the same reason: it holds no state. It is
-  // deliberately NOT linked from the signed-out page, which keeps its property
-  // of telling a stranger nothing about the game.
+  // Session-free like /map, and for the same reason: it holds no state. It was
+  // deliberately NOT linked from the signed-out page, back when that page's job
+  // was telling a stranger nothing. The landing page now argues for the game
+  // and links here for the detail, so the two are no longer at odds — the
+  // property that still matters is that neither reads a season.
   "/rules": () => renderRules(),
 }
 
@@ -74,7 +77,7 @@ const ROUTES: Record<string, (params: URLSearchParams) => string | undefined> = 
  * The board, for a logged-in player.
  *
  * Returns undefined when there is no session, which the caller turns into the
- * sign-in page rather than a default faction — a fallback would hand a stranger
+ * landing page rather than a default faction — a fallback would hand a stranger
  * somebody else's orders.
  */
 function boardPage(deps: WebDeps, faction: string, now: Date): string | undefined {
@@ -105,40 +108,6 @@ function boardPage(deps: WebDeps, faction: string, now: Date): string | undefine
       tickAt: tickInstant(season, day),
       now,
     }),
-  )
-}
-
-/**
- * Shown when there is no session. Deliberately says nothing about the game —
- * no faction, no board, no day, not even whether a season is running. A
- * stranger who guesses the URL learns only how to sign in.
- *
- * Two different dead ends land here and only one is fixed by running the
- * command again, so the page names both. Somebody off the roster can run
- * `/login` all day and never get a link; the reply hands them the `roster:add`
- * line instead (`src/slack/login.ts`), and this page is where they find out
- * that is the expected answer rather than a failure.
- *
- * The "ask before it starts" warning is load-bearing, not politeness:
- * `season-init` sizes and deals the board from the roster, so a latecomer owns
- * nothing and earns nothing, permanently. It is phrased WITHOUT naming any
- * game noun — the test's leak list holds this page to that, because copy that
- * explains the rules to a stranger is the slow way to lose the invariant.
- */
-function signInPage(): string {
-  return page(
-    "Riskety Rekt",
-    `<div class="rail"><h1 class="title">Riskety&nbsp;Rekt</h1>
-     <p class="sub">Run <code>/login</code> in Slack and follow the link it sends you.</p>
-     <p class="note">The link is good for ten minutes and works once. Run
-       <code>/login</code> as often as you like — your last ${MAX_LIVE_TOKENS} links all
-       keep working, so asking for a new one never breaks the one you were about to tap.</p>
-     <h2 class="h2">No link came back?</h2>
-     <p class="note">Then you are not on the roster yet, and <code>/login</code> replied
-       with the one-line command to add you instead. Send that line to whoever runs the
-       season — joining is not self-service on purpose.</p>
-     <p class="note">Ask <strong>before</strong> a season starts. Everything is handed out
-       when it begins, so joining partway through leaves you with nothing to play.</p></div>`,
   )
 }
 
@@ -322,8 +291,11 @@ export function createWebServer(deps: WebDeps): Server {
 
     if (path === "/") {
       if (faction === undefined) {
+        // The landing page. It reads no store and holds no session, so it is
+        // safe without one — see `src/web/landing.ts` for what changed and why
+        // it no longer withholds the rules from a stranger.
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-        res.end(req.method === "HEAD" ? undefined : signInPage())
+        res.end(req.method === "HEAD" ? undefined : renderLanding())
         return
       }
       const html = boardPage(deps, faction, now)

@@ -338,7 +338,7 @@ at `season-init` and a faction added afterwards owns nothing, permanently.
 
 | Route | What it is |
 |---|---|
-| `/` | The player board. Signed out, a sign-in page that says nothing about the game. |
+| `/` | The player board. Signed out, the landing page: what the game is, how to get in, and an example board dealt from a fixed seed. Reads no season. |
 | `/wagers` | Today's slate |
 | `/day/N` | The night replayed |
 | `/map` | The debug board — no session needed, no player data |
