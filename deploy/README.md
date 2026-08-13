@@ -11,7 +11,7 @@ alongside the SQLite file.
 | Droplet | `riskety-rekt`, nyc3, s-1vcpu-1gb, `45.55.240.159` |
 | DNS | Registered at Namecheap, **nameservers delegated to DigitalOcean** — records live in the DO zone, so `doctl compute domain records` changes them and the registrar holds only the delegation |
 | TLS | Let's Encrypt via Caddy, auto-renewing |
-| Access | `ssh root@45.55.240.159` with FounderKey or the DO `Ubuntu` key |
+| Access | `ssh -i ~/.ssh/digitalocean root@45.55.240.159`. **The key must be named**, or ssh offers the default identities, none of which the droplet accepts, and the only symptom is `Permission denied (publickey)` |
 
 Provisioned from `cloud-init.yaml` (the machine) and `bootstrap.sh` (the
 deployment). **`bootstrap.sh` is also the upgrade path** — rerunning it pulls
@@ -19,7 +19,19 @@ deployment). **`bootstrap.sh` is also the upgrade path** — rerunning it pulls
 touches the database or `/etc/riskety-rekt/env`:
 
 ```bash
-ssh root@45.55.240.159 'bash -s' < deploy/bootstrap.sh
+ssh -i ~/.ssh/digitalocean root@45.55.240.159 'bash -s' < deploy/bootstrap.sh
+```
+
+Worth doing once, so the `-i` stops being something to remember. Keyed on the
+ADDRESS rather than an alias, which is what makes the bare `ssh root@45.55.240.159`
+elsewhere in this file work as written — an alias would only apply to `ssh riskety`:
+
+```
+# ~/.ssh/config
+Host 45.55.240.159
+  User root
+  IdentityFile ~/.ssh/digitalocean
+  IdentitiesOnly yes
 ```
 
 `s-1vcpu-1gb` is 1 GB, so cloud-init provisions 2 GB of swap. The process that
