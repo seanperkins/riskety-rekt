@@ -1114,6 +1114,54 @@ $("plan").addEventListener("click", (e) => {
 })
 $("btn-protect").addEventListener("click", protect)
 $("btn-undo").addEventListener("click", undo)
+
+/*
+ * Renaming. The faction id never moves -- the server passes the existing one
+ * straight back to the roster -- so nothing on the board needs re-deriving. The
+ * only thing that changes is the label, and the standings row for the viewer,
+ * both of which read from P.factions.
+ */
+;(function () {
+  const form = $("rename")
+  const input = $("rename-input")
+  const button = $("btn-rename")
+  const open = function (on) {
+    form.hidden = !on
+    button.hidden = on
+    if (on) {
+      const me = P.factions.filter(function (f) { return f.id === P.factionId })[0]
+      input.value = me ? me.name : ""
+      input.focus()
+      input.select()
+    }
+  }
+  button.addEventListener("click", function () { open(true) })
+  $("rename-cancel").addEventListener("click", function () { open(false) })
+  form.addEventListener("submit", function (e) {
+    e.preventDefault()
+    const wanted = input.value
+    fetch("/api/name", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: wanted }),
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b } }) })
+      .then(function (res) {
+        if (!res.ok || !res.body.ok) {
+          return flash(res.body && res.body.reason ? res.body.reason : "could not save that name")
+        }
+        // The SERVER's name, not the typed one: it trims and collapses
+        // whitespace, so echoing the input would show something the database
+        // does not hold.
+        for (const f of P.factions) if (f.id === P.factionId) f.name = res.body.name
+        button.textContent = res.body.name
+        open(false)
+        flash("You're " + res.body.name + " now.")
+        render()
+      })
+      .catch(function () { flash("Offline — name not saved.") })
+  })
+})()
 $("atk-slider").addEventListener("input", () => {
   $("atk-n").textContent = $("atk-slider").value
   paintVerdict()

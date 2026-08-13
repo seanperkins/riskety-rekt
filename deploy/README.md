@@ -210,7 +210,7 @@ Create the app at api.slack.com/apps with these bot scopes:
 | `channels:history` | read `message` events in the public game channel |
 | `reactions:read` | read `reaction_added` / `reaction_removed` |
 | `chat:write` | post the slate, the recap, and the daily rule offer |
-| `commands` | the `/login` slash command, which is the only way a player reaches the web app |
+| `commands` | the `/login` and `/name` slash commands. `/login` is the only way a player reaches the web app |
 | `reactions:write` | pre-seed the rule offer's numeral ballot (OPTIONAL — see below) |
 
 Subscribe to these bot events: `message.channels`, `reaction_added`,
@@ -263,6 +263,11 @@ EnvironmentFile yields `""`, and treating that as present is how a bot boots
 with signature verification effectively disabled. It exits 1 with a single
 explanatory line and never opens the database, so a misconfigured service leaves
 no WAL file behind.
+
+It also needs **`RR_SEASON_ID`**, already in this file for the jobs, and refuses
+to start without it for the same reason: `/login` reads it to decide whether the
+board has been dealt, and a bot that guessed would either hand out seats during a
+live season or refuse them before one.
 
 Once `SLACK_BOT_TOKEN` is set, `publish-slate` also announces the slate to the
 channel. Leave it unset to publish to the database only.
@@ -332,8 +337,9 @@ existing `/slack/events` route to 3001.
 Players sign in with the `/login` slash command, which needs a Slack app
 configuration:
 
-- A **slash command** `/login` pointing at the bot's public URL, with the
-  `commands` scope.
+- **Two slash commands**, `/login` and `/name`, both pointing at the bot's public
+  URL (`https://<host>/slack/events`, Bolt's default path) with the `commands`
+  scope. One scope covers both; adding the second command needs no re-verification.
 - `chat:write`, which the recap already needs.
 
 The reply is ephemeral, so only the person who ran it sees the link. Links last
@@ -341,20 +347,57 @@ ten minutes and work once, and a player may hold five at a time — running
 `/login` again does **not** strand a link they were about to click. The sixth
 evicts the oldest.
 
-Somebody who is not on the roster gets a reply carrying the exact
-`roster:add` command with their Slack id already filled in — self-service
-joining is deliberately not offered, because the board is sized to the roster
-at `season-init` and a faction added afterwards owns nothing, permanently.
+**`/login` is also how somebody joins, but only before a season is dealt.** The
+objection to self-service was always that `season-init` sizes and deals the board
+from the roster, so a faction added afterwards owns nothing, permanently — which
+says nothing about the state before the deal. So `/login` branches on
+`store.season(RR_SEASON_ID)`:
+
+| Roster | Season | What happens |
+|---|---|---|
+| on it | either | a link, as always |
+| not on it | dealt | the reply carries the exact `roster:add` command with their Slack id filled in, for an operator to run deliberately |
+| not on it | not dealt | they are added and get their link in the same reply |
+| not on it | not dealt, **not in the channel** | refused, told to join the channel first |
+
+The channel check is not decoration. A slash command is workspace-wide, so
+without it anybody who can see `/login` could claim a seat, and every phantom
+seat shrinks everyone's share of the board at `season-init`. It costs one
+`conversations.members` call, the same one `roster:sync` makes — and if that call
+fails (missing scope, bot not in the channel, an outage) the reply degrades to
+the operator message rather than raising.
+
+**This is why the bot now needs `RR_SEASON_ID`**, which it did not before.
+
+`/name <new name>` changes a display name and has **no season gate** — every page
+resolves names from the roster when it renders, so a change lands on the board,
+the standings and tonight's recap immediately, including replays of days already
+played. The faction id never moves: it is in every saved state and log line, and
+following the name would detach a player from their own history. The same thing
+is available from the board itself, by pressing your name in the rail.
+
+Because players own their names now, **`roster:sync` no longer adopts one from
+Slack for anybody already on the roster** — it reports the difference and writes
+nothing. Adopting it would silently revert every self-chosen name each time an
+operator ran a sync.
 
 ### Routes
 
 | Route | What it is |
 |---|---|
 | `/` | The player board. Signed out, the landing page: what the game is, how to get in, and an example board dealt from a fixed seed. Reads no season. |
-| `/wagers` | Today's slate |
 | `/day/N` | The night replayed |
+| `/rules` | Every rule and why it is that rule — no session, no season |
 | `/map` | The debug board — no session needed, no player data |
+| `POST /api/plan` | Autosave the day's deploys, moves and attacks |
+| `POST /api/wager` | Place or change one wager |
+| `POST /api/name` | Change your display name. Faction from the session cookie, never the body |
+| `/api/day` | Which day has resolved, so an open board can reload itself after the tick |
 | `/vendor/leaflet.{js,css}` | Leaflet, served from an explicit two-entry allow-list |
+
+Today's slate is a sheet on the board, not a page. `/wagers` was removed in
+`adfcb05`: a wager and a deploy draw on the same reserve, and only the board was
+counting both.
 
 
 ## Live prices

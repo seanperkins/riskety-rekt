@@ -186,6 +186,17 @@ export function projectionFor(args: {
   modules: string[]
   tickAt: Date
   now: Date
+  /**
+   * Display names by faction id, read from the roster at request time.
+   *
+   * Not from the state: `createSeason` froze `playerName` at the deal, so a
+   * player who renamed themselves would go on showing the old name for the rest
+   * of the season. Optional and falling back to the frozen copy, which is what
+   * lets the simulator and the fixtures render without a roster.
+   *
+   * Public, like every other faction name here — it is on the standings.
+   */
+  names?: Record<FactionId, string>
 }): Projection {
   const { state, factionId } = args
   const msToTick = Math.max(0, args.tickAt.getTime() - args.now.getTime())
@@ -197,7 +208,11 @@ export function projectionFor(args: {
     // day 1 is a small lie that makes the countdown nonsense.
     day: args.day,
     factionId,
-    factions: state.factions.map((f) => ({ id: f.id, name: f.playerName, color: f.color })),
+    factions: state.factions.map((f) => ({
+      id: f.id,
+      name: args.names?.[f.id] ?? f.playerName,
+      color: f.color,
+    })),
     ownership: state.ownership,
     garrisons: state.garrisons,
     reserve: state.reserves[factionId] ?? 0,

@@ -1,3 +1,4 @@
+import { DISPLAY_NAME_MAX_CHARS } from "../config.js"
 import { HOUSE_BONUS, PRICE_CEIL, PRICE_FLOOR } from "../engine/index.js"
 import type { GameMap } from "../engine/index.js"
 import type { LatLon } from "../map/coords.js"
@@ -533,7 +534,17 @@ export function renderBoard(p: Projection, now: Date = new Date()): string {
   </div>
   <aside class="rail">
     <h1 class="title">Riskety&nbsp;Rekt</h1>
-    <p class="sub">Day ${esc(p.day)} · ${esc(me?.name ?? p.factionId)}</p>
+    <p class="sub">Day ${esc(p.day)} ·
+      <button id="btn-rename" class="rename" type="button"
+        title="Change your display name">${esc(me?.name ?? p.factionId)}</button></p>
+    <!-- Hidden until the name is pressed. Present rather than omitted, like
+         Protect and Wagers: the client wires it by id and a missing node throws. -->
+    <form id="rename" class="renamer" hidden>
+      <input id="rename-input" type="text" maxlength="${DISPLAY_NAME_MAX_CHARS}"
+        aria-label="Your display name" autocomplete="off">
+      <button class="chip ok" type="submit">Save</button>
+      <button id="rename-cancel" class="chip" type="button">Cancel</button>
+    </form>
     <p id="countdown" class="count"></p>
 
     ${outOfIt(p)}

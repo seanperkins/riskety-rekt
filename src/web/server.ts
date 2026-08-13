@@ -5,11 +5,13 @@ import { serializeSessionCookie } from "./session.js"
 import type {
   AuthStore,
   OrderStore,
+  RosterStore,
   SeasonStore,
   SlateStore,
   StateStore,
 } from "../store/types.js"
-import { MAX_FACTIONS, MIN_FACTIONS } from "../config.js"
+import { DISPLAY_NAME_MAX_CHARS, MAX_FACTIONS, MIN_FACTIONS } from "../config.js"
+import { normalizeDisplayName } from "../roster.js"
 import { COORDS } from "../map/coords.js"
 import { selectSubMap } from "../map/select.js"
 import { makeRng } from "../rng.js"
@@ -26,9 +28,20 @@ import { parseOrderBody, parseWagers } from "../jobs/order-entry.js"
 
 export interface WebDeps {
   port: number
-  store: AuthStore & SeasonStore & StateStore & OrderStore & SlateStore
+  store: AuthStore & SeasonStore & StateStore & OrderStore & SlateStore & RosterStore
   seasonId: string
   log?: (msg: string) => void
+}
+
+/**
+ * Display names by faction id, as they stand RIGHT NOW.
+ *
+ * Every page that shows a name builds this rather than reading the state's
+ * `playerName`, which `createSeason` froze at the deal. Without it a rename
+ * would visibly do nothing until the next season.
+ */
+function displayNames(deps: WebDeps): Record<string, string> {
+  return Object.fromEntries(deps.store.roster().map((m) => [m.factionId, m.displayName]))
 }
 
 /**
@@ -107,6 +120,7 @@ function boardPage(deps: WebDeps, faction: string, now: Date): string | undefine
       modules: season.modules ?? ["markets", "irl", "veto"],
       tickAt: tickInstant(season, day),
       now,
+      names: displayNames(deps),
     }),
   )
 }
@@ -185,6 +199,11 @@ export function createWebServer(deps: WebDeps): Server {
 
     if (req.method === "POST" && new URL(req.url ?? "/", "http://localhost").pathname === "/api/wager") {
       saveWagerRequest(req, res, deps)
+      return
+    }
+
+    if (req.method === "POST" && path === "/api/name") {
+      saveName(req, res, deps)
       return
     }
 
@@ -326,7 +345,11 @@ export function createWebServer(deps: WebDeps): Server {
         return
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-      res.end(req.method === "HEAD" ? undefined : renderReplay(replayFor({ before, after })))
+      res.end(
+        req.method === "HEAD"
+          ? undefined
+          : renderReplay(replayFor({ before, after, names: displayNames(deps) })),
+      )
       return
     }
 
@@ -417,6 +440,73 @@ function savePlan(
     }
     const out = deps.store.saveOrder(deps.seasonId, day, faction, body, now)
     return json(out.ok ? 200 : 409, out.ok ? { ok: true } : { ok: false, reason: out.reason })
+  })
+}
+
+/**
+ * Change the signed-in player's display name.
+ *
+ * `factionId` comes from the session and nowhere else, exactly as it does for a
+ * plan — a body-supplied faction would let anybody rename anybody.
+ *
+ * There is NO season gate here, unlike joining. Every page resolves names from
+ * the roster at render time, so this lands on the board, the standings and
+ * tonight's recap immediately, whether or not a season is running.
+ *
+ * The write is `addRosterMember` keyed on the Slack user id, with the EXISTING
+ * faction id passed back unchanged: the id is in every saved state and log line,
+ * and moving it would detach a player from their own history.
+ */
+function saveName(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+  deps: WebDeps,
+): void {
+  const now = new Date()
+  const faction = sessionFactionFor(req, { store: deps.store, seasonId: deps.seasonId, now })
+  const json = (code: number, body: unknown): void => {
+    res.writeHead(code, { "content-type": "application/json; charset=utf-8" })
+    res.end(JSON.stringify(body))
+  }
+  if (faction === undefined) return json(401, { ok: false, reason: "not signed in" })
+
+  const slackUserId = deps.store.slackUserForFaction(faction)
+  if (slackUserId === undefined) {
+    // The roster row is what a rename writes to. A faction with a session but
+    // no roster row cannot be renamed, and inventing a row would fabricate a
+    // Slack identity.
+    return json(409, { ok: false, reason: "no roster row for this faction" })
+  }
+
+  let raw = ""
+  req.on("data", (c: Buffer) => {
+    raw += c
+    // A name is a few dozen bytes.
+    if (raw.length > 4_000) req.destroy()
+  })
+  req.on("end", () => {
+    let name: unknown
+    try {
+      name = (JSON.parse(raw) as { name?: unknown }).name
+    } catch {
+      return json(400, { ok: false, reason: "bad json" })
+    }
+    if (typeof name !== "string") return json(400, { ok: false, reason: "name must be a string" })
+
+    const parsed = normalizeDisplayName(name)
+    if (!parsed.ok) {
+      return json(400, {
+        ok: false,
+        reason:
+          parsed.reason === "empty"
+            ? "give me something to call you"
+            : `too long — ${DISPLAY_NAME_MAX_CHARS} characters is the limit`,
+      })
+    }
+
+    deps.store.addRosterMember({ slackUserId, factionId: faction, displayName: parsed.name })
+    deps.log?.(`name: ${faction} is now "${parsed.name}"`)
+    return json(200, { ok: true, name: parsed.name })
   })
 }
 

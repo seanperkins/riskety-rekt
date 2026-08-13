@@ -603,17 +603,19 @@ export function renderLanding(): string {
 
   <section class="land-s land-join">
     <h2>Getting in</h2>
-    <p><strong>Joining is not self-service, on purpose.</strong> Everything — the board,
-      the seats, the ground — is handed out the moment a season begins, so somebody
-      who joins on day 6 has nothing to play with. Ask whoever runs the season to add
-      you, and ask <em>before</em> it starts.</p>
-    <p>Already a player? Run <code>/login</code> in Slack and follow the link it sends
-      you. The link is good for ten minutes and works once. Run it as often as you
-      like — your last ${MAX_LIVE_TOKENS} links all keep working, so asking for a new
-      one never breaks the one you were about to tap.</p>
-    <p>Ran <code>/login</code> and nothing came back? Then you are not on the roster
-      yet, and the command replied with the one-line invitation to send to whoever
-      runs the season.</p>
+    <p><strong>Join the Slack channel, then run <code>/login</code>.</strong> If the next
+      season hasn't been dealt yet, that one command adds you to the roster and sends
+      you your link in the same breath. No forms, and nobody to ask.</p>
+    <p>The link is good for ten minutes and works once. Run <code>/login</code> as often
+      as you like — your last ${MAX_LIVE_TOKENS} links all keep working, so asking for a
+      new one never breaks the one you were about to tap.</p>
+    <p><strong>Once a season starts, that door closes.</strong> The board is sized and
+      handed out the moment it begins, so a seat added on day 6 owns no ground and
+      earns no income — permanently. After that, joining means asking whoever runs the
+      season, and the reply to <code>/login</code> tells you exactly what to send them.
+      Which is the real reason to get in <em>before</em> it starts.</p>
+    <p>Don't like the name Slack gave you? <code>/name Something Else</code>, or change
+      it straight from the board. That one has no deadline.</p>
     <p class="land-out"><a href="/rules">Every rule, and why it is that rule</a> ·
       <a href="/map">The whole world map</a></p>
   </section>

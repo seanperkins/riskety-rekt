@@ -23,6 +23,18 @@ export interface RecapInput {
    * the way it did (a Truce day's recap says why no attacks landed).
    */
   ruleIds?: string[]
+  /**
+   * Display names by faction id, read from the roster when the recap is built.
+   *
+   * The name is NOT taken from the state any more. `createSeason` copies it in
+   * at the deal and it never changes there, so a player who renamed themselves
+   * mid-season would keep appearing under the old name for the rest of it.
+   *
+   * Optional, and it falls back to the state's own copy. That is what keeps the
+   * simulator and every existing fixture working: neither has a roster, and
+   * neither should need one to render a recap.
+   */
+  names?: Record<FactionId, string>
 }
 
 /**
@@ -74,8 +86,10 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
   const { state, previous, lengthDays } = input
 
   const nameOf = (id: FactionId): string => {
+    // Roster first, then the state's frozen copy, then the bare id.
+    const live = input.names?.[id]
     const f = state.factions.find((x) => x.id === id)
-    return safeText(f?.playerName ?? id, RECAP_NAME_MAX_CHARS)
+    return safeText(live ?? f?.playerName ?? id, RECAP_NAME_MAX_CHARS)
   }
   const place = (id: string) => safeText(titleCase(id), RECAP_NAME_MAX_CHARS)
 

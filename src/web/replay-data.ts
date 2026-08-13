@@ -66,9 +66,24 @@ function assertNever(x: never): never {
   throw new Error(`unhandled tick event: ${JSON.stringify(x)}`)
 }
 
-export function replayFor(args: { before: GameState; after: GameState }): Replay {
+export function replayFor(args: {
+  before: GameState
+  after: GameState
+  /**
+   * Display names by faction id, read from the roster at request time.
+   *
+   * A replay of day 3 therefore names whoever holds that faction TODAY, not
+   * whoever held it on day 3. That is deliberate: it is the same person, and
+   * showing two names for them across the season reads as a bug rather than as
+   * history. Optional, falling back to the state's frozen copy so the fixtures
+   * and the simulator need no roster.
+   */
+  names?: Record<string, string>
+}): Replay {
   const { before, after } = args
-  const fname = new Map(after.factions.map((f) => [f.id, f.playerName]))
+  const fname = new Map(
+    after.factions.map((f) => [f.id, args.names?.[f.id] ?? f.playerName]),
+  )
   const tname = new Map(after.map.territories.map((t) => [t.id, t.name]))
   const who = (id: string) => fname.get(id) ?? id
   const where = (id: string) => tname.get(id) ?? id
@@ -157,7 +172,7 @@ export function replayFor(args: { before: GameState; after: GameState }): Replay
     ...staticBoard(after.map),
     seasonId: after.seasonId,
     day: after.day,
-    factions: after.factions.map((f) => ({ id: f.id, name: f.playerName, color: f.color })),
+    factions: after.factions.map((f) => ({ id: f.id, name: who(f.id), color: f.color })),
     before: { ownership: before.ownership, garrisons: before.garrisons },
     after: { ownership: after.ownership, garrisons: after.garrisons },
     beats,

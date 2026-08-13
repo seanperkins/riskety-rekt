@@ -1,13 +1,32 @@
 import { App } from "@slack/bolt"
 import type { App as AppType } from "@slack/bolt"
-import type { ApprovalStore, AuthStore, RosterStore, RuleVoteStore } from "../store/types.js"
+import type {
+  ApprovalStore,
+  AuthStore,
+  RosterStore,
+  RuleVoteStore,
+  SeasonStore,
+} from "../store/types.js"
 import type { SlackEnv } from "./env.js"
 import { handleMessageEvent, handleReactionEvent, type IngestDeps } from "./handlers.js"
 import { handleLoginCommand } from "./login.js"
+import { handleNameCommand } from "./name.js"
+import type { Directory } from "./post.js"
 
 export interface SlackAppDeps {
   env: SlackEnv
-  store: ApprovalStore & RosterStore & AuthStore & RuleVoteStore
+  store: ApprovalStore & RosterStore & AuthStore & RuleVoteStore & SeasonStore
+  /** Whether the board has been dealt, which is what gates self-service joining. */
+  seasonId: string
+  /**
+   * Reads channel membership for `/login`'s join branch.
+   *
+   * Injected by the entrypoint rather than built here: `createDirectory` lives
+   * in `post.ts`, the one file allowed to import the Web API client, and
+   * constructing it here would pull that client into the import graph of every
+   * test that builds an app. The type import below is erased at compile time.
+   */
+  directory: Directory
   log: (msg: string) => void
 }
 
@@ -52,12 +71,31 @@ export function createSlackApp(deps: SlackAppDeps): AppType {
   // over a trusted user_id; the handler is pure and returns the reply text.
   app.command("/login", async ({ command, ack, respond }) => {
     await ack()
-    const text = handleLoginCommand(
+    const text = await handleLoginCommand(
       { userId: command.user_id, teamId: command.team_id },
-      { store: deps.store, webUrl: deps.env.webUrl, now: new Date(), log: deps.log },
+      {
+        store: deps.store,
+        seasonId: deps.seasonId,
+        webUrl: deps.env.webUrl,
+        now: new Date(),
+        directory: deps.directory,
+        channelId: deps.env.channelId,
+        log: deps.log,
+      },
     )
     // Ephemeral: only the invoker ever sees it, even when /login is run in a
     // public channel.
+    await respond({ text, response_type: "ephemeral" })
+  })
+
+  // Renaming has no season gate, unlike joining: every display site resolves
+  // the name from the roster at render time, so a change lands immediately.
+  app.command("/name", async ({ command, ack, respond }) => {
+    await ack()
+    const text = handleNameCommand(
+      { userId: command.user_id, text: command.text ?? "" },
+      { store: deps.store, log: deps.log },
+    )
     await respond({ text, response_type: "ephemeral" })
   })
 

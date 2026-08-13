@@ -5,6 +5,7 @@
  *
  * Configuration comes from the environment:
  *   RR_DB_PATH             path to the SQLite file      (required)
+ *   RR_SEASON_ID           which season /login checks   (required)
  *   SLACK_SIGNING_SECRET   Events request verification  (required)
  *   SLACK_BOT_TOKEN        xoxb- token                  (required)
  *   SLACK_TEAM_ID          workspace id                 (required)
@@ -17,6 +18,7 @@
 import { openStore } from "../store/sqlite.js"
 import { createSlackApp } from "./app.js"
 import { loadSlackEnv } from "./env.js"
+import { createDirectory } from "./post.js"
 
 const dbPath = process.env.RR_DB_PATH
 if (dbPath === undefined || dbPath === "") {
@@ -35,8 +37,22 @@ try {
   process.exit(1)
 }
 
+const seasonId = process.env.RR_SEASON_ID
+if (seasonId === undefined || seasonId === "") {
+  console.error("RR_SEASON_ID is not set — refusing to start.")
+  process.exit(1)
+}
+
 const store = openStore(dbPath)
-const app = createSlackApp({ env, store, log: (msg) => console.log(msg) })
+// Built here rather than in `app.ts`: `createDirectory` is in `post.ts`, the
+// one file allowed to import the Web API client.
+const app = createSlackApp({
+  env,
+  store,
+  seasonId,
+  directory: createDirectory(env.botToken),
+  log: (msg) => console.log(msg),
+})
 
 const port = Number(process.env.PORT ?? 3001)
 

@@ -430,6 +430,19 @@ ul.wagers .wager .hint { display: block; margin-top: 2px; }
 .chip.ok { border-color: var(--accent); color: var(--accent); font-weight: 650; }
 .chip.ok:hover, .chip.ok:focus-visible { background: var(--accent); color: var(--ground); }
 
+/* The viewer's own name, as a control. It reads as text until hovered --
+   a button-looking element beside the day would compete with the real ones. */
+.rename { background: none; border: 0; padding: 0; font: inherit; color: inherit;
+  cursor: pointer; border-bottom: 1px dashed var(--rule); }
+.rename:hover, .rename:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
+.rename[hidden] { display: none; }
+.renamer { display: flex; gap: 4px; align-items: center; margin: 2px 0 6px; flex-wrap: wrap; }
+.renamer[hidden] { display: none; }
+.renamer input { flex: 1; min-width: 9ch; font: inherit; font-size: 13px; padding: 3px 6px;
+  color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 4px; }
+.renamer input:focus-visible { outline: none; border-color: var(--accent); }
+
 .hint { color: var(--muted); font-size: 12px; margin: 0 0 4px; }
 .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
 
