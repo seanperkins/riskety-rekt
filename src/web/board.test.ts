@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ENGINE_VERSION, RISK_MAP, createSeason } from "../engine/index.js"
+import { ENGINE_VERSION, RISK_MAP, createSeason, territoryIncome } from "../engine/index.js"
 import type { Faction } from "../engine/index.js"
 import { projectionFor } from "./projection-data.js"
 import { renderBoard } from "./render.js"
@@ -37,6 +37,34 @@ describe("the projection", () => {
     const p = project()
     expect(p.plan.deploys).toEqual([{ territory: "alaska", count: 3 }])
     expect(p.plan.protect).toBe("peru")
+  })
+
+  /**
+   * Tonight's income, so the client can budget against what the ENGINE will
+   * budget against.
+   *
+   * `createSeason` starts every faction at reserve 0, and the tick grants income
+   * at step 1 before it allocates claims at step 3 — so a day-1 deploy funded by
+   * tonight's income is legal, and the rules panel says so. The client budgeted
+   * against `reserve` alone, which made every day-1 player unable to place a
+   * single soldier or stake a single wager. This is the number that fixes it.
+   *
+   * It leaks nothing: `territoryIncome` is `max(5, floor(t/2)) + regionBonuses`
+   * over `ownership`, and the standings already publish it for EVERY faction.
+   */
+  it("carries tonight's territory income, and it is spendable from a zero reserve", () => {
+    const p = project()
+    expect(p.reserve, "createSeason deals every faction in at zero").toBe(0)
+    expect(p.income).toBe(territoryIncome(state, "f1"))
+    expect(p.income).toBeGreaterThanOrEqual(5)
+  })
+
+  it("gives an eliminated viewer no income to spend", () => {
+    // territoryIncome's carve-out: no territories, no floor. A budget of 5 for
+    // a faction that owns nothing would fund wagers it could never spend.
+    const ownership = { ...state.ownership }
+    for (const [t, f] of Object.entries(ownership)) if (f === "f1") ownership[t] = "f2"
+    expect(project({ state: { ...state, ownership } }).income).toBe(0)
   })
 
   /**

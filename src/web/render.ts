@@ -567,9 +567,17 @@ export function renderBoard(p: Projection, now: Date = new Date()): string {
     <div id="plan"></div>
 
     <h2 class="h2">Reserve</h2>
+    <!-- Both halves of the budget, itemised, because a player who is shown one
+         number cannot tell why it is bigger than the reserve they went to bed
+         with. The client overwrites the "unspent" cell on its first paint; the
+         two rows above it are static for the night. -->
     <table class="t"><tbody>
-      <tr><td>unspent</td><td class="n" id="reserve">${esc(p.reserve)}</td></tr>
+      <tr><td>banked</td><td class="n">${esc(p.reserve)}</td></tr>
+      <tr><td>income tonight</td><td class="n">+${esc(p.income)}</td></tr>
+      <tr><td>unspent</td><td class="n" id="reserve">${esc(p.reserve + p.income)}</td></tr>
     </tbody></table>
+    <p class="hint">Soldiers you earn tonight are spendable tonight — income
+      arrives before your orders are checked.</p>
 
     ${standings(p)}
 
@@ -605,8 +613,13 @@ function wagersPanel(p: Projection, now: Date): string {
   if (!p.modules.includes("markets")) return ""
   const staked = new Map((p.wagers ?? []).map((w) => [w.marketId, w]))
   // Deploys AND wagers, the same sum the rail shows and the client recomputes.
+  // Against the BUDGET, not the banked reserve: tonight's income is spendable
+  // by tonight's wagers for the same reason it is spendable by tonight's
+  // deploys, and a sheet that disagreed with the rail beside it would be read
+  // as one of the two lying.
   const unspent =
-    p.reserve -
+    p.reserve +
+    p.income -
     p.plan.deploys.reduce((n, d) => n + d.count, 0) -
     (p.wagers ?? []).reduce((n, w) => n + w.stake, 0)
   const rows = (p.slate ?? [])

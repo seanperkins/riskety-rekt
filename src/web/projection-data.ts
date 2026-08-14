@@ -1,6 +1,7 @@
 import { COORDS } from "../map/coords.js"
 import { LABELS, LABEL_BOXES, REGION_OUTLINES, SHAPES, SHAPES_FINE } from "../map/shapes.js"
 import { SEA_LINKS } from "../map/world.js"
+import { territoryIncome } from "../engine/index.js"
 import type { GameState } from "../engine/index.js"
 import type { FactionId } from "../engine/index.js"
 import type { OrderBody, WagerRow } from "../store/types.js"
@@ -88,6 +89,26 @@ export interface Projection {
   shapesFine: Record<string, [number, number][][]>
   /** The viewer's alone. */
   reserve: number
+  /**
+   * What the board pays the viewer at tonight's tick, and therefore part of
+   * what tonight's orders may spend.
+   *
+   * The engine grants at step 1 and allocates claims at step 3 of the SAME
+   * tick, so income earned tonight is spendable tonight — `render.ts` tells
+   * players exactly that. Without this the client budgeted against `reserve`
+   * alone and every faction on day 1, when `createSeason` leaves all of them at
+   * zero, was locked out of deploying and wagering entirely.
+   *
+   * A floor, not a total: it deliberately omits approved workouts, wager
+   * payouts and rule grants, none of which are knowable while a plan is being
+   * written. Budgeting against the floor is what makes over-spending rare; the
+   * engine still drops claims that do not fit, seniority-first.
+   *
+   * PUBLIC information despite living beside `reserve` — `territoryIncome` reads
+   * nothing but `ownership` and the region bonuses, and the standings already
+   * print it for every faction on the board.
+   */
+  income: number
   plan: OrderBody
   /**
    * ABSENT — not empty — for a markets-off season, and the wagers panel,
@@ -216,6 +237,7 @@ export function projectionFor(args: {
     ownership: state.ownership,
     garrisons: state.garrisons,
     reserve: state.reserves[factionId] ?? 0,
+    income: territoryIncome(state, factionId),
     plan: args.plan,
     // Conditional spread, not `undefined` values — exactOptionalPropertyTypes,
     // and board.test.ts asserts the keys are ABSENT for a markets-off season.

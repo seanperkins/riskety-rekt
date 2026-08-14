@@ -196,6 +196,8 @@ type Projection = {
   factionId: string
   ownership: Record<string, string>
   reserve: number
+  income: number
+  plan: { deploys: { territory: string; count: number }[] }
   territories: { id: string; neighbors: string[] }[]
   shapes: Record<string, unknown[] | undefined>
   labels: Record<string, { lat: number; lon: number } | undefined>
@@ -334,10 +336,36 @@ describe("the client script", () => {
   })
 
   /**
+   * The budget a day-1 player actually has.
+   *
+   * `createSeason` starts every faction at reserve 0, and the engine grants
+   * income at step 1 of the tick before allocating claims at step 3 -- so
+   * tonight's income is spendable by tonight's orders. The client budgeted
+   * against `P.reserve` alone, so on day 1 `unspent()` was 0, `deployTo`
+   * returned false on the first tap and every wager stepper rendered disabled.
+   * Nobody could place a soldier or stake a wager on the opening night of a
+   * season, and the rules panel told them they could.
+   */
+  it("budgets a zero reserve against tonight's income, not against zero", () => {
+    const { P, byId, ran } = harness()
+    expect(P.reserve, "a fresh season deals everyone in at zero").toBe(0)
+    expect(P.income).toBeGreaterThan(0)
+    ran()
+
+    // "left of budget" -- the rail's own phrasing. Both halves are the income,
+    // because nothing has been spent yet.
+    expect(byId.get("reserve")?.["textContent"]).toBe(P.income + " of " + P.income)
+    // And the wagers stepper is live rather than disabled.
+    expect(byId.get("wagers-left")?.["textContent"]).toBe(String(P.income))
+  })
+
+  /**
    * The movement arrows, driven far enough to see what they drew.
    *
-   * A fresh season leaves every reserve at zero, so the spend gate is already
-   * clear and selecting one of your own territories draws the fan immediately.
+   * The fan appears once the budget is spent, which is when the question turns
+   * from "where do these go" to "where do I send them" -- so the harness spends
+   * it first. (It used to rely on a fresh season having nothing to spend, which
+   * stopped being true once the client started counting tonight's income.)
    * These cannot check what an arrow LOOKS like -- only a screenshot does that
    * -- but they can check the two things a person would notice were wrong: that
    * the colour still says whose ground the soldiers walk onto, and that the
@@ -355,6 +383,11 @@ describe("the client script", () => {
     /** Select an own territory bordering both a neighbour's ground and its own. */
     function selectFrontier(): { P: Projection; log: LayerCall[]; from: string } {
       const h = harness(WORLD)
+      // Spend the night's whole budget before the client runs, so the fan is
+      // reachable. Any owned territory will do -- the arrows are drawn from the
+      // SELECTED one, and that is chosen below.
+      const own = Object.keys(h.P.ownership).find((t) => h.P.ownership[t] === h.P.factionId)!
+      h.P.plan.deploys = [{ territory: own, count: h.P.reserve + h.P.income }]
       h.ran()
       const { P, log } = h
       const mine = (id: string): boolean => P.ownership[id] === P.factionId

@@ -12,7 +12,10 @@ const factions: Faction[] = ["f1", "f2", "f3"].map((id) => ({
 }))
 const state = createSeason("s1", factions, RISK_MAP.territories.map((t) => t.id))
 
-const boardWith = (deploy: number, stake: number): { html: string; reserve: number } => {
+const boardWith = (
+  deploy: number,
+  stake: number,
+): { html: string; reserve: number; income: number } => {
   const p = projectionFor({
     state,
     day: 1,
@@ -32,7 +35,11 @@ const boardWith = (deploy: number, stake: number): { html: string; reserve: numb
     tickAt: new Date("2026-09-05T01:00:00Z"),
     now: new Date("2026-09-04T20:00:00Z"),
   })
-  return { html: renderBoard(p, new Date("2026-09-04T20:00:00Z")), reserve: p.reserve }
+  return {
+    html: renderBoard(p, new Date("2026-09-04T20:00:00Z")),
+    reserve: p.reserve,
+    income: p.income,
+  }
 }
 
 describe("the wagers panel", () => {
@@ -66,9 +73,14 @@ describe("the wagers panel", () => {
   })
 
   it("server-renders that figure net of deploys AND stakes, matching the rail", () => {
-    const { html, reserve } = boardWith(3, 2)
+    // Against reserve + income, the same budget the rail and the client use.
+    // A sheet that netted off the banked reserve alone would show a different
+    // number than the rail two inches away, and on day 1 -- when the banked
+    // half is zero for everybody -- it would show a stepper disabled at a
+    // negative figure for a stake the engine would have honoured.
+    const { html, reserve, income } = boardWith(3, 2)
     const shown = /id="wagers-left">(-?\d+)</.exec(html)?.[1]
-    expect(shown).toBe(String(reserve - 3 - 2))
+    expect(shown).toBe(String(reserve + income - 3 - 2))
   })
 })
 

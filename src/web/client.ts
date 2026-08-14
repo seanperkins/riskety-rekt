@@ -702,8 +702,25 @@ function undo() {
   drawArrows()
 }
 
+/**
+ * Everything tonight's orders may draw on: what is banked, plus what the board
+ * pays at the tick.
+ *
+ * The income half is not optimism. The engine grants at step 1 and allocates
+ * claims at step 3 of the same tick, so a deploy funded by tonight's income is
+ * legal -- and budgeting against the banked reserve alone meant that on day 1,
+ * when createSeason leaves every faction at zero, nobody could place a soldier
+ * or stake a wager at all. The rules panel promised otherwise on the same page.
+ *
+ * It is a FLOOR: workouts, wager payouts and rule grants land at the tick too
+ * and none of them is knowable while a plan is being written. Spending past it
+ * is not a disaster -- the engine drops what does not fit, wagers senior -- so
+ * the number to budget against is the one the player can count on.
+ */
+const budget = () => P.reserve + P.income
+
 /** Soldiers not yet committed. Attacks come from garrisons, not the reserve. */
-const unspent = () => P.reserve - spent()
+const unspent = () => budget() - spent()
 
 function deployTo(id) {
   if (unspent() <= 0) return false
@@ -1135,13 +1152,14 @@ function render() {
     : "No orders yet. Tap one of your territories."
   $("plan").innerHTML = rows.length ? rows.join("") : '<p class="hint">' + emptyPlan + "</p>"
 
-  const left = P.reserve - spent()
+  const left = unspent()
+  const total = budget()
   // The over-budget hint names WHICH orders give way: under claim seniority
   // the wagers are locked at their market's close, so a short reserve drops
   // deploys, not wagers. Without this line the first player whose later
   // wagers push a saved plan negative files the allocation as a bug.
   $("reserve").textContent =
-    left < 0 ? left + " of " + P.reserve + " — wagers are locked; deploys give way" : left + " of " + P.reserve
+    left < 0 ? left + " of " + total + " — wagers are locked; deploys give way" : left + " of " + total
   $("reserve").className = left < 0 ? "n over" : "n"
 
   const s = $("save")
@@ -1286,7 +1304,7 @@ function stakedNow() {
 // live one to avoid counting the same stake twice.
 function reserveLeft() {
   const savedStakes = P.wagers.reduce((n, w) => n + w.stake, 0)
-  return P.reserve - (spent() - savedStakes) - stakedNow()
+  return budget() - (spent() - savedStakes) - stakedNow()
 }
 
 function sideOfRow(row) {
