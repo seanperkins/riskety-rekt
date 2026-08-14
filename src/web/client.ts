@@ -939,7 +939,17 @@ function onTap(id) {
 
   if (!selected) return flash("Pick one of your territories first.")
   if (!byId[selected].neighbors.includes(id)) {
-    return flash(nameOf(id) + " does not border " + nameOf(selected) + ".")
+    // Out of reach means "never mind", not an error. Holding the selection left
+    // the only way to let go of a territory being to find another of your own
+    // to tap -- and on a phone the flash sits in the rail behind the map, so
+    // the board looked like it had ignored the tap. Still says why; the
+    // selection simply goes with it.
+    flash(nameOf(id) + " does not border " + nameOf(selected) + ".")
+    selected = null
+    paint()
+    drawArrows()
+    render()
+    return
   }
   openAttack(selected, id)
 }

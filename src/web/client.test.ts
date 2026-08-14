@@ -66,6 +66,15 @@ type LayerCall = {
   latlngs: unknown
   opts: Record<string, unknown>
   events: string[]
+  /**
+   * Every setStyle paint() has applied, newest last.
+   *
+   * The selection has no other observable: it is a module-local `selected` the
+   * harness cannot reach, and the ONLY thing it changes is the stroke this
+   * records (`weight: 3.5`, `color: "#fff"`). A stub that swallowed setStyle
+   * could report that painting happened but never that anything was selected.
+   */
+  styles: Record<string, unknown>[]
   fire(type: string): void
 }
 
@@ -78,6 +87,7 @@ function fakeLeaflet(log: LayerCall[] = []): Record<string, unknown> {
       latlngs,
       opts: opts ?? {},
       events: [],
+      styles: [],
       fire: (type) => handlers.get(type)?.(),
     }
     log.push(call)
@@ -86,6 +96,10 @@ function fakeLeaflet(log: LayerCall[] = []): Record<string, unknown> {
       on(type: string, fn: () => void) {
         call.events.push(type)
         handlers.set(type, fn)
+        return this
+      },
+      setStyle(s: Record<string, unknown>) {
+        call.styles.push(s)
         return this
       },
     }
@@ -420,6 +434,42 @@ describe("the client script", () => {
     tapA()
     tapB()
     expect(h.byId.get("atk")?.["hidden"], "spent out, the gesture means move").toBe(false)
+  })
+
+  /**
+   * A tap on ground the selection cannot reach means "never mind".
+   *
+   * It used to flash "X does not border Y" and hold the selection, which left
+   * the only way to let go of a territory being to find another of your own to
+   * tap. On a phone, where the flash sits in the rail behind the map, that read
+   * as the board ignoring the tap entirely.
+   *
+   * Own ground is deliberately NOT included: tapping another of your
+   * territories has always meant "select that one instead", and that is more
+   * useful than dropping the selection to nothing.
+   */
+  it("drops the selection when the tap lands on ground it cannot reach", () => {
+    const h = harness(WORLD)
+    h.ran()
+    const { P, log } = h
+    const mine = (id: string): boolean => P.ownership[id] === P.factionId
+    const drawn = P.territories.filter((t) => (P.shapes[t.id] ?? []).length)
+    const from = drawn.find((t) => mine(t.id))!
+    const far = drawn.find((t) => !mine(t.id) && !from.neighbors.includes(t.id))
+    if (!far) throw new Error("no unreachable foreign territory in the deal")
+
+    const polys = log.filter((c) => c.kind === "polygon" && c.opts["fillOpacity"] === 0.85)
+    const fromPoly = polys[drawn.indexOf(from)]!
+    polys[drawn.indexOf(from)]!.fire("click")
+    const selectedStroke = fromPoly.styles[fromPoly.styles.length - 1]
+    expect(selectedStroke?.["weight"], "tapping your own territory selects it").toBe(3.5)
+
+    polys[drawn.indexOf(far)]!.fire("click")
+    const afterStroke = fromPoly.styles[fromPoly.styles.length - 1]
+    expect(
+      afterStroke?.["weight"],
+      "a tap on unreachable ground lets the selection go",
+    ).not.toBe(3.5)
   })
 
   /**
