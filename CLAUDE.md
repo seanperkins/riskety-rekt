@@ -213,6 +213,13 @@ What is left before a competitive season:
   (`ec692fd`), not combat and **not** troop movement, is the lever. Whether to
   pull it is a design call.
 
+  Partly narrowed since. `58cbfa6` stops the deal opening a season with a
+  region already held whole — it did so on 80–90% of boards, and live season-1
+  dealt +4/+2/+2 against a base of 5 — which moves the authoritative six from
+  **39.0% to 37.4%**. Real but small: a day-1 fairness fix, not a snowballing
+  fix, and the 14–16 points still sit in the contiguous deal itself. The
+  2026-08-12 run's 39.0% now describes the pre-`58cbfa6` deal.
+
 ## Docs
 
 | File | What it is |
