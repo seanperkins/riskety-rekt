@@ -900,10 +900,25 @@ function onTap(id) {
 
   if (mine(id)) {
     if (selected !== id) {
-      // An ADJACENT own territory is a reinforcement target; anywhere else of
-      // yours just moves the selection. The panel's "Select instead" is the
-      // escape hatch for when the tap meant selection after all.
-      if (selected && mine(selected) && byId[selected].neighbors.includes(id)) {
+      // An ADJACENT own territory is a reinforcement target ONCE THE SOLDIERS
+      // ARE PLACED; while any are still in hand it just moves the selection, so
+      // the next tap deploys there. Same line the arrows draw -- they appear at
+      // unspent() zero "because that is when the question changes from where do
+      // these go to where do I send them" -- and the tap has to answer the same
+      // question they do.
+      //
+      // It read as a reinforcement unconditionally until day 1 of season 1,
+      // where it was reported within the hour: nobody had ever tapped this
+      // branch with soldiers in hand, because until tonight's income was
+      // budgeted a day-1 player never had any.
+      //
+      // The panel's "Select instead" remains the escape hatch the other way.
+      if (
+        unspent() <= 0 &&
+        selected &&
+        mine(selected) &&
+        byId[selected].neighbors.includes(id)
+      ) {
         openMove(selected, id)
         return
       }

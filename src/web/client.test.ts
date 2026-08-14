@@ -169,6 +169,9 @@ function element(tag = ""): Record<string, unknown> {
     addEventListener(type: string) {
       events.push(type)
     },
+    // The attack/move panel focuses its slider as it opens, so any test that
+    // drives a tap far enough to open it reaches this.
+    focus() {},
     setAttribute() {},
     getAttribute: () => "f1",
     closest: () => null,
@@ -357,6 +360,66 @@ describe("the client script", () => {
     expect(byId.get("reserve")?.["textContent"]).toBe(P.income + " of " + P.income)
     // And the wagers stepper is live rather than disabled.
     expect(byId.get("wagers-left")?.["textContent"]).toBe(String(P.income))
+  })
+
+  /**
+   * Two adjacent own territories, and the polygon click that reaches each.
+   *
+   * Returns them in draw order so a test can tap one and then its neighbour,
+   * which is the gesture the whole reinforce-vs-deploy precedence turns on.
+   */
+  function adjacentOwnPair(h: ReturnType<typeof harness>) {
+    const { P, log } = h
+    const mine = (id: string): boolean => P.ownership[id] === P.factionId
+    const drawn = P.territories.filter((t) => (P.shapes[t.id] ?? []).length)
+    const a = drawn.find((t) => mine(t.id) && t.neighbors.some((n) => mine(n) && drawn.some((d) => d.id === n)))
+    if (!a) throw new Error("no own territory with an own neighbour in the deal")
+    const bId = a.neighbors.find((n) => mine(n) && drawn.some((d) => d.id === n))!
+    const polys = log.filter((c) => c.kind === "polygon" && c.opts["fillOpacity"] === 0.85)
+    return {
+      tapA: () => polys[drawn.indexOf(a)]!.fire("click"),
+      tapB: () => polys[drawn.findIndex((d) => d.id === bId)]!.fire("click"),
+    }
+  }
+
+  /**
+   * Reported live, the first hour the day-1 deploy path was reachable at all:
+   * "I have 3 unspent but when I click the territory next to the one I just
+   * deployed to, it brings up the movement modal instead of placing troops."
+   *
+   * onTap gave the reinforce gesture priority over selection whenever the tap
+   * landed on an adjacent own territory -- unconditionally, soldiers in hand or
+   * not. It went unnoticed because before tonight's-income budgeting a day-1
+   * player never had soldiers in hand, so "spent out" was the only state this
+   * branch was ever exercised in.
+   *
+   * The rest of the interaction already draws the line in the same place: the
+   * movement arrows appear only once `unspent()` hits zero, "because that is
+   * when the question changes from where do these go to where do I send them".
+   * The tap now answers the same question the arrows do.
+   */
+  it("with soldiers in hand, tapping an adjacent own territory selects it rather than reinforcing", () => {
+    const h = harness(WORLD)
+    h.ran()
+    expect(h.P.income, "day 1 leaves soldiers in hand").toBeGreaterThan(0)
+    const { tapA, tapB } = adjacentOwnPair(h)
+    tapA()
+    tapB()
+    expect(
+      h.byId.get("atk")?.["hidden"],
+      "the move panel must stay shut while there are soldiers to place",
+    ).not.toBe(false)
+  })
+
+  it("and once they are all placed, the same tap reinforces", () => {
+    const h = harness(WORLD)
+    const own = Object.keys(h.P.ownership).find((t) => h.P.ownership[t] === h.P.factionId)!
+    h.P.plan.deploys = [{ territory: own, count: h.P.reserve + h.P.income }]
+    h.ran()
+    const { tapA, tapB } = adjacentOwnPair(h)
+    tapA()
+    tapB()
+    expect(h.byId.get("atk")?.["hidden"], "spent out, the gesture means move").toBe(false)
   })
 
   /**
