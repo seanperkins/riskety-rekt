@@ -29,14 +29,135 @@ import { COORDS } from "./coords.js"
  * 2. **Growth**, round-robin, each faction claiming an unclaimed territory on
  *    its own frontier. Round-robin rather than one faction at a time, so nobody
  *    is boxed in by whoever went first.
+ *
+ * And a third constraint over the top of both: **nobody starts holding a whole
+ * region.** See `DEAL_ATTEMPTS`.
  */
 export function clusteredOrder(
   map: GameMap,
   factionCount: number,
   rng: Rng,
 ): TerritoryId[] {
+  let best: TerritoryId[][] | null = null
+  let bestScore = Infinity
+  for (let attempt = 0; attempt < DEAL_ATTEMPTS; attempt++) {
+    const owned = growBlocks(map, factionCount, rng)
+    const score = wholeRegionsHeld(map, owned)
+    if (score === 0) return interleave(owned, factionCount)
+    if (score < bestScore) {
+      bestScore = score
+      best = owned
+    }
+  }
+  // Every attempt handed somebody a region. Take the least-skewed of them
+  // rather than throwing: a season that refuses to start is worse than one that
+  // starts with a single bonus on the board, and season:init has already sized
+  // and selected the map by this point.
+  return interleave(best!, factionCount)
+}
+
+/**
+ * How many attempts to find a deal where nobody starts holding a whole region.
+ *
+ * Measured on the shipped deal, 80-90% of boards handed at least one faction a
+ * complete region on day 0 — usually two — worth +2.7 income against a base of
+ * `max(5, floor(t/2))`. On the live season-1 board that was +4 to one player
+ * and +2 to two others, an 80% income lead on day 1 decided entirely by the
+ * shuffle. It compounds, too: the 2026-08-12 run found the day-3 leader
+ * converts ~39% of the time.
+ *
+ * Declining the completing territory DURING growth only takes it to ~68% —
+ * a faction whose frontier is entirely inside the region it nearly owns has
+ * nowhere else to go, and the fallback hands it over anyway. So the check is
+ * made on the FINISHED deal and the whole thing is redealt when it fails, which
+ * costs nothing but rng draws and leaves contiguity, the exact counts and the
+ * seed spread untouched.
+ *
+ * Deterministic despite the loop: `rng` is a seeded stream, so attempt N always
+ * consumes the same draws and the board is still reproducible from
+ * `season:init`'s recorded seed alone.
+ *
+ * **40 because the attempts saturate, not because 40 is enough.** Only the
+ * FIRST seed is drawn from the rng — the rest are farthest-point sampling and
+ * follow from it — so there are only as many seed layouts as there are
+ * territories, and retrying re-treads them. Measured over 400 sub-maps per
+ * roster size, boards still handing somebody a region:
+ *
+ * | factions | shipped | 40 attempts | 300 attempts |
+ * |---|---|---|---|
+ * | 4  | 80.8% | 6.0%  | 3.3%  |
+ * | 6  | 89.0% | 6.0%  | 0.8%  |
+ * | 8  | 90.5% | 18.3% | 10.0% |
+ * | 12 | 84.3% | 7.2%  | 1.8%  |
+ *
+ * 7.5x the work halves the residual, so the rest is structural: some selected
+ * boards contain a region small and cornered enough that whichever faction
+ * seeds beside it swallows it. Those keep the best-scoring deal of the 40
+ * rather than refusing to deal at all.
+ */
+const DEAL_ATTEMPTS = 40
+
+/** Regions held whole by a single faction — the thing a deal is scored on. */
+function wholeRegionsHeld(map: GameMap, owned: TerritoryId[][]): number {
+  const ownerOf = new Map<TerritoryId, number>()
+  owned.forEach((block, f) => block.forEach((id) => ownerOf.set(id, f)))
+  let held = 0
+  for (const r of map.regions) {
+    const members = map.territories.filter((t) => t.region === r.id)
+    const first = ownerOf.get(members[0]!.id)
+    if (first !== undefined && members.every((t) => ownerOf.get(t.id) === first)) held++
+  }
+  return held
+}
+
+/** Interleave, so `createSeason`'s `i % factionCount` reproduces exactly this. */
+function interleave(owned: TerritoryId[][], factionCount: number): TerritoryId[] {
+  const order: TerritoryId[] = []
+  for (let j = 0; ; j++) {
+    let added = false
+    for (let f = 0; f < factionCount; f++) {
+      const t = owned[f]![j]
+      if (t === undefined) continue
+      order.push(t)
+      added = true
+    }
+    if (!added) break
+  }
+  return order
+}
+
+/** One deal: seeds by farthest-point sampling, then round-robin growth. */
+function growBlocks(map: GameMap, factionCount: number, rng: Rng): TerritoryId[][] {
   const ids = map.territories.map((t) => t.id)
   const neighbors = new Map(map.territories.map((t) => [t.id, t.neighbors]))
+  const regionOf = new Map(map.territories.map((t) => [t.id, t.region]))
+  const regionMembers = new Map<string, TerritoryId[]>()
+  for (const t of map.territories) {
+    const list = regionMembers.get(t.region)
+    if (list === undefined) regionMembers.set(t.region, [t.id])
+    else list.push(t.id)
+  }
+
+  /** Which faction holds each territory, maintained as the blocks grow. */
+  const ownerOf = new Map<TerritoryId, number>()
+
+  /**
+   * Would faction `f` taking `id` hand it a WHOLE region, and its bonus?
+   *
+   * Measured on the shipped deal, 80-90% of boards gave at least one faction a
+   * complete region on day 0 — usually two of them — worth +2.7 income against
+   * a base of max(5, ...). That is a >50% income lead before anyone has played
+   * a turn, decided entirely by the shuffle, and it compounds: the 2026-08-12
+   * run already found the day-3 leader converts ~39% of the time.
+   *
+   * Growth simply declines the territory that would close a region. It is a
+   * preference, not a guarantee — see the fallback at the call site — so the
+   * counts stay exact and the loop cannot stall.
+   */
+  const completesRegion = (f: number, id: TerritoryId): boolean => {
+    const members = regionMembers.get(regionOf.get(id)!) ?? []
+    return members.every((m) => m === id || ownerOf.get(m) === f)
+  }
 
   // Exactly what round-robin would give each faction, remainder included: with
   // 71 territories and 10 factions the first gets eight. Growing to any other
@@ -75,6 +196,7 @@ export function clusteredOrder(
 
   const owned: TerritoryId[][] = seeds.map((s) => [s])
   const claimed = new Set<TerritoryId>(seeds)
+  seeds.forEach((s, f) => ownerOf.set(s, f))
 
   let progress = true
   while (claimed.size < ids.length && progress) {
@@ -93,11 +215,18 @@ export function clusteredOrder(
       // unclaimed territory anywhere, which keeps the counts exact at the cost
       // of one detached outpost. Preferable to leaving a territory unowned,
       // which createSeason rejects outright.
-      const pool =
+      const reachable =
         frontier.length > 0
           ? frontier
           : ids.filter((id) => !claimed.has(id))
-      if (pool.length === 0) continue
+      if (reachable.length === 0) continue
+
+      // Decline the territory that would close a region, unless declining
+      // would mean taking nothing — the counts have to come out exact, and a
+      // faction boxed inside a region it nearly owns has nowhere else to go.
+      // Rare, and it leaves one bonus on the board rather than deadlocking.
+      const open = reachable.filter((id) => !completesRegion(f, id))
+      const pool = open.length > 0 ? open : reachable
 
       const pick =
         frontier.length > 0
@@ -112,6 +241,7 @@ export function clusteredOrder(
 
       owned[f]!.push(pick)
       claimed.add(pick)
+      ownerOf.set(pick, f)
       progress = true
     }
   }
@@ -127,19 +257,8 @@ export function clusteredOrder(
     }
     owned[smallest]!.push(id)
     claimed.add(id)
+    ownerOf.set(id, smallest)
   }
 
-  // Interleave, so `createSeason`'s `i % factionCount` reproduces exactly this.
-  const order: TerritoryId[] = []
-  for (let j = 0; ; j++) {
-    let added = false
-    for (let f = 0; f < factionCount; f++) {
-      const t = owned[f]![j]
-      if (t === undefined) continue
-      order.push(t)
-      added = true
-    }
-    if (!added) break
-  }
-  return order
+  return owned
 }

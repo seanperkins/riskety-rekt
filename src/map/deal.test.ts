@@ -95,6 +95,47 @@ describe("clusteredOrder", () => {
     expect(deals.size).toBeGreaterThan(1)
   })
 
+  /** Regions held whole by one faction, the way regionBonusesFor counts them. */
+  function wholeRegions(map: GameMap, owner: Map<TerritoryId, number>): string[] {
+    return map.regions
+      .filter((r) => {
+        const members = map.territories.filter((t) => t.region === r.id)
+        const first = owner.get(members[0]!.id)
+        return first !== undefined && members.every((t) => owner.get(t.id) === first)
+      })
+      .map((r) => r.id)
+  }
+
+  /**
+   * Nobody opens a season already collecting a region bonus.
+   *
+   * The shipped deal handed one out on 80-90% of boards, usually to two
+   * factions at once. On the live season-1 board that was guinea_coast (+4) to
+   * one player and horn and iberia (+2) to two others -- against a base income
+   * of 5 for all seven, an 80% lead on day 1 that nobody played for.
+   *
+   * A sampled bound rather than a per-seed assertion, because the residual is
+   * structural: some selected boards contain a region small and cornered enough
+   * that whichever faction seeds beside it swallows it, and no number of
+   * redeals finds a way out. The bound is what stops a regression from quietly
+   * restoring the old 80-90%.
+   */
+  it("almost never opens a season with a region already held whole", () => {
+    let dealt = 0
+    let withRegion = 0
+    for (const factions of [4, 6, 8, 10]) {
+      for (let seed = 1; seed <= 25; seed++) {
+        const map = selectSubMap(WORLD, factions, makeRng(seed))
+        const owner = ownershipOf(clusteredOrder(map, factions, makeRng(seed)), factions)
+        dealt++
+        if (wholeRegions(map, owner).length > 0) withRegion++
+      }
+    }
+    // Measured at ~9% over 400 sub-maps per roster size; 25% is the regression
+    // bound, far below the 80-90% the unconstrained deal produced.
+    expect(withRegion / dealt).toBeLessThan(0.25)
+  })
+
   it("leaves nobody with an empty holding", () => {
     for (const factions of [4, 10, 15]) {
       const map = selectSubMap(WORLD, factions, makeRng(8))
