@@ -912,12 +912,61 @@ function onTap(id) {
   openAttack(selected, id)
 }
 
-// ---- attack arrows ----------------------------------------------------------
+// ---- movement arrows --------------------------------------------------------
 // Shown once the reserve is spent, because that is when the question changes
 // from "where do these go" to "where do I send them". Each arrow points at a
-// neighbour you could attack; tapping one is the same as tapping the territory.
+// neighbour you could send soldiers to; tapping one is the same as tapping the
+// territory beneath it.
+//
+// Colour is the INTENT, not the actor: red into someone else's ground, green
+// into your own. Both still mean "tonight, if your orders happen" -- the same
+// voice the gold planned garrison count speaks in -- but the two gestures cost
+// different things, and a player reads the difference faster than a label.
+//
+// They are drawn as arcs rather than straight runs so that several arrows off
+// one origin fan apart instead of stacking, and each carries a dark casing with
+// a drop shadow, which is what lifts it clear of the territory underneath.
+// Both are hotter than any territory fill, and that is the point rather than a
+// taste. Faction colours are golden-angle hues at 46% saturation, so one seat
+// each season IS crimson and another IS green -- and an arrow leaves from your
+// own ground, which is the seat whose colour it is most likely to sit on. A
+// deeper red (#e2564c) vanished into the crimson seat's territories and a
+// leafier green (#3fb87a) vanished into the green seat's, both confirmed in a
+// browser. A reinforcement arrow is the sharper case: it runs between two of
+// YOUR territories, so it spends its whole length on the one colour it is most
+// likely to disappear into.
+const ARROW_ATTACK = "#ff6a3d"
+const ARROW_MOVE = "#35f0a0"
+
 const arrowLines = []
 const arrowMarks = []
+
+// A quadratic Bezier from 'a' toward 'b', sampled in lat/lon and truncated at
+// 'end' so the head stops short of the garrison count it points at. The control
+// point is the midpoint pushed perpendicular to the run, always to the same
+// side, so the fan is consistent rather than arbitrary. Pure arithmetic on
+// degrees: no projection, so the curve is fixed once and never re-sampled.
+const ARC_BOW = 0.18
+const ARC_STEPS = 16
+
+function arcPoints(a, b, end) {
+  const dLat = b.lat - a.lat
+  const dLon = b.lon - a.lon
+  const c = {
+    lat: (a.lat + b.lat) / 2 + dLon * ARC_BOW,
+    lon: (a.lon + b.lon) / 2 - dLat * ARC_BOW,
+  }
+  const out = []
+  for (let i = 0; i <= ARC_STEPS; i++) {
+    const s = (i / ARC_STEPS) * end
+    const u = 1 - s
+    out.push([
+      u * u * a.lat + 2 * u * s * c.lat + s * s * b.lat,
+      u * u * a.lon + 2 * u * s * c.lon + s * s * b.lon,
+    ])
+  }
+  return out
+}
 
 function clearArrows() {
   for (const l of arrowLines) map.removeLayer(l)
@@ -928,33 +977,53 @@ function clearArrows() {
 
 function drawArrows() {
   clearArrows()
-  if (P.locked || !selected || unspent() > 0) return
+  // Only ever out of your OWN ground. An eliminated player selects anyone's
+  // territory to shield it and has a reserve of zero, which cleared the spend
+  // gate and drew a fan of routes off a stranger's border.
+  if (P.locked || !selected || !mine(selected) || unspent() > 0) return
   const from = (P.labels || {})[selected] || P.centres[selected]
   if (!from) return
 
   for (const n of byId[selected].neighbors) {
-    if (mine(n)) continue
     const to = (P.labels || {})[n] || P.centres[n]
     if (!to) continue
+    const color = mine(n) ? ARROW_MOVE : ARROW_ATTACK
     // Stop short of the target so the head sits in open ground rather than on
     // top of the garrison count it is pointing at.
-    const t = 0.72
-    const tip = { lat: from.lat + (to.lat - from.lat) * t, lon: from.lon + (to.lon - from.lon) * t }
-    const line = L.polyline([[from.lat, from.lon], [tip.lat, tip.lon]], {
-      pane: "highlight", color: "#ffd479", weight: 2.5, opacity: 0.95,
+    const pts = arcPoints(from, to, 0.72)
+    const tip = pts[pts.length - 1]
+
+    // Casing first: it is wider, carries the shadow, and being underneath makes
+    // it the fatter tap target for the same gesture.
+    const cast = L.polyline(pts, {
+      pane: "highlight", className: "arrow-cast",
+      color: "#0b1a24", weight: 6, opacity: 0.55,
+    }).addTo(map)
+    cast.on("click", () => onTap(n))
+    arrowLines.push(cast)
+
+    const line = L.polyline(pts, {
+      pane: "highlight", color: color, weight: 2.5, opacity: 0.95,
     }).addTo(map)
     line.on("click", () => onTap(n))
     arrowLines.push(line)
 
-    const a = map.latLngToLayerPoint([from.lat, from.lon])
-    const b = map.latLngToLayerPoint([to.lat, to.lon])
+    // The head takes the bearing of the curve's LAST segment, not of the whole
+    // run: on an arc those differ, and the straight bearing points the head off
+    // the line it is meant to cap. Layer points rather than degrees, because
+    // the projection is what decides which way the tip actually leans.
+    const prev = pts[pts.length - 2] || [from.lat, from.lon]
+    const a = map.latLngToLayerPoint(prev)
+    const b = map.latLngToLayerPoint(tip)
     const deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI
-    const mark = L.marker([tip.lat, tip.lon], {
+    const mark = L.marker(tip, {
       pane: "highlight",
       keyboard: false,
       icon: L.divIcon({
         className: "arrow",
-        html: '<span class="arrow-head" style="transform:rotate(' + deg.toFixed(1) + 'deg)"></span>',
+        html:
+          '<span class="arrow-head" style="border-left-color:' + color +
+          ';transform:rotate(' + deg.toFixed(1) + 'deg)"></span>',
         iconSize: null,
         iconAnchor: null,
       }),

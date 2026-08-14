@@ -347,18 +347,26 @@ ul.wagers .wager .hint { display: block; margin-top: 2px; }
    marked hidden. Any rule that sets display on a class must restate this. */
 .chip[hidden] { display: none; }
 
-/* Attack arrows. The head is a CSS triangle rotated to the bearing, so it needs
-   no asset and scales with the text size rather than the map. */
+/* Movement arrows. The head is a CSS triangle rotated to the bearing, so it
+   needs no asset and scales with the text size rather than the map. Its colour
+   is set inline from the client, which is where the two hexes live -- red into
+   someone else's ground, green into your own -- so the meaning is declared once
+   rather than restated here and left to drift. */
 .arrow { pointer-events: auto; cursor: pointer; }
 .arrow-head {
   display: block;
   width: 0; height: 0;
   margin: -5px 0 0 -5px;
-  border-left: 9px solid #ffd479;
+  border-left: 9px solid currentColor;
   border-top: 5px solid transparent;
   border-bottom: 5px solid transparent;
-  filter: drop-shadow(0 0 1px rgba(6, 14, 20, 0.9));
+  filter: drop-shadow(0 1px 2px rgba(6, 14, 20, 0.75));
 }
+
+/* The dark casing under each arc, offset downward. This is the whole of what
+   makes an arrow read as ABOVE the board rather than painted onto it -- the
+   coloured line on top stays crisp because the shadow is not on it. */
+.arrow-cast { filter: drop-shadow(0 2px 2px rgba(6, 14, 20, 0.55)); }
 
 /* The attack panel. At the FOOT of the map, not over its middle: the decision
    is made against the board, so the board stays visible while it is open. */
@@ -507,8 +515,10 @@ ul.wagers .wager .hint { display: block; margin-top: 2px; }
 .gcount.own { color: #fff; -webkit-text-stroke: 3px rgba(0, 0, 0, 0.9); font-size: 13px; }
 
 /* A number the viewer's own plan has changed. Gold, the same voice as the
-   attack arrows and the capture notch: everything gold on this map is
-   "tonight, if your orders happen", never settled fact. */
+   capture notch: gold on this map is "tonight, if your orders happen", never
+   settled fact. The movement arrows speak it too, but in red and green, because
+   they carry a second thing to say -- whose ground the soldiers are walking
+   onto -- and gold cannot say it. */
 .gcount.planned { color: #ffd479; }
 
 .rbadge {

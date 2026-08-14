@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest"
 import { CLIENT } from "./client.js"
 import { projectionFor } from "./projection-data.js"
 import { ENGINE_VERSION, RISK_MAP, createSeason } from "../engine/index.js"
-import type { Faction } from "../engine/index.js"
+import { WORLD } from "../map/world.js"
+import type { Faction, GameMap } from "../engine/index.js"
 
 /**
  * The client is a STRING, so nothing else in this suite ever runs it.
@@ -25,12 +26,19 @@ const factions: Faction[] = ["f1", "f2", "f3"].map((id) => ({
   color: "#123456",
 }))
 
-function projection(): unknown {
+/**
+ * `RISK_MAP` by default, because that is what most of this file has always run
+ * against. It is NOT what a player sees: `COORDS` and `SHAPES` are built from
+ * `WORLD`, so on the classic board most territories project without a centre or
+ * a coastline. Anything that asserts about drawn geometry has to pass `WORLD`,
+ * or it measures the fixture's gaps rather than the client.
+ */
+function projection(map: GameMap = RISK_MAP): unknown {
   const state = createSeason(
     "s1",
     factions,
-    RISK_MAP.territories.map((t) => t.id),
-    RISK_MAP,
+    map.territories.map((t) => t.id),
+    map,
   )
   expect(state.engineVersion).toBe(ENGINE_VERSION)
   return projectionFor({
@@ -46,9 +54,43 @@ function projection(): unknown {
   })
 }
 
+/**
+ * One layer the client asked Leaflet for: what kind, the options it was built
+ * with, and the handlers bound to it. Recorded because the arrows are the one
+ * thing on this map whose MEANING is carried by the options -- the colour says
+ * whose ground the soldiers walk onto -- and a stub that swallows them can only
+ * report that drawing survived, never that it drew the right thing.
+ */
+type LayerCall = {
+  kind: string
+  latlngs: unknown
+  opts: Record<string, unknown>
+  events: string[]
+  fire(type: string): void
+}
+
 /** The smallest Leaflet that lets the client run to completion. */
-function fakeLeaflet(): Record<string, unknown> {
-  const layer = (): Record<string, unknown> => ({
+function fakeLeaflet(log: LayerCall[] = []): Record<string, unknown> {
+  const layer = (kind: string) => (latlngs: unknown, opts: Record<string, unknown> = {}) => {
+    const handlers = new Map<string, () => void>()
+    const call: LayerCall = {
+      kind,
+      latlngs,
+      opts: opts ?? {},
+      events: [],
+      fire: (type) => handlers.get(type)?.(),
+    }
+    log.push(call)
+    return {
+      ...baseLayer(),
+      on(type: string, fn: () => void) {
+        call.events.push(type)
+        handlers.set(type, fn)
+        return this
+      },
+    }
+  }
+  const baseLayer = (): Record<string, unknown> => ({
     addTo() {
       return this
     },
@@ -96,11 +138,15 @@ function fakeLeaflet(): Record<string, unknown> {
         return this
       },
       getZoom: () => 4,
-      latLngToLayerPoint: () => ({ x: 0, y: 0 }),
+      // A crude equirectangular stand-in rather than a constant point. The
+      // arrowheads take their bearing through this call, and a projection that
+      // maps every coordinate to the origin makes every bearing zero -- which
+      // is indistinguishable from a head that never got one.
+      latLngToLayerPoint: (ll: [number, number]) => ({ x: ll[1] * 8, y: -ll[0] * 8 }),
     }),
-    polygon: layer,
-    polyline: layer,
-    marker: layer,
+    polygon: layer("polygon"),
+    polyline: layer("polyline"),
+    marker: layer("marker"),
     divIcon: (o: unknown) => o,
     canvas: (o: unknown) => o,
     featureGroup: () => ({ getBounds: () => ({ pad: () => ({}) }) }),
@@ -133,6 +179,109 @@ function element(tag = ""): Record<string, unknown> {
   return el
 }
 
+/** Everything a run of the client exposes for assertion. */
+type Harness = {
+  mapEl: Record<string, unknown>
+  factionRow: Record<string, unknown>
+  byId: Map<string, Record<string, unknown>>
+  docEvents: string[]
+  winEvents: string[]
+  P: Projection
+  log: LayerCall[]
+  ran: () => void
+}
+
+/** The projection fields these tests reach into. */
+type Projection = {
+  factionId: string
+  ownership: Record<string, string>
+  reserve: number
+  territories: { id: string; neighbors: string[] }[]
+  shapes: Record<string, unknown[] | undefined>
+  labels: Record<string, { lat: number; lon: number } | undefined>
+  centres: Record<string, { lat: number; lon: number } | undefined>
+}
+
+function harness(map: GameMap = RISK_MAP): Harness {
+  const mapEl = element("map")
+  const factionRow = element("row")
+  const docEvents: string[] = []
+  // Stable per id, so the wiring on a specific control can be asserted.
+  const byId = new Map<string, Record<string, unknown>>([["map", mapEl]])
+  const doc = {
+    getElementById: (id: string) => {
+      if (!byId.has(id)) byId.set(id, element(id))
+      return byId.get(id)!
+    },
+    querySelector: () => element(),
+    querySelectorAll: (sel: string) => (sel.includes("data-faction") ? [factionRow] : [element()]),
+    createElement: () => element(),
+    body: element(),
+    __events: docEvents,
+    addEventListener(type: string) {
+      docEvents.push(type)
+    },
+  }
+  const winEvents: string[] = []
+  const P = projection(map) as Projection
+  const win: Record<string, unknown> = {
+    __RR__: P,
+    location: { search: "" },
+    // The wagers sheet syncs to the URL hash: opening it sets #wager, and a
+    // same-document navigation to that hash fires only this event, never a
+    // reload. Recorded so the wiring is asserted rather than merely survived.
+    __events: winEvents,
+    addEventListener(type: string) {
+      winEvents.push(type)
+    },
+    history: { replaceState() {} },
+    URLSearchParams: URLSearchParams,
+    prompt: () => null,
+    setInterval: () => 0,
+    setTimeout: () => 0,
+    requestAnimationFrame: () => 0,
+    fetch: () => ({ then: () => ({ then: () => ({ catch: () => {} }) }) }),
+    document: doc,
+  }
+  // Injected as parameters rather than set on a global: the client reaches
+  // for several of these bare (`location.search`), so they have to be in
+  // scope, not merely on `window`.
+  const names = [
+    "window",
+    "document",
+    "L",
+    "location",
+    "URLSearchParams",
+    "setInterval",
+    "setTimeout",
+    "requestAnimationFrame",
+    "fetch",
+  ]
+  const log: LayerCall[] = []
+  const values = [
+    win,
+    doc,
+    fakeLeaflet(log),
+    { search: "" },
+    URLSearchParams,
+    () => 0,
+    () => 0,
+    () => 0,
+    win["fetch"],
+  ]
+  const run = new Function(...names, CLIENT)
+  return {
+    mapEl,
+    factionRow,
+    byId,
+    docEvents,
+    winEvents,
+    P,
+    log,
+    ran: () => run(...values),
+  }
+}
+
 describe("the client script", () => {
   it("parses", () => {
     // A stray backtick in a comment silently ends the template literal.
@@ -140,72 +289,8 @@ describe("the client script", () => {
   })
 
   it("runs to completion against a real projection", () => {
-    const mapEl = element("map")
-    const factionRow = element("row")
-    const docEvents: string[] = []
-    // Stable per id, so the wiring on a specific control can be asserted.
-    const byId = new Map<string, Record<string, unknown>>([["map", mapEl]])
-    const doc = {
-      getElementById: (id: string) => {
-        if (!byId.has(id)) byId.set(id, element(id))
-        return byId.get(id)!
-      },
-      querySelector: () => element(),
-      querySelectorAll: (sel: string) => (sel.includes("data-faction") ? [factionRow] : [element()]),
-      createElement: () => element(),
-      body: element(),
-      __events: docEvents,
-      addEventListener(type: string) {
-        docEvents.push(type)
-      },
-    }
-    const winEvents: string[] = []
-    const win: Record<string, unknown> = {
-      __RR__: projection(),
-      location: { search: "" },
-      // The wagers sheet syncs to the URL hash: opening it sets #wager, and a
-      // same-document navigation to that hash fires only this event, never a
-      // reload. Recorded so the wiring is asserted rather than merely survived.
-      __events: winEvents,
-      addEventListener(type: string) {
-        winEvents.push(type)
-      },
-      history: { replaceState() {} },
-      URLSearchParams: URLSearchParams,
-      prompt: () => null,
-      setInterval: () => 0,
-      setTimeout: () => 0,
-      requestAnimationFrame: () => 0,
-      fetch: () => ({ then: () => ({ then: () => ({ catch: () => {} }) }) }),
-      document: doc,
-    }
-    // Injected as parameters rather than set on a global: the client reaches
-    // for several of these bare (`location.search`), so they have to be in
-    // scope, not merely on `window`.
-    const names = [
-      "window",
-      "document",
-      "L",
-      "location",
-      "URLSearchParams",
-      "setInterval",
-      "setTimeout",
-      "requestAnimationFrame",
-      "fetch",
-    ]
-    const values = [
-      win,
-      doc,
-      fakeLeaflet(),
-      { search: "" },
-      URLSearchParams,
-      () => 0,
-      () => 0,
-      () => 0,
-      win["fetch"],
-    ]
-    const run = new Function(...names, CLIENT)
-    expect(() => run(...values)).not.toThrow()
+    const { mapEl, factionRow, byId, docEvents, winEvents, ran } = harness()
+    expect(ran).not.toThrow()
 
     // Survival is not enough. Rewriting a neighbouring block once deleted the
     // hover delegation, the player-row wiring and click-to-zoom outright --
@@ -246,5 +331,115 @@ describe("the client script", () => {
       (byId.get("atk-slider")?.["__events"] ?? []) as string[],
       "the slider updates its readout",
     ).toContain("input")
+  })
+
+  /**
+   * The movement arrows, driven far enough to see what they drew.
+   *
+   * A fresh season leaves every reserve at zero, so the spend gate is already
+   * clear and selecting one of your own territories draws the fan immediately.
+   * These cannot check what an arrow LOOKS like -- only a screenshot does that
+   * -- but they can check the two things a person would notice were wrong: that
+   * the colour still says whose ground the soldiers walk onto, and that the
+   * lines are arcs whose heads follow the curve rather than the chord.
+   */
+  describe("movement arrows", () => {
+    // The client's own two, and the only place their meaning is written down.
+    const ATTACK = "#ff6a3d"
+    const MOVE = "#35f0a0"
+
+    /** Bearing in degrees through the same projection the stub hands the client. */
+    const bearing = (a: number[], b: number[]): number =>
+      (Math.atan2(-(b[0]! - a[0]!) * 8, (b[1]! - a[1]!) * 8) * 180) / Math.PI
+
+    /** Select an own territory bordering both a neighbour's ground and its own. */
+    function selectFrontier(): { P: Projection; log: LayerCall[]; from: string } {
+      const h = harness(WORLD)
+      h.ran()
+      const { P, log } = h
+      const mine = (id: string): boolean => P.ownership[id] === P.factionId
+      // An arrow needs somewhere to point: the client skips a neighbour with no
+      // label and no centre, so the test has to skip it too or it counts arrows
+      // the client was right not to draw.
+      const aimed = (id: string): boolean => Boolean(P.labels[id] ?? P.centres[id])
+      const drawn = P.territories.filter((t) => (P.shapes[t.id] ?? []).length)
+      const frontier = drawn.find(
+        (t) =>
+          mine(t.id) &&
+          aimed(t.id) &&
+          t.neighbors.some((n) => mine(n) && aimed(n)) &&
+          t.neighbors.some((n) => !mine(n) && aimed(n)),
+      )
+      if (!frontier) throw new Error("no frontier territory in the deal to select")
+
+      // Territory polygons are the only ones built with this fill, which is what
+      // keeps this from counting the backdrop and the hover outline as board.
+      const polys = log.filter((c) => c.kind === "polygon" && c.opts["fillOpacity"] === 0.85)
+      expect(polys, "one polygon per drawn territory, in order").toHaveLength(drawn.length)
+      const poly = polys[drawn.indexOf(frontier)]!
+      log.length = 0
+      poly.fire("click")
+      return { P, log, from: frontier.id }
+    }
+
+    it("colours the fan by whose ground it leads onto", () => {
+      const { P, log, from } = selectFrontier()
+      const mine = (id: string): boolean => P.ownership[id] === P.factionId
+      const lines = log.filter((c) => c.kind === "polyline" && c.opts["className"] !== "arrow-cast")
+      const colors = lines.map((c) => c.opts["color"])
+
+      expect(colors, "an attack arrow reads red").toContain(ATTACK)
+      expect(colors, "a reinforcement arrow reads green").toContain(MOVE)
+      expect(new Set(colors), "and nothing else").toEqual(new Set([ATTACK, MOVE]))
+      // One arrow per neighbour that has ground to draw on, both kinds counted:
+      // the green ones went missing entirely before this, and a fan that simply
+      // skipped them looked like a correct fan.
+      const reachable = P.territories
+        .find((t) => t.id === from)!
+        .neighbors.filter((n) => P.labels[n] ?? P.centres[n])
+      expect(lines).toHaveLength(reachable.length)
+      expect(colors.filter((c) => c === MOVE)).toHaveLength(
+        reachable.filter((n) => mine(n)).length,
+      )
+    })
+
+    it("gives every arrow a casing beneath it, and a tap on both", () => {
+      const { log } = selectFrontier()
+      const casings = log.filter((c) => c.opts["className"] === "arrow-cast")
+      const lines = log.filter((c) => c.kind === "polyline" && c.opts["className"] !== "arrow-cast")
+
+      expect(casings).toHaveLength(lines.length)
+      // The casing is wider and underneath: that is what carries the shadow, and
+      // it is the fatter tap target for the same gesture.
+      for (const c of casings) expect(c.opts["weight"] as number).toBeGreaterThan(2.5)
+      for (const c of [...casings, ...lines]) expect(c.events).toContain("click")
+    })
+
+    it("draws arcs, and points each head down the curve rather than the chord", () => {
+      const { log } = selectFrontier()
+      const lines = log.filter((c) => c.kind === "polyline" && c.opts["className"] !== "arrow-cast")
+      const heads = log.filter(
+        (c) => c.kind === "marker" && (c.opts["icon"] as { className?: string })?.className === "arrow",
+      )
+      expect(heads).toHaveLength(lines.length)
+
+      let curved = 0
+      for (const [i, line] of lines.entries()) {
+        const pts = line.latlngs as number[][]
+        expect(pts.length, "an arc is sampled, not a two-point run").toBeGreaterThan(2)
+
+        const html = (heads[i]!.opts["icon"] as { html: string }).html
+        expect(html, "the head is tinted to match its line").toContain(line.opts["color"] as string)
+        const deg = Number(/rotate\((-?[\d.]+)deg\)/.exec(html)![1])
+
+        const tail = bearing(pts[pts.length - 2]!, pts[pts.length - 1]!)
+        expect(deg, "the head takes the LAST segment's bearing").toBeCloseTo(tail, 1)
+        // On a straight run the first and last segments share a bearing, so a
+        // difference is the curve itself -- and it is exactly the difference
+        // that made the old straight-line bearing point the head off its line.
+        if (Math.abs(tail - bearing(pts[0]!, pts[1]!)) > 5) curved++
+      }
+      expect(curved, "the lines actually bow").toBe(lines.length)
+    })
   })
 })
