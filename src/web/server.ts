@@ -294,7 +294,7 @@ export function createWebServer(deps: WebDeps): Server {
       // 303 rather than 200, so refreshing the landing page does not re-submit
       // a token that has already been consumed.
       res.writeHead(303, {
-        location: "/",
+        location: "/game",
         "set-cookie": serializeSessionCookie(sessionToken, seasonEnd),
       })
       res.end()
@@ -309,12 +309,27 @@ export function createWebServer(deps: WebDeps): Server {
     })
 
     if (path === "/") {
+      // The landing page, for EVERYBODY — signed in or not. It was the
+      // signed-out branch of this route and nothing else, which meant the one
+      // page explaining what the game is became unreachable the moment you
+      // logged in: exactly the person most likely to want a refresher a week
+      // into a season could no longer reach it. The board moved to `/game` so
+      // this could stay a permanent explainer.
+      //
+      // It still reads no store. `signedIn` is the boolean the session check
+      // above already produced, and it only swaps the call to action — a player
+      // does not need telling how to run `/login`.
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+      res.end(req.method === "HEAD" ? undefined : renderLanding(faction !== undefined))
+      return
+    }
+
+    if (path === "/game") {
       if (faction === undefined) {
-        // The landing page. It reads no store and holds no session, so it is
-        // safe without one — see `src/web/landing.ts` for what changed and why
-        // it no longer withholds the rules from a stranger.
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-        res.end(req.method === "HEAD" ? undefined : renderLanding())
+        // Not a 404: a stale bookmark or a link shared into the channel should
+        // land somewhere that explains how to get in, and that is `/`.
+        res.writeHead(303, { location: "/" })
+        res.end()
         return
       }
       const html = boardPage(deps, faction, now)

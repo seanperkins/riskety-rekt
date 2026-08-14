@@ -316,7 +316,7 @@ function markSeen() {
 }
 
 // from=replay so the board does not bounce back here if the write above failed.
-function leave() { markSeen(); location.href = "/?from=replay" }
+function leave() { markSeen(); location.href = "/game?from=replay" }
 
 $("btn-play").addEventListener("click", () => (playing ? pause() : play()))
 $("btn-step").addEventListener("click", () => { pause(); stepTo(Math.min(beats.length - 1, i + 1)) })

@@ -30,10 +30,12 @@ afterAll(async () => {
 async function request(
   path: string,
   method = "GET",
+  cookie?: string,
 ): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }> {
   const { request: httpRequest } = await import("node:http")
+  const headers = cookie === undefined ? {} : { cookie }
   return new Promise((resolve, reject) => {
-    const req = httpRequest(`${base}${path}`, { method }, (res) => {
+    const req = httpRequest(`${base}${path}`, { method, headers }, (res) => {
       let body = ""
       res.on("data", (c) => (body += c))
       res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }))
@@ -249,6 +251,80 @@ describe("login", () => {
     }
   })
 
+  /**
+   * A live session cookie, for the routes that branch on one.
+   *
+   * Goes through the real `/login/:token` exchange rather than forging a row:
+   * the cookie's value is a token the server hashed on the way in, and a test
+   * that manufactured one would stop covering that.
+   */
+  const signIn = async (slackUserId: string, factionId: string): Promise<string> => {
+    const raw = newToken()
+    store.mintLoginToken({
+      slackUserId,
+      factionId,
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + 600_000),
+    })
+    const res = await request(`/login/${raw}`)
+    return String(res.headers["set-cookie"]).split(";")[0]!
+  }
+
+  /**
+   * The landing page is a REFRESHER, not just a sales pitch for strangers.
+   *
+   * It used to be the signed-out branch of `/` and nothing else, so the moment
+   * a player logged in, the one page explaining what the game is became
+   * unreachable to them — exactly the person most likely to want it a week in.
+   * The board now lives at `/game` and `/` is the explainer for everybody.
+   */
+  it("still serves the landing page at / to a signed-in player", async () => {
+    const cookie = await signIn("U-refresher", "f1")
+    const res = await request("/", "GET", cookie)
+    expect(res.status).toBe(200)
+    expect(res.body).toMatch(/world conquest/i)
+    expect(res.body).toMatch(/nobody moves first/i)
+    // Still no board data on it, session or not.
+    expect(res.body).not.toContain("__RR__")
+  })
+
+  it("points a signed-in visitor at their board, and a stranger at /login", async () => {
+    const cookie = await signIn("U-cta", "f1")
+    const signedIn = await request("/", "GET", cookie)
+    expect(signedIn.body).toContain('href="/game"')
+
+    const stranger = await request("/")
+    expect(stranger.body).not.toContain('href="/game"')
+    expect(stranger.body).toContain("/login")
+  })
+
+  it("serves the board at /game", async () => {
+    const { RISK_MAP, createSeason } = await import("../engine/index.js")
+    const dealt = createSeason(
+      "s1",
+      [
+        { id: "f1", playerName: "Ada", color: "#e6194b" },
+        { id: "f2", playerName: "Bo", color: "#3cb44b" },
+      ],
+      RISK_MAP.territories.map((t) => t.id),
+    )
+    store.saveState({ ...dealt, day: 1 }, "test")
+
+    const cookie = await signIn("U-game", "f1")
+    const res = await request("/game", "GET", cookie)
+    expect(res.status).toBe(200)
+    // The projection is the board's own payload; the landing page has none.
+    expect(res.body).toContain("__RR__")
+  })
+
+  it("sends a signed-out visitor from /game to the landing page", async () => {
+    // Not a 404 and not the board: someone following a stale bookmark or a
+    // shared link should land somewhere that explains how to get in.
+    const res = await request("/game")
+    expect(res.status).toBe(303)
+    expect(res.headers["location"]).toBe("/")
+  })
+
   it("does not set a cookie when the token is refused", async () => {
     expect((await request("/login/nope")).headers["set-cookie"]).toBeUndefined()
   })
@@ -263,7 +339,9 @@ describe("login", () => {
     })
     const res = await request(`/login/${raw}`)
     expect(res.status).toBe(303)
-    expect(res.headers["location"]).toBe("/")
+    // To the board, not to the explainer -- someone who just ran /login wants
+    // to play, and `/` is now the landing page for signed-in players too.
+    expect(res.headers["location"]).toBe("/game")
     const cookie = String(res.headers["set-cookie"])
     expect(cookie).toContain("rr_session=")
     expect(cookie).toContain("HttpOnly")

@@ -203,7 +203,7 @@ export function renderRules(): string {
 
   <p class="note">If the game does something you did not expect, it is probably on this
     page — and if it is not, it is a bug worth reporting.</p>
-  <a class="back" href="/">← Back to the board</a>
+  <a class="back" href="/game">← Back to the board</a>
 </div>`,
   )
 }

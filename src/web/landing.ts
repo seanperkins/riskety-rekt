@@ -449,7 +449,21 @@ function offeredRules(): { name: string; description: string }[] {
   return picked.slice(0, 3).map((r) => ({ name: r.name, description: r.description }))
 }
 
-export function renderLanding(): string {
+/**
+ * @param signedIn Whether the viewer holds a session — the ONLY thing it
+ * changes is the call to action, and it is a boolean the caller already had.
+ *
+ * This page is a refresher as much as a pitch. It used to be the signed-out
+ * branch of `/` and nothing else, so a player lost access to the one page
+ * explaining the game the moment they logged in. It now serves everybody, and
+ * a player gets a way back to `/game` instead of instructions for joining they
+ * have already followed.
+ *
+ * Deliberately still takes no store and reads no season. `server.test.ts` pins
+ * the signed-out page as IDENTICAL to `renderLanding()`, which is what keeps a
+ * future edit from quietly sourcing anything from a live game.
+ */
+export function renderLanding(signedIn = false): string {
   const state = demoSeason()
   const me = state.factions[0]!.id
   const pins = pinsFor(state, me)
@@ -458,6 +472,8 @@ export function renderLanding(): string {
   return page(
     "Riskety Rekt",
     `<div class="land">
+
+  ${signedIn ? `<p class="land-back"><a href="/game">← Back to your board</a></p>` : ""}
 
   <header class="land-hero">
     <h1 class="land-title">Riskety&nbsp;Rekt</h1>
@@ -617,7 +633,12 @@ export function renderLanding(): string {
     <p>Don't like the name Slack gave you? <code>/name Something Else</code>, or change
       it straight from the board. That one has no deadline.</p>
     <p class="land-out"><a href="/rules">Every rule, and why it is that rule</a> ·
-      <a href="/map">The whole world map</a></p>
+      <a href="/map">The whole world map</a>${
+        // Repeated at the foot as well as the head: this is a long page, and a
+        // player who read to the bottom for a refresher should not have to
+        // scroll back up to get on with their night.
+        signedIn ? ` · <a href="/game">Back to your board</a>` : ""
+      }</p>
   </section>
 
 </div>`,

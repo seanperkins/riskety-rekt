@@ -114,6 +114,9 @@ describe("renderRules", () => {
   })
 
   it("links back to the board", () => {
-    expect(html).toContain('href="/"')
+    // `/game`, not `/` — the board moved so that `/` could stay the explainer
+    // for signed-in players too. A back link to `/` would land somebody on the
+    // landing page they had just navigated away from.
+    expect(html).toContain('href="/game"')
   })
 })

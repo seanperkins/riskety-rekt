@@ -138,7 +138,7 @@ describe("a rename reaching the pages", () => {
     store.saveState({ ...dealt, day: 1 }, "test")
     await post("/api/name", { name: "Renamed Today" })
 
-    const board = await post("/", undefined, "GET")
+    const board = await post("/game", undefined, "GET")
     expect(board.body).toContain("Renamed Today")
     expect(board.body).not.toContain("Frozen At The Deal")
     // And the state itself is untouched.
