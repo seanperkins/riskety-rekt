@@ -3,6 +3,7 @@ import { ENGINE_VERSION } from "../engine/index.js"
 import { DEFAULT_MODULES, marketIdsOf } from "../engine/modules/index.js"
 import type { DailyContext, GameState, MarketId, Settlement } from "../engine/index.js"
 import { currentDay, tickInstant } from "../season.js"
+import { etDateAdd, etInstant } from "../time.js"
 import { dailyApprovals } from "../slack/approvals.js"
 import { dailyRuleSelection } from "../slack/rule-vote.js"
 import { UsageError } from "./flags.js"
@@ -165,15 +166,23 @@ export function runRerun(deps: RerunDeps): RerunOutcome {
  * pluggable-mechanics change, each from an authoritative, deterministic
  * source — anything else missing still refuses loudly downstream:
  *
- * - tickInstant: the calendar computation the original tick performed. The
- *   season row's startDate is immutable (insertSeason is insert-only), so
- *   this reproduces the historical instant exactly.
+ * - tickInstant: the LEGACY 21:00 computation, never the live tickInstant().
+ *   A row missing this field predates the midnight boundary by definition —
+ *   every context written since the pluggable-mechanics change carries it —
+ *   so 21:00 is unconditionally correct for it. Calling tickInstant() here
+ *   would replay a historical day at midnight when the original tick used
+ *   21:00, and rerun saves the synthesized context back, freezing the wrong
+ *   instant permanently. Exactly the hazard the modules literal below exists
+ *   for. The season row's startDate is immutable (insertSeason is
+ *   insert-only), so this reproduces the historical instant exactly.
  * - modules: the LITERAL all-three. NEVER the season row — this spec makes
  *   the row mutable, and rerun saves the synthesized context back via
  *   saveTickContext, so a season-row read would launder a mid-season module
  *   change into a permanently frozen pre-change record.
  * - rules: [] — no rules existed before this change.
  */
+const LEGACY_TICK_HOUR = 21
+
 function backfillContext(
   frozen: DailyContext,
   season: { startDate: string; lengthDays: number; seasonId: string },
@@ -182,7 +191,9 @@ function backfillContext(
   if (frozen.tickInstant !== undefined && frozen.modules !== undefined) return frozen
   return {
     ...frozen,
-    tickInstant: frozen.tickInstant ?? tickInstant(season, day).toISOString(),
+    tickInstant:
+      frozen.tickInstant ??
+      etInstant(etDateAdd(season.startDate, day), LEGACY_TICK_HOUR).toISOString(),
     modules: frozen.modules ?? ["markets", "irl", "veto"],
     rules: frozen.rules ?? [],
   }

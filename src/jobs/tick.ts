@@ -85,40 +85,58 @@ export function runTick(deps: TickDeps): TickOutcome {
 
   const calendarDay = currentDay(season, now)
 
-  // Row 1, and it MUST precede the after-season skip. A plainer
-  // `latestSavedDay + 1 < calendarDay` placed after it swallows the most
-  // expensive failure of the season: a missed day-14 tick noticed on day 15 has
-  // calendarDay > lengthDays, so after-season fires first and the run exits 0
-  // having done nothing. The winner is then read off the day-13 state, and
-  // day-13 wagers never settle -- settleAll refunds only at a tick 15 that never
-  // runs, so those stakes are confiscated and the tiebreak moves.
+  // The tick fires AT the boundary that ends a day, so the day it resolves is
+  // the one that just closed -- never the calendar day it wakes up in. At
+  // 00:05 on `startDate + N + 1`, currentDay is already N+1 and the day owed a
+  // resolution is N.
   //
-  // The bound is min(calendarDay - 1, lengthDays) for the same reason: plain
-  // calendarDay would keep refusing forever once the season ended.
-  const owed = Math.min(calendarDay - 1, season.lengthDays)
+  // This is inherent to the deadline and the rollover being one instant, not a
+  // quirk of choosing midnight: at ANY aligned hour the job wakes up in the day
+  // after the one it must resolve. Every guard below is therefore written
+  // against `day`, and reading `calendarDay` in any of them is a bug.
+  const day = calendarDay - 1
+
+  // Row 1, and it MUST precede the after-season skip. A plainer
+  // `latestSavedDay + 1 < day` placed after it swallows the most expensive
+  // failure of the season: a missed day-14 tick noticed on day 15 has
+  // day > lengthDays, so after-season fires first and the run exits 0 having
+  // done nothing. The winner is then read off the day-13 state, and day-13
+  // wagers never settle -- settleAll refunds only at a tick 15 that never runs,
+  // so those stakes are confiscated and the tiebreak moves.
+  //
+  // The bound is min(day - 1, lengthDays) for the same reason: plain `day`
+  // would keep refusing forever once the season ended.
+  const owed = Math.min(day - 1, season.lengthDays)
   if (latestSavedDay < owed) {
     return { status: "refused", reason: "missing-days", from: latestSavedDay + 1, to: owed }
   }
 
-  if (calendarDay < 1) return { status: "skipped", day: calendarDay, reason: "before-season" }
-  if (calendarDay > season.lengthDays) {
-    return { status: "skipped", day: calendarDay, reason: "after-season" }
+  // day 0 is the deal and never ticks, so the first real resolution is day 1 --
+  // at the midnight that ends it, when calendarDay has become 2.
+  if (day < 1) return { status: "skipped", day, reason: "before-season" }
+  // `day`, NOT calendarDay. The final tick resolves day `lengthDays` at a
+  // moment when calendarDay is already lengthDays + 1, so a calendarDay test
+  // here skips the last night of the season -- silently, and only on the one
+  // day of the season when it matters.
+  if (day > season.lengthDays) {
+    return { status: "skipped", day, reason: "after-season" }
   }
   // The sequential double-fire: fire, complete, fire again. A state-derived
   // guard is idempotent per GAME day, not per calendar day, so it would compute
   // N+1, find no state there, and resolve it as plain Risk with zero orders.
-  if (latestSavedDay + 1 > calendarDay) {
-    return { status: "skipped", day: calendarDay, reason: "already-run" }
+  if (latestSavedDay + 1 > day) {
+    return { status: "skipped", day, reason: "already-run" }
   }
 
-  // Separate from the day-clock table and easy to miss: without it a manual
-  // `npm run tick` at 14:00 resolves the day while its markets are still open
-  // and its approvals are still arriving.
-  if (now.getTime() < tickInstant(season, calendarDay).getTime()) {
-    return { status: "skipped", day: calendarDay, reason: "before-cutoff" }
+  // Now unreachable, and kept anyway. `tickInstant(calendarDay - 1)` is
+  // midnight at the START of calendarDay, so it is always already past -- the
+  // derivation above enforces structurally what this used to enforce by clock
+  // (a manual 14:00 run must not resolve a day whose markets are still open).
+  // Every guard in this table has a season-breaking bug behind it; this is not
+  // the one to delete because it currently looks redundant.
+  if (now.getTime() < tickInstant(season, day).getTime()) {
+    return { status: "skipped", day, reason: "before-cutoff" }
   }
-
-  const day = calendarDay
   const outcome = store.transaction((): TickOutcome => {
     // Belt-and-braces against sub-second skew between two processes reading the
     // same clock. The concurrent double-fire is closed by BEGIN IMMEDIATE: the

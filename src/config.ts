@@ -83,7 +83,7 @@ export const WINDOW_CLOSE_HOUR = 21
  *
  * Kalshi runs ladders of 15-minute crypto markets — "BTC price up in next 15
  * mins?" — and they are a bad fit for this game whatever their volume. The
- * slate is published at 08:00 and the tick is at 21:00, so a market that opens
+ * slate is published at 08:00 and the tick is at midnight, so a market that opens
  * and closes inside that gap is one a player could not have reasoned about when
  * they read the slate: by the time they look, it has already happened.
  *

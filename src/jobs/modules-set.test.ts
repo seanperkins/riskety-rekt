@@ -48,7 +48,7 @@ describe("runModulesSet — the operator's mid-season change", () => {
     expect(out).toEqual({ status: "applied", modules: ["irl"] })
     expect(store.season("s1")?.modules).toEqual(["irl"])
     // The change is visible in the next tick's frozen context.
-    const tick = runTick({ store, seasonId: "s1", now: at(1, 21, 30) })
+    const tick = runTick({ store, seasonId: "s1", now: at(2, 0, 5) })
     expect(tick.status).toBe("resolved")
     expect(store.loadTickContext("s1", 1)?.context.modules).toEqual(["irl"])
     store.close()
@@ -106,12 +106,12 @@ describe("runModulesSet — the operator's mid-season change", () => {
   it("disable-then-re-enable resurrects nothing: the slot drops at the next tick", () => {
     const store = seeded()
     runModulesSet({ store, seasonId: "s1", modules: [] })
-    const t1 = runTick({ store, seasonId: "s1", now: at(1, 21, 30) })
+    const t1 = runTick({ store, seasonId: "s1", now: at(2, 0, 5) })
     expect(t1.status).toBe("resolved")
     expect(store.loadState("s1", 1)?.moduleState).toEqual({})
 
     runModulesSet({ store, seasonId: "s1", modules: ["markets", "irl", "veto"] })
-    const t2 = runTick({ store, seasonId: "s1", now: at(2, 21, 30) })
+    const t2 = runTick({ store, seasonId: "s1", now: at(3, 0, 5) })
     expect(t2.status).toBe("resolved")
     // The markets module starts FRESH: an empty book, no resurrected escrow.
     expect(store.loadState("s1", 2)?.moduleState).toEqual({ markets: { pending: [] } })

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 import { ENGINE_VERSION, RISK_MAP, createSeason } from "../engine/index.js"
 import type { Faction, GameState, Market } from "../engine/index.js"
 import { openStore } from "../store/sqlite.js"
+import { tickInstant } from "../season.js"
 import { runRerun } from "./rerun.js"
 import { runTick } from "./tick.js"
 
@@ -54,7 +55,7 @@ function ticked(through: number) {
       reactedAt: `${1_780_000_200 + day}.0001`,
     })
     store.saveWager("s1", day, "f1", { marketId: `KX-${day}`, side: "yes", stake: 2 }, at(day, 9))
-    const out = runTick({ store, seasonId: "s1", now: at(day, 21, 30) })
+    const out = runTick({ store, seasonId: "s1", now: at(day + 1, 0, 5) })
     if (out.status !== "resolved") throw new Error(`seed tick ${day}: ${out.status}`)
   }
   return { store, seasonId: "s1" as const }
@@ -132,7 +133,7 @@ describe("runRerun", () => {
     store.close()
   })
 
-  it("refuses a day whose 21:00 has not passed", () => {
+  it("refuses a day whose midnight has not passed", () => {
     const d = ticked(3)
     expect(runRerun({ ...d, day: 4, now: at(4, 10), confirm: true })).toMatchObject({
       status: "refused",
@@ -239,7 +240,7 @@ describe("runRerun — pre-change frozen contexts (the backfill)", () => {
     store.transaction(() => store.saveState(dealt(), ENGINE_VERSION))
     for (let day = 1; day <= 2; day++) {
       store.publishSlate("s1", day, [market(`KX-${day}`, day)], at(day, 8))
-      const out = runTick({ store, seasonId: "s1", now: at(day, 21, 30) })
+      const out = runTick({ store, seasonId: "s1", now: at(day + 1, 0, 5) })
       if (out.status !== "resolved") throw new Error(`seed tick ${day}: ${out.status}`)
     }
     store.close()
@@ -270,8 +271,14 @@ describe("runRerun — pre-change frozen contexts (the backfill)", () => {
       const frozen = store.loadTickContext("s1", day)!
       expect(frozen.context.modules).toEqual(["markets", "irl", "veto"])
       expect(frozen.context.rules).toEqual([])
-      // The calendar computation the original tick performed: 21:00 ET.
+      // The calendar computation the ORIGINAL tick performed: 21:00 ET. A row
+      // missing tickInstant predates the midnight boundary by definition, so
+      // backfill pins the legacy hour and must never call the live
+      // tickInstant() — which would replay this day at midnight and then
+      // launder that instant into frozen history via saveTickContext. Same
+      // hazard as the modules literal above.
       expect(frozen.context.tickInstant).toBe(at(day, 21).toISOString())
+      expect(frozen.context.tickInstant).not.toBe(tickInstant(SEASON, day).toISOString())
     }
     store.close()
     rmSync(dir, { recursive: true, force: true })
@@ -306,7 +313,7 @@ describe("runRerun — frozen rule selection", () => {
       ordinal: 1,
       reactedAt: `${at(3, 12).getTime() / 1000}.000100`,
     })
-    const live = runTick({ store: d.store, seasonId: "s1", now: at(3, 21, 30) })
+    const live = runTick({ store: d.store, seasonId: "s1", now: at(4, 0, 5) })
     if (live.status !== "resolved") throw new Error(`tick: ${live.status}`)
     expect(d.store.loadTickContext("s1", 3)!.context.rules).toEqual(["boom"])
     const liveState = d.store.loadState("s1", 3)!

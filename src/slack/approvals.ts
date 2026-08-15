@@ -1,7 +1,7 @@
 import type { ApprovedAction, FactionId } from "../engine/index.js"
 import type { ApprovalStore, SlateStore } from "../store/types.js"
-import { etDateAdd, etInstant } from "../time.js"
-import { TICK_HOUR } from "./config.js"
+import { tickInstant } from "../season.js"
+import { etDateAdd } from "../time.js"
 
 export interface DailyIrl {
   approvals: ApprovedAction[]
@@ -29,8 +29,16 @@ export function dailyApprovals(
   if (season === undefined) throw new Error(`dailyApprovals: unknown season ${seasonId}`)
 
   const date = etDateAdd(season.startDate, day)
-  const cutoff = etInstant(date, TICK_HOUR).toISOString()
+  // The tick's own boundary, not a second derivation of it. Before 2026-08-15
+  // this recomputed 21:00 from TICK_HOUR, which put the cutoff three hours
+  // inside the ET date `postsOn` selects -- so every workout posted between
+  // 21:00 and midnight was collected here and then silently discarded, and
+  // could not count for the next day either because its date belonged to this
+  // one. Now the two describe the same window and nothing is dropped.
+  const cutoff = tickInstant(season, day).toISOString()
 
+  // A no-op for posts now that the cutoff ends the very date being selected.
+  // Kept as an invariant guard: postedAt is a third-party Slack timestamp.
   const posts = store.postsOn(date).filter((p) => p.postedAt <= cutoff)
 
   const approvals: ApprovedAction[] = []

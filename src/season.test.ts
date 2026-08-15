@@ -33,18 +33,29 @@ describe("currentDay", () => {
 })
 
 describe("tickInstant", () => {
-  it("is 21:00 ET on that season day", () => {
-    // Day 3 of a Sep 1 season is Sep 4; 21:00 EDT is 01:00Z on Sep 5.
-    expect(tickInstant(SEASON, 3).toISOString()).toBe("2026-09-05T01:00:00.000Z")
+  it("is midnight ET ENDING that season day, not starting it", () => {
+    // Day 3 of a Sep 1 season is Sep 4, so its boundary is midnight on Sep 5 —
+    // 04:00Z at EDT. The off-by-one that breaks everything is reading this as
+    // midnight STARTING day 3, which would put the deadline before the day.
+    expect(tickInstant(SEASON, 3).toISOString()).toBe("2026-09-05T04:00:00.000Z")
+  })
+
+  it("is the instant currentDay rolls to the next day", () => {
+    // The whole point of the change: the deadline and the rollover are one
+    // instant. A millisecond before, it is still day 3; at it, day 4.
+    const boundary = tickInstant(SEASON, 3)
+    expect(currentDay(SEASON, new Date(boundary.getTime() - 1))).toBe(3)
+    expect(currentDay(SEASON, boundary)).toBe(4)
   })
 
   it("tracks the DST offset rather than a fixed one", () => {
-    // DST ends Nov 1 in 2026. Day 60 is Oct 31 (EDT, -04:00) and day 61 is
-    // Nov 1 (EST, -05:00), so 21:00 wall-clock lands an hour apart in UTC.
-    // Adding hours to a start instant instead would drift the deadline.
+    // DST ends Nov 1 in 2026. Day 59 ends at midnight opening Oct 31 (EDT,
+    // -04:00) and day 60 ends at midnight opening Nov 1 — still EDT, since the
+    // transition is at 02:00. Day 61 ends at midnight opening Nov 2, by which
+    // time EST (-05:00) applies. Adding hours to a start instant would drift.
     const winter: SeasonRow = { ...SEASON, lengthDays: 90 }
-    expect(tickInstant(winter, 60).toISOString()).toBe("2026-11-01T01:00:00.000Z")
-    expect(tickInstant(winter, 61).toISOString()).toBe("2026-11-02T02:00:00.000Z")
+    expect(tickInstant(winter, 60).toISOString()).toBe("2026-11-01T04:00:00.000Z")
+    expect(tickInstant(winter, 61).toISOString()).toBe("2026-11-02T05:00:00.000Z")
   })
 })
 

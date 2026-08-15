@@ -480,7 +480,7 @@ export function renderLanding(signedIn = false): string {
     <p class="land-hook">A game of world conquest that takes ninety seconds a day,
       runs for ${SEASON_LENGTH} nights in your Slack, and pays you in soldiers for
       doing push-ups.</p>
-    <p class="land-hook-2">Everybody moves at 21:00. Nobody moves first.</p>
+    <p class="land-hook-2">Everybody moves at midnight. Nobody moves first.</p>
   </header>
 
   <figure class="shot">
@@ -503,7 +503,7 @@ export function renderLanding(signedIn = false): string {
     <ol class="beats">
       <li><b>All day</b><span>Tap your territories, plan deploys, moves and attacks.
         Change your mind as often as you like. Nothing you save has happened yet.</span></li>
-      <li><b>21:00 Eastern</b><span>Everything locks and everyone's orders resolve at the
+      <li><b>Midnight Eastern</b><span>Everything locks and everyone's orders resolve at the
         same instant. There is no turn order, no first-mover advantage, and no
         reward for submitting late.</span></li>
       <li><b>Overnight</b><span>The bot posts what happened. You open the board next
@@ -589,7 +589,7 @@ export function renderLanding(signedIn = false): string {
         ${slackCard({
           who: "Riskety Rekt",
           initial: "R",
-          body: `<p class="sk-b"><b>Tonight's rule — vote by 21:00</b></p>
+          body: `<p class="sk-b"><b>Tonight&rsquo;s rule — vote by midnight</b></p>
             <p class="sk-b">${offeredRules()
               .map(
                 (r, i) =>

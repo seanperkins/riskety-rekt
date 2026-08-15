@@ -49,7 +49,7 @@ export function renderRuleOffer(
     elements: [
       plain(
         "React with the number to vote. Your latest reaction counts; remove it to un-vote. " +
-          "Tally at 9pm ET — the winner applies to tonight's tick.",
+          "Tally at midnight ET — the winner applies to tonight's tick.",
       ),
     ],
   })

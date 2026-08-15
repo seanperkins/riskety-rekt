@@ -15,7 +15,6 @@ import {
   VOLUME_FLOOR,
   WINDOW_CLOSE_HOUR,
 } from "./config.js"
-import { TICK_HOUR } from "./slack/config.js"
 import { PALETTE } from "./jobs/season-init.js"
 
 describe("config", () => {
@@ -69,13 +68,17 @@ describe("config", () => {
     expect(VOLUME_FLOOR).toBeGreaterThan(0)
   })
 
-  it("pins the slate close window to the tick hour", () => {
-    // Two constants in two modules, and their equality is load-bearing for
-    // claim seniority: the publisher rejects markets closing at or after
-    // WINDOW_CLOSE_HOUR, which is what guarantees every wager claim's
-    // lockedAt is strictly earlier than a deploy's tickInstant. Raising
-    // WINDOW_CLOSE_HOUR past TICK_HOUR would silently reopen the
-    // deploy-inflation exploit for late-closing markets.
-    expect(WINDOW_CLOSE_HOUR).toBe(TICK_HOUR)
+  it("keeps the slate close window strictly inside the season day", () => {
+    // Load-bearing for claim seniority: the publisher rejects markets closing
+    // at or after WINDOW_CLOSE_HOUR, which is what guarantees every wager
+    // claim's lockedAt is strictly earlier than a deploy's tickInstant.
+    //
+    // This was `toBe(TICK_HOUR)` while the tick ran at 21:00. The boundary is
+    // now the midnight ENDING the day -- hour 24 of it -- so equality is the
+    // wrong shape and only the inequality was ever the point. Raising this to
+    // 24 would let a market close exactly at the boundary and silently reopen
+    // the deploy-inflation exploit for late-closing markets.
+    expect(WINDOW_CLOSE_HOUR).toBeGreaterThan(0)
+    expect(WINDOW_CLOSE_HOUR).toBeLessThan(24)
   })
 })

@@ -32,8 +32,11 @@ export const NUMERAL_EMOJI: Readonly<Record<string, number>> = {
   nine: 9,
 }
 
-/** The order lock and approval cutoff, in America/New_York. */
-export const TICK_HOUR = 21
+// TICK_HOUR = 21 lived here until 2026-08-15. The order lock and approval
+// cutoff are now the midnight ENDING a season day, which is a day offset
+// rather than an hour-of-day -- see `tickInstant` in src/season.ts, the single
+// derivation both now use. A `TICK_HOUR = 0` left here would read as midnight
+// STARTING the day, which is the off-by-one that breaks the clock.
 
 /**
  * Slack rejects a message with more than 50 blocks. The recap truncates rather

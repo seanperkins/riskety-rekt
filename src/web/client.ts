@@ -1466,9 +1466,9 @@ P.loadedAt = Date.now()
 setInterval(() => { $("countdown").textContent = countdown() }, 30000)
 
 // ---- reload once the night lands -------------------------------------------
-// A board left open through 21:00 shows yesterday's map until someone thinks to
+// A board left open through midnight shows yesterday's map until someone thinks to
 // refresh, and the countdown hitting zero is NOT the signal to reload: the tick
-// fires at 21:00:30 and the transaction takes a moment, so a reload on the
+// fires at 00:05 and the transaction takes a moment, so a reload on the
 // countdown races it and lands on the same stale board -- then never tries
 // again. So poll for the day actually RESOLVING, which is a fact, not a
 // prediction.
