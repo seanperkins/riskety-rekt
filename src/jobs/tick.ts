@@ -47,7 +47,7 @@ export interface TickDeps {
 }
 
 /**
- * The 21:00 tick.
+ * The midnight tick, run at 00:05.
  *
  * Claim, resolve and save are ONE transaction. That is not an optimization —
  * splitting them creates an ambiguity nothing can resolve: after a freeze,
@@ -59,7 +59,7 @@ export interface TickDeps {
  *
  * The network is never touched. Every input is a local table, written hours
  * earlier by the slate job, the settlement poller and the Slack webhook, so a
- * Kalshi or Slack outage at 20:59 cannot stall the season. `postRecap` is the
+ * Kalshi or Slack outage at 23:59 cannot stall the season. `postRecap` is the
  * only outbound call and it happens after the commit, outside this function.
  */
 export function runTick(deps: TickDeps): TickOutcome {
@@ -165,7 +165,7 @@ export function runTick(deps: TickDeps): TickOutcome {
     // The tally runs inside this transaction: it counts a reaction row only
     // if it is present when the transaction reads AND reacted_at <= the tick
     // instant — the explicit cutoff predicate, so a delayed tick cannot count
-    // a post-21:00 vote. The winner freezes into ctx.rules, the durable
+    // a post-midnight vote. The winner freezes into ctx.rules, the durable
     // record of what won.
     const instant = tickInstant(season, day).toISOString()
     const context: DailyContext = {

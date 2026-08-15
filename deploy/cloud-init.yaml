@@ -33,7 +33,7 @@ users:
 
 write_files:
   # 1 GB of RAM with two long-running Node services and four timers that each
-  # spawn another. Swap is what keeps a 21:00 tick from being the process the
+  # spawn another. Swap is what keeps the midnight tick from being the process the
   # OOM killer picks -- the one moment in the day where a kill costs a season.
   - path: /etc/sysctl.d/60-riskety-swap.conf
     content: |

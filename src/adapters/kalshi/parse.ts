@@ -149,7 +149,10 @@ export function toCandidate(
   }
 
   const closeMs = Date.parse(m.close_time)
-  // Strictly inside: a market closing at exactly the 21:00 order lock is excluded.
+  // Strictly inside: a market closing at exactly WINDOW_CLOSE_HOUR is excluded.
+  // That hour is the SLATE WINDOW, not the order lock -- the lock moved to
+  // midnight on 2026-08-15 and this deliberately did not follow it, which is
+  // what keeps every wager claim senior to a deploy locked at the boundary.
   if (closeMs <= window.opensAfter.getTime() || closeMs >= window.closesBefore.getTime()) {
     return { ok: false, reason: "close-window" }
   }

@@ -137,10 +137,19 @@ The `:30` is the older reason. The settlement poller runs at `*:00/30`, and the
 offset keeps the tick clear of its firing instant -- the poller's writes are
 transactional, so this is the second layer rather than the only one.
 
-**Deploy order is directional.** New code with a stale 21:00 timer is a harmless
-no-op: it computes yesterday, sees `already-run`, skips, and the day resolves at
-the next 00:05. The 00:05 timer with OLD code stalls the season -- it computes
-today, hits `before-cutoff`, skips, and there is no 21:00 run left to catch it.
+**Deploy order is directional**, and both halves of a partial deploy hurt.
+
+The 00:05 timer with OLD code **stalls the season**: it computes today, hits
+`before-cutoff`, skips, and there is no 21:00 run left to catch it.
+
+New code with a stale 21:00 timer does not stall, but it is not harmless
+either. Only the first night is a no-op (it computes yesterday, sees
+`already-run`, skips). From the second night on, each 21:00 firing legally
+resolves the day that ended at midnight — **21 hours late** — so the season runs
+permanently a day behind, posting every recap 21 hours after its own deadline
+while every guard stays silent. It self-heals as soon as the timer lands and no
+day is lost or resolved twice, but nothing in the logs says anything is wrong,
+so it is on you to notice the recap arriving at the wrong time of day.
 
 The tick's claim, resolve and save are one transaction. A crash therefore leaves
 nothing behind and the next run starts clean; a concurrent second run blocks,

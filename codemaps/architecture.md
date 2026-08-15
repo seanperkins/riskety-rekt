@@ -64,7 +64,7 @@ all day  Slack events ──► handlers ──► posts / reactions / slack_eve
 ```
 
 **The tick never touches the network.** Both external systems are cached to
-SQLite hours earlier; a Kalshi or Slack outage at 20:59 cannot stall the season.
+SQLite hours earlier; a Kalshi or Slack outage at 23:59 cannot stall the season.
 The recap runs after the state save, so a Slack failure cannot double-run a tick.
 
 **Every component derives the day from the calendar** via `currentDay` in

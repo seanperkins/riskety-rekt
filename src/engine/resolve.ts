@@ -37,7 +37,7 @@ import type {
  * from post-deploy garrisons, so a deploy dropped after validation would
  * leave an attack legal for troops that never arrived — soldiers from
  * nothing. Seniority itself is the deploy-inflation fix: the commitment that
- * became irrevocable first is senior, so a 20:59 deploy can no longer evict
+ * became irrevocable first is senior, so a late deploy can no longer evict
  * a wager locked at its market's close hours earlier.
  *
  * Pure: no I/O, no clock, no randomness. Time enters as ctx.tickInstant.

@@ -417,7 +417,7 @@ try {
 } catch (err) {
   // Exit 1 so systemd's Restart=on-failure can retry. The publish job in
   // particular is worth retrying: an early failure still leaves hours before
-  // the 21:00 lock.
+  // the midnight lock.
   const operatorError = err instanceof UsageError || err instanceof ParseError
   console.error(operatorError ? (err as Error).message : err instanceof Error ? err.stack : String(err))
   // 2 for an operator mistake, 1 for a system failure worth a systemd retry.

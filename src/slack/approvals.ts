@@ -17,7 +17,7 @@ export interface DailyIrl {
  * adversarial".
  *
  * Both are filtered by Slack timestamps, never by database write time. A
- * reaction at 20:59:59 delivered at 21:00:01 must still count, or an eliminated
+ * reaction at 23:59:59 delivered at 00:00:01 must still count, or an eliminated
  * player's veto silently evaporates.
  */
 export function dailyApprovals(

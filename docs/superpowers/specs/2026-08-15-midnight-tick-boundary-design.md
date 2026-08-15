@@ -19,10 +19,15 @@ between them are dead in a way nothing documents and nobody designed:
 - No order or wager can be written at all. `orderGate` refuses day N as
   `past-deadline`, and day N+1 is unreachable because `savePlan` and
   `saveWagerRequest` both pin the target to `currentDay`, which is still N.
-- The board sits in the only state that violates `projectionFor`'s own
-  documented invariant. Every other hour of the season has
-  `day === state.day + 1`; here `latestSavedDay` has become N while
-  `currentDay` still returns N.
+- The board sits in a state nothing else in the season produces: `latestSavedDay`
+  has become N while `currentDay` still returns N, so `day === state.day` where
+  every ordinary hour has `day === state.day + 1`.
+
+  (An earlier draft called that relationship an "invariant" of `projectionFor`
+  and said this window was the only thing violating it. That was overstated —
+  `server.ts:100-104` documents the opposite outright, because a missed tick
+  leaves a gap too and the board is built to render it. The window is a real
+  anomaly; it was never the only one.)
 - **An IRL workout posted in that window counts for nothing, ever.**
   `postsOn(date)` collects the whole ET date, then `dailyApprovals` discards
   everything after 21:00. Those posts are accepted by Slack, stored, and
@@ -281,3 +286,52 @@ Announce the 27-hour day in the channel.
 - **Codemaps were updated surgically rather than regenerated.** The stale facts
   were confined to what this change touched; a full regeneration would have
   churned unrelated content.
+
+## What the review panel corrected
+
+A nine-reviewer panel ran against this branch after implementation. The clock
+arithmetic survived unchanged — three reviewers independently re-derived the
+guard table across both season lengths, both 2026 DST transitions and the
+crossover, and found no error. What it found was elsewhere, and all of it is now
+fixed:
+
+- **`recap --force` crashed on every already-resolved day.** Engine 1.0.0 wrote
+  `wagerSettle` without `faction`/`marketId`, and that command renders the
+  PERSISTED log. Declaring the new fields required was a type-level lie about
+  every pre-1.1.0 row in the live database, which is why typecheck and 1,018
+  green tests saw nothing. The fields are now optional and the recap falls back
+  to the legacy line. **This is the general hazard of a mid-season engine
+  change: the data already on disk is written by the old engine, and only the
+  paths that re-render it will tell you.**
+- **The nightly backup did not move with the tick.** `bootstrap.sh` still fired
+  at 21:30 "half an hour after the tick" — 2.5 hours *before* the new boundary,
+  snapshotting exactly the unresolved mid-night state its own comment says it
+  avoids. Anything whose comment names the tick hour has to be swept, not just
+  the tick's own unit.
+- **`--assemble-missing` could defeat the delivery grace** by committing a day
+  at 00:01, after which the real tick skips it. Now gated on a six-minute
+  window, and only for assembled days.
+- **The "Last night" link 404'd permanently.** It targeted `p.day` — the day
+  being ordered for, which by definition has not resolved. Alignment turned a
+  bug that used to hide in the 21:00–midnight window into an all-day one.
+- **The deploy-order note in the timer was wrong** in the direction that
+  matters: code-without-timer is not a self-healing no-op, it runs the season 21
+  hours behind indefinitely and silently.
+- **The doc sweep in `cda6b28` was not complete** — a broken README sentence it
+  introduced, test counts updated in one file of three, and ~17 in-source
+  comments still naming 21:00, including `tick.ts`'s own docstring and two
+  stale *numbers* (13h→16h to the lock; the price poller no longer straddles
+  the tick).
+
+Rejected from the same panel, recorded so they are not re-litigated:
+
+- **Injecting `day` into `runTick` instead of deriving `calendarDay - 1`.** The
+  manual-14:00-run capability this was meant to restore is one the design
+  deliberately refuses (`tick.test.ts` pins it), and sourcing the day from the
+  scheduler makes the scheduler the clock — the shear CLAUDE.md exists to
+  prevent.
+- **Deleting the `marketTitles` layer** as unmotivated machinery. The spec
+  requires capping question length at a render sink, and the question text is
+  the payload the defanging exists for.
+- **Deleting the unreachable `before-cutoff` guard.** Retained deliberately;
+  see above.

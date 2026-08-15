@@ -19,10 +19,19 @@ Description=Riskety Rekt — midnight tick
 # second layer, not the only one.
 #
 # DEPLOY ORDER: this file must not land before the code that moves the
-# boundary. New code with a stale 21:00 timer is a harmless no-op — it computes
-# yesterday, sees already-run, skips, and the day resolves at the next 00:05.
-# This timer with OLD code stalls the season: the 00:05 run computes today,
-# hits before-cutoff, skips, and there is no 21:00 run left to catch it.
+# boundary. Both halves of a partial deploy are bad, in different ways.
+#
+# This timer with OLD code STALLS the season outright: the 00:05 run computes
+# today, hits before-cutoff, skips, and there is no 21:00 run left to catch it.
+#
+# New code with a stale 21:00 timer does not stall, but it is NOT the harmless
+# no-op an earlier version of this comment claimed. Only the first night is a
+# no-op (it computes yesterday and sees already-run). From the second night on,
+# each 21:00 firing legally resolves the day that ended at midnight — 21 hours
+# late — so the season runs permanently a day behind, posting every recap 21
+# hours after its own deadline, with every guard silent and nothing in the logs
+# to say so. It self-heals the moment this file lands, and no day is lost or
+# double-resolved, but an operator reading "harmless" would not go looking.
 #
 # The zone comes from the system TZ, like every other unit here. An inline
 # OnCalendar zone would be a second place for the season's clock to live, and

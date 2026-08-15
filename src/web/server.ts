@@ -529,7 +529,7 @@ function saveName(
  * Place or change one wager.
  *
  * A separate endpoint from /api/plan, because a wager is not part of the plan:
- * deploys and attacks stay editable until 21:00, while a wager locks at its own
+ * deploys and attacks stay editable until midnight, while a wager locks at its own
  * market's close time -- often hours earlier. Folding them together would give
  * one save button two different deadlines.
  *

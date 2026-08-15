@@ -22,7 +22,7 @@ export interface PricePollDeps {
  *
  * The published slate is frozen at 08:00 — `publishSlate` refuses a second
  * write precisely so a rerun cannot re-snapshot the day. That freeze is also
- * what created the stale-price exploit: a wager placed at 20:59 on a market
+ * what created the stale-price exploit: a wager placed late on a market
  * whose outcome was nearly public still paid at the morning's odds, worth
  * roughly +94% EV.
  *
