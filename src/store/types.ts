@@ -65,6 +65,16 @@ export interface SlateStore {
   publishSlate(seasonId: string, day: number, slate: Market[], publishedAt: Date): boolean
   slatePublished(seasonId: string, day: number): boolean
   loadSlate(seasonId: string, day: number): Market[]
+  /**
+   * Every market question published this season, by id — for the recap's
+   * Markets section.
+   *
+   * Season-wide rather than per-day on purpose: a wager settles a tick after
+   * it was placed, and a matured refund two ticks after, so a day-scoped read
+   * would have to reconstruct that window and would still miss anything the
+   * refund path surfaces late. One DISTINCT read cannot.
+   */
+  marketQuestions(seasonId: string): Record<string, string>
 
   /**
    * Refresh live prices. Latest observation wins, unlike settlements where the

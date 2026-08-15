@@ -94,13 +94,93 @@ describe("renderRecap", () => {
     expect(texts(blocks).join("\n")).toContain("Brazil")
   })
 
-  it("reports wager settlements", () => {
+  const settle = (over: Partial<Extract<TickEvent, { t: "wagerSettle" }>> = {}) =>
+    ({
+      t: "wagerSettle" as const,
+      wagerId: "w1",
+      faction: "f1",
+      marketId: "KX-1",
+      outcome: "yes" as const,
+      payout: 22,
+      stake: 10,
+      ...over,
+    }) satisfies Extract<TickEvent, { t: "wagerSettle" }>
+
+  it("names the player, the stake and the market on a win", () => {
     const { blocks } = renderRecap({
-      state: stateWith([{ t: "wagerSettle", wagerId: "w1", outcome: "yes", payout: 22, stake: 10 }]),
+      state: stateWith([settle()]),
       previous,
       lengthDays: 21,
+      names: { f1: "Sean" },
+      marketTitles: { "KX-1": "Will BTC close above $100k?" },
     })
-    expect(texts(blocks).join("\n")).toContain("22")
+    const out = texts(blocks).join("\n")
+    expect(out).toContain("Sean, you wagered 10 on “Will BTC close above $100k?”")
+    expect(out).toContain("you won. 22 soldiers report for duty.")
+    // The bare wagerId was the whole line before this change and means nothing
+    // to a player.
+    expect(out).not.toContain("w1")
+  })
+
+  it("sends a lost wager to the mines", () => {
+    const { blocks } = renderRecap({
+      state: stateWith([settle({ payout: 0 })]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Ricky" },
+      marketTitles: { "KX-1": "Will it rain in Seattle?" },
+    })
+    const out = texts(blocks).join("\n")
+    expect(out).toContain("Ricky, you wagered 10 on “Will it rain in Seattle?” — you lost.")
+    expect(out).toContain("working it off in the mines")
+  })
+
+  it("does NOT report a matured refund as a win", () => {
+    // The regression this section was rewritten for. A market that never
+    // settles refunds the stake after REFUND_AFTER_TICKS, and the old
+    // `payout > 0` test rendered that as "resolved unsettled — paid 10",
+    // which reads exactly like a winning wager that moved the reserve.
+    const { blocks } = renderRecap({
+      state: stateWith([settle({ outcome: "unsettled", payout: 10 })]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Dana" },
+      marketTitles: { "KX-1": "Will it snow in Miami?" },
+    })
+    const out = texts(blocks).join("\n")
+    expect(out).toContain("Dana, nobody ever called “Will it snow in Miami?”")
+    expect(out).toContain("your 10 came home, no worse off.")
+    expect(out).not.toContain("you won")
+  })
+
+  it("uses the roster name over the one frozen into the state at the deal", () => {
+    // RecapInput.names existed and documented exactly this for several
+    // releases while no caller passed it, so every recap showed the day-0
+    // name. Every Markets line carries a name, which is what made it visible.
+    const { blocks } = renderRecap({
+      state: stateWith([settle()]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Renamed" },
+      marketTitles: { "KX-1": "q" },
+    })
+    expect(texts(blocks).join("\n")).toContain("Renamed,")
+  })
+
+  it("falls back to the market id when no title is supplied", () => {
+    // The simulator and the fixtures have no store to read questions from.
+    const { blocks } = renderRecap({ state: stateWith([settle()]), previous, lengthDays: 21 })
+    expect(texts(blocks).join("\n")).toContain("KX-1")
+  })
+
+  it("caps a long market question", () => {
+    const { blocks } = renderRecap({
+      state: stateWith([settle()]),
+      previous,
+      lengthDays: 21,
+      marketTitles: { "KX-1": "q".repeat(400) },
+    })
+    expect(texts(blocks).join("\n")).not.toContain("q".repeat(200))
   })
 
   it("caps and defangs a player name", () => {

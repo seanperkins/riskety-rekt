@@ -131,6 +131,11 @@ async function postRecapFor(
     correction,
     force,
     ...(ruleIds.length === 0 ? {} : { ruleIds }),
+    // Roster names, not the copies createSeason froze at the deal. Every
+    // Markets line names a player, so a renamed player would otherwise be
+    // addressed by a name they no longer use.
+    names: Object.fromEntries(s.roster().map((m) => [m.factionId, m.displayName])),
+    marketTitles: s.marketQuestions(seasonId),
     log,
   })
   if (out.status === "suppressed") {

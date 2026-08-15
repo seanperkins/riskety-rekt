@@ -142,7 +142,7 @@ describe("tick context", () => {
       settlements: { "KX-1": "yes" },
     }
     store.transaction(() => store.saveTickContext("s1", 1, orders, context, ENGINE_VERSION))
-    expect(store.loadTickContext("s1", 1)).toEqual({ orders, context, engineVersion: "1.0.0" })
+    expect(store.loadTickContext("s1", 1)).toEqual({ orders, context, engineVersion: ENGINE_VERSION })
     store.close()
   })
 

@@ -107,6 +107,44 @@ describe("publishSlate", () => {
   })
 })
 
+describe("marketQuestions", () => {
+  it("spans every day of the season, not just one", () => {
+    // The recap's Markets section reads this. A wager settles a tick after it
+    // was placed and a matured refund two ticks after, so a day-scoped read
+    // would name the wrong slate -- or none, for the refund.
+    const s = fresh()
+    s.publishSlate("s1", 3, [market("A")], new Date())
+    s.publishSlate("s1", 4, [market("B")], new Date())
+    expect(s.marketQuestions("s1")).toEqual({ A: "q A", B: "q B" })
+    s.close()
+  })
+
+  it("stays inside its season", () => {
+    const s = fresh()
+    s.upsertSeason({ seasonId: "s2", startDate: "2026-10-01", lengthDays: 21 })
+    s.publishSlate("s1", 3, [market("A")], new Date())
+    s.publishSlate("s2", 3, [market("C")], new Date())
+    expect(s.marketQuestions("s1")).toEqual({ A: "q A" })
+    s.close()
+  })
+
+  it("collapses a market that sat on several slates", () => {
+    // Kalshi markets run for days, so the same id is republished. One entry,
+    // not a duplicate key fight.
+    const s = fresh()
+    s.publishSlate("s1", 3, [market("A")], new Date())
+    s.publishSlate("s1", 4, [market("A")], new Date())
+    expect(s.marketQuestions("s1")).toEqual({ A: "q A" })
+    s.close()
+  })
+
+  it("is empty for a season that has published nothing", () => {
+    const s = fresh()
+    expect(s.marketQuestions("s1")).toEqual({})
+    s.close()
+  })
+})
+
 describe("settlements", () => {
   it("records and reads back an outcome", () => {
     const s = fresh()

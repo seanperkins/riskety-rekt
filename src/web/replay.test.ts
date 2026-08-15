@@ -37,10 +37,20 @@ describe("replayFor", () => {
       states([
         { t: "income", faction: "f1", amount: 5 },
         { t: "irl", faction: "f1", actions: 2, bonus: 1 },
-        // No faction on the event — a settlement names the WAGER, not its
-        // owner, which is why payouts bank under "markets" rather than a
-        // player. Getting this wrong is a type error, not a wrong picture.
-        { t: "wagerSettle", wagerId: "w1", outcome: "yes", stake: 4, payout: 9 },
+        // The event carries a faction now (the recap names who won what), but
+        // the replay still banks payouts under "markets" and that is
+        // deliberate, not an oversight: a replay is one viewer's projection,
+        // so banking under e.faction would put every other player's settled
+        // wagers on their screen.
+        {
+          t: "wagerSettle",
+          wagerId: "w1",
+          faction: "f2",
+          marketId: "KX-1",
+          outcome: "yes",
+          stake: 4,
+          payout: 9,
+        },
       ]),
     )
     expect(r.beats).toHaveLength(0)

@@ -70,7 +70,7 @@ describe("createSeason", () => {
     expect(s.day).toBe(0)
     expect(s.moduleState).toEqual({})
     expect(s.log).toEqual([])
-    expect(s.engineVersion).toBe("1.0.0")
+    expect(s.engineVersion).toBe("1.1.0")
   })
 
   it("is deterministic for a given shuffle", () => {

@@ -31,6 +31,17 @@ export interface PostRecapDeps {
   force?: boolean
   /** The day's winning rule ids, read from the frozen tick_context. */
   ruleIds?: string[]
+  /**
+   * Display names by faction id, from the roster.
+   *
+   * `RecapInput` has accepted these since the rename feature shipped and
+   * nothing ever passed them, so every recap rendered the name frozen into the
+   * state at the deal — the exact thing the field exists to prevent. The
+   * Markets section made it visible by putting a name in every line.
+   */
+  names?: Record<string, string>
+  /** Market question by id, for the Markets section. */
+  marketTitles?: Record<string, string>
   log?: (msg: string) => void
 }
 
@@ -77,6 +88,8 @@ export async function runPostRecap(deps: PostRecapDeps): Promise<RecapResult> {
     lengthDays: deps.lengthDays,
     ...(deps.correction === undefined ? {} : { correction: deps.correction }),
     ...(deps.ruleIds === undefined ? {} : { ruleIds: deps.ruleIds }),
+    ...(deps.names === undefined ? {} : { names: deps.names }),
+    ...(deps.marketTitles === undefined ? {} : { marketTitles: deps.marketTitles }),
   })
   await deps.poster.post(message)
   log(`recap posted for day ${day}`)

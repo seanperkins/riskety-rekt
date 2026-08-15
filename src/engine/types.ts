@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = "1.0.0"
+export const ENGINE_VERSION = "1.1.0"
 
 export type FactionId = string
 export type TerritoryId = string
@@ -187,8 +187,23 @@ export type TickEvent =
       defenderLost: number
       fee?: number
     }
-  /** stake retained so settlement accounting can classify win/refund/loss. */
-  | { t: "wagerSettle"; wagerId: string; outcome: Settlement; payout: number; stake: number }
+  /**
+   * stake retained so settlement accounting can classify win/refund/loss;
+   * faction and marketId so the recap can name WHO and WHICH MARKET without
+   * parsing wagerId (`${day}-${factionId}-${seq}`) or reaching back into
+   * moduleState. Three outcomes, not two: `outcome === "unsettled"` is a
+   * matured refund with payout === stake, which reads exactly like a win if
+   * classified on payout > 0 alone.
+   */
+  | {
+      t: "wagerSettle"
+      wagerId: string
+      faction: FactionId
+      marketId: MarketId
+      outcome: Settlement
+      payout: number
+      stake: number
+    }
   /** ref names the order item an allocation or lock drop rejected. */
   | { t: "rejected"; faction: FactionId; field: string; reason: string; ref?: string }
 

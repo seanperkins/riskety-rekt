@@ -18,6 +18,41 @@ describe("runPostRecap", () => {
     expect(post.mock.calls[0]![0].text).toContain("day 3")
   })
 
+  it("forwards roster names and market titles into the render", async () => {
+    // Both were optional on RecapInput long before any caller passed them, and
+    // `names` in particular sat unused for releases — so every recap addressed
+    // players by the name createSeason froze at the deal. The Markets section
+    // puts a name in every line, which is what made the gap visible.
+    const post = vi.fn(async (_m: SlackMessage) => undefined)
+    const settled = {
+      ...state(3),
+      log: [
+        {
+          t: "wagerSettle" as const,
+          wagerId: "w1",
+          faction: "f1",
+          marketId: "KX-1",
+          outcome: "yes" as const,
+          payout: 9,
+          stake: 4,
+        },
+      ],
+    }
+    await runPostRecap({
+      poster: { post },
+      state: settled,
+      previous: state(2),
+      lengthDays: 21,
+      names: { f1: "Renamed" },
+      marketTitles: { "KX-1": "Will BTC close above $100k?" },
+    })
+    const out = JSON.stringify(post.mock.calls[0]![0].blocks)
+    expect(out).toContain("Renamed")
+    expect(out).toContain("Will BTC close above $100k?")
+    // The deal-time name, which is what shipped before this was wired.
+    expect(out).not.toContain("Ada")
+  })
+
   it("marks a correction", async () => {
     const post = vi.fn(async (_m: SlackMessage) => undefined)
     await runPostRecap({

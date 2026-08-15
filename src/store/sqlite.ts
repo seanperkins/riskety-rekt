@@ -296,6 +296,19 @@ export function openStore(
       )
     },
 
+    marketQuestions(seasonId: string): Record<string, string> {
+      // DISTINCT, because a market can sit on several days' slates. Two rows
+      // for one id would differ only if Kalshi reworded the question; last
+      // write wins, which is the more recent wording.
+      const rows = db
+        .prepare(
+          `SELECT DISTINCT market_id, question FROM slate_markets
+            WHERE season_id = ? ORDER BY day`,
+        )
+        .all(seasonId) as { market_id: string; question: string }[]
+      return Object.fromEntries(rows.map((r) => [r.market_id, r.question]))
+    },
+
     loadSlate(seasonId: string, day: number): Market[] {
       const rows = db
         .prepare(

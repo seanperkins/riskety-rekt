@@ -55,3 +55,13 @@ export const MAX_SECTION_LINES = 20
 
 /** Player display names are player-supplied. Cap them like any other untrusted text. */
 export const RECAP_NAME_MAX_CHARS = 40
+
+/**
+ * Market questions are third-party text from Kalshi and run far longer than a
+ * name -- "Will the Fed cut rates by 50bps or more at the March 2026 meeting?"
+ * is 78 characters before any of the sentence around it. Capped separately
+ * from RECAP_NAME_MAX_CHARS, which would mangle most of them, but still capped:
+ * a settled slate could otherwise push one Markets section past
+ * MAX_SECTION_CHARS on its own and truncate real lines away.
+ */
+export const RECAP_MARKET_MAX_CHARS = 90
