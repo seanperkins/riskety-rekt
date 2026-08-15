@@ -33,8 +33,10 @@ Why this order (all panel-reviewed, all pinned by tests):
   troops that never arrived (phantom troops).
 - **Seniority is the deploy-inflation fix**: a wager locks at its market's
   close (strictly < tick; `WINDOW_CLOSE_HOUR = 21 < 24` since the boundary
-  moved to midnight, asserted as an inequality in
-  `config.test.ts`), so a 20:59 deploy can no longer evict a locked wager.
+  moved to midnight). The property itself is asserted in `season.test.ts`
+  (`etInstant(date, WINDOW_CLOSE_HOUR) < tickInstant(season, day)`);
+  `config.test.ts` only bounds the constant. So a late deploy can no longer
+  evict a locked wager.
 - **Locks before caps**: a voided attack must not crowd out a valid one.
 - Malformed hook returns (negative/fractional amount, unknown faction,
   unparseable `lockedAt`) THROW — the tick refuses.

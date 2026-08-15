@@ -27,7 +27,7 @@ describe("parseOrderBody", () => {
 
   it("rejects an unknown field rather than ignoring it", () => {
     // A typo'd "protects" that parsed as "no protect" would silently drop the
-    // one order a player cannot resubmit after 21:00.
+    // one order a player cannot resubmit after midnight.
     expect(() => order({ protects: "peru" })).toThrow(/unknown field "protects"/)
     expect(() => order({ deploys: [{ territory: "a", count: 1, extra: 1 }] })).toThrow(
       /unknown field "extra"/,
