@@ -22,6 +22,23 @@ export type RerunRefusal =
   | { reason: "no-deal" }
   | { reason: "missing-context"; day: number }
   | { reason: "day-not-over"; day: number }
+  | { reason: "within-grace"; day: number }
+
+/**
+ * How long after a day's boundary `--assemble-missing` must wait before it may
+ * read the live approval and vote tables.
+ *
+ * Mirrors the delivery grace the tick timer buys by firing at 00:05:30 while
+ * the cutoff stays frozen at 00:00. That grace only means anything if nothing
+ * else commits the day first: assembleContext reads live tables, so an operator
+ * assembling at 00:01 snapshots a table a 23:59:58-but-slow workout has not
+ * reached yet, saves the state, and the 00:05 tick then skips the day as
+ * already-run. The workout is lost with no error on any path.
+ *
+ * Deliberately a touch longer than the timer's 5m30s: the timer is when the
+ * tick STARTS, and this is the earliest a human may pre-empt it.
+ */
+const ASSEMBLE_GRACE_MS = 6 * 60_000
 
 export type RerunOutcome =
   | { status: "replayed"; days: number[]; states: { day: number; next: GameState; previous: GameState }[] }
@@ -94,11 +111,21 @@ export function runRerun(deps: RerunDeps): RerunOutcome {
 
   // Every day in the range must have a context before anything is deleted, or a
   // partial rerun would delete states it cannot rebuild. --assemble-missing is
-  // what waives this, and only for days whose 21:00 has passed -- which is what
-  // `last` already guarantees, since it stops at calendarDay - 1.
+  // what waives this, and only for days whose boundary has passed -- which is
+  // what `last` already guarantees, since it stops at calendarDay - 1.
   for (const d of days) {
-    if (store.loadTickContext(seasonId, d) === undefined && deps.assembleMissing !== true) {
-      return { status: "refused", refusal: { reason: "missing-context", day: d } }
+    if (store.loadTickContext(seasonId, d) === undefined) {
+      if (deps.assembleMissing !== true) {
+        return { status: "refused", refusal: { reason: "missing-context", day: d } }
+      }
+      // `last` stops at calendarDay - 1, which at 00:01 already includes the day
+      // that ended sixty seconds ago -- inside the delivery grace. Assembling
+      // there reads live tables a late-delivered post has not reached, and the
+      // saved state then makes the real tick skip. Recorded contexts are exempt:
+      // replaying frozen inputs reads nothing live.
+      if (now.getTime() < tickInstant(season, d).getTime() + ASSEMBLE_GRACE_MS) {
+        return { status: "refused", refusal: { reason: "within-grace", day: d } }
+      }
     }
   }
 

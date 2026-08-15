@@ -92,6 +92,12 @@ function describeRerunRefusal(r: RerunRefusal): string {
       return `day ${r.day} has no recorded context; pass --assemble-missing to build one from live tables`
     case "day-not-over":
       return `day ${r.day} has not finished yet`
+    case "within-grace":
+      return (
+        `day ${r.day} ended less than six minutes ago; assembling now would read ` +
+        `approvals and votes Slack may still be delivering, and the saved state ` +
+        `would make tonight's tick skip the day. Wait for the tick, or re-run after 00:06`
+      )
   }
 }
 

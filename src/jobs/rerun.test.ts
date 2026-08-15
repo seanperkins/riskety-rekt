@@ -159,6 +159,39 @@ describe("runRerun", () => {
     d.store.close()
   })
 
+  it("--assemble-missing refuses inside the Slack delivery grace window", () => {
+    // The grace the 00:05:30 timer buys is only real if nothing ELSE commits the
+    // day first. assembleContext reads live approval/vote tables, so an operator
+    // running this at 00:01 snapshots a table a 23:59:58 workout has not landed
+    // in yet -- and then the 00:05 tick sees the state row and skips, so that
+    // workout is lost permanently with no error anywhere.
+    const d = ticked(2)
+    d.store.publishSlate("s1", 3, [market("KX-3", 3)], at(3, 8))
+    expect(
+      runRerun({ ...d, day: 3, now: at(4, 0, 1), confirm: true, assembleMissing: true }),
+    ).toMatchObject({ status: "refused", refusal: { reason: "within-grace", day: 3 } })
+    expect(d.store.loadState("s1", 3)).toBeUndefined()
+    d.store.close()
+  })
+
+  it("--assemble-missing proceeds once the grace window has passed", () => {
+    const d = ticked(2)
+    d.store.publishSlate("s1", 3, [market("KX-3", 3)], at(3, 8))
+    expect(
+      runRerun({ ...d, day: 3, now: at(4, 0, 6), confirm: true, assembleMissing: true }).status,
+    ).toBe("replayed")
+    d.store.close()
+  })
+
+  it("does NOT apply the grace window to a day with a recorded context", () => {
+    // The gate exists because assembleContext reads live tables. Replaying a
+    // FROZEN context reads nothing live, so a 00:01 rerun of a recorded day is
+    // safe and must stay available -- that is the ordinary recovery path.
+    const d = ticked(3)
+    expect(runRerun({ ...d, day: 3, now: at(4, 0, 1), confirm: true }).status).toBe("replayed")
+    d.store.close()
+  })
+
   it("--assemble-missing builds a context for a day that never ticked", () => {
     const d = ticked(2)
     // Day 3 has orders and a slate but no tick ever ran.

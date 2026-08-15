@@ -167,6 +167,44 @@ describe("renderRecap", () => {
     expect(texts(blocks).join("\n")).toContain("Renamed,")
   })
 
+  it("renders a legacy 1.0.0 wagerSettle instead of crashing on it", () => {
+    // The mid-season deploy hazard. Every day resolved before engine 1.1.0 has
+    // wagerSettle events with no faction and no marketId, and `npm run recap --
+    // <day> --force` renders the PERSISTED log rather than a fresh resolve --
+    // so it fed undefined into safeText and died with `Cannot read properties
+    // of undefined (reading 'replace')`. That is the break-glass command, so it
+    // failed exactly when someone was already recovering from something else.
+    const legacy = { t: "wagerSettle", wagerId: "3-f1-0", outcome: "yes", payout: 22, stake: 10 }
+    const { blocks } = renderRecap({
+      state: stateWith([legacy as unknown as TickEvent]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Sean" },
+    })
+    const out = texts(blocks).join("\n")
+    // The wagerId is the only identity a legacy row carries, so it comes back
+    // for these lines alone -- it embeds the faction (`day-faction-seq`).
+    expect(out).toContain("3-f1-0")
+    expect(out).toContain("22")
+    expect(out).not.toContain("undefined")
+  })
+
+  it("still renders the named line for every other event in a legacy log", () => {
+    // A legacy log must not poison the whole section: one old-shape row beside
+    // a new-shape one renders both.
+    const legacy = { t: "wagerSettle", wagerId: "3-f2-0", outcome: "no", payout: 0, stake: 4 }
+    const { blocks } = renderRecap({
+      state: stateWith([settle(), legacy as unknown as TickEvent]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Sean" },
+      marketTitles: { "KX-1": "Will BTC close above $100k?" },
+    })
+    const out = texts(blocks).join("\n")
+    expect(out).toContain("Sean, you wagered 10")
+    expect(out).toContain("3-f2-0")
+  })
+
   it("falls back to the market id when no title is supplied", () => {
     // The simulator and the fixtures have no store to read questions from.
     const { blocks } = renderRecap({ state: stateWith([settle()]), previous, lengthDays: 21 })

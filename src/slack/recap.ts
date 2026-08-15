@@ -218,6 +218,18 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
       section(
         "Markets",
         settles.map((e) => {
+          // A log saved by engine 1.0.0 has neither field, and `recap --force`
+          // renders persisted logs. Fall back to the wagerId, which is the only
+          // identity a legacy row carries -- and it embeds the faction, being
+          // `${day}-${factionId}-${seq}`. Anonymous, which is exactly what the
+          // section looked like when that row was written.
+          if (e.faction === undefined || e.marketId === undefined) {
+            const id = safeText(e.wagerId, RECAP_NAME_MAX_CHARS)
+            if (e.outcome === "unsettled") return `${id} — never called, ${e.stake} refunded`
+            return e.payout > 0
+              ? `${id} resolved ${e.outcome} — paid ${e.payout}`
+              : `${id} resolved ${e.outcome} — lost`
+          }
           const who = nameOf(e.faction)
           const what = marketOf(e.marketId)
           // Three outcomes. Classifying on `payout > 0` alone reports a refund

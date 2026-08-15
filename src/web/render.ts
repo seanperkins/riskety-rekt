@@ -585,7 +585,7 @@ export function renderBoard(p: Projection, now: Date = new Date()): string {
       an enemy to attack it, one of yours to reinforce it. Orders save as you make
       them and lock at midnight, when <strong>everyone resolves at once</strong>; nobody
       moves first.
-      <a href="/day/${esc(p.day)}">Last night</a> · <a href="/rules">How this works</a></p>
+      <a href="/day/${esc(p.resolvedDay)}">Last night</a> · <a href="/rules">How this works</a></p>
   </aside>
 </div>
 ${wagersPanel(p, now)}

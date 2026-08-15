@@ -39,8 +39,16 @@ export const marketsModule: Mechanic = {
     // The event carries its own faction now. This used to rebuild a wagerId ->
     // PendingWager map purely to recover it, which is also why the recap could
     // not name anyone.
+    //
+    // The `faction !== undefined` narrowing is a type obligation, not a real
+    // branch: these events were produced by settleAll two lines up, which sets
+    // the field on every one. It is optional on the type only because PERSISTED
+    // 1.0.0 rows lack it (see TickEvent). Nothing legacy can reach here --
+    // moduleState holds PendingWager, never events.
     return settled.events.flatMap((e) =>
-      e.t === "wagerSettle" ? [{ faction: e.faction, amount: e.payout, event: e }] : [],
+      e.t === "wagerSettle" && e.faction !== undefined
+        ? [{ faction: e.faction, amount: e.payout, event: e }]
+        : [],
     )
   },
 

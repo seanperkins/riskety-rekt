@@ -194,12 +194,21 @@ export type TickEvent =
    * moduleState. Three outcomes, not two: `outcome === "unsettled"` is a
    * matured refund with payout === stake, which reads exactly like a win if
    * classified on payout > 0 alone.
+   *
+   * **faction and marketId are OPTIONAL, and that is about persisted rows, not
+   * about the engine.** `settleAll` always sets both; every event this engine
+   * emits carries them. But states saved by engine 1.0.0 predate the fields,
+   * `parseState` checks only the top level of a loaded state and never its log
+   * elements, and `npm run recap -- <day>` renders a PERSISTED log. Declaring
+   * them required made that a type-level lie about every pre-1.1.0 row in a
+   * live database, and the recap crashed on `undefined.replace` -- reproduced,
+   * see recap.test.ts. Optional here is what forces each reader to decide.
    */
   | {
       t: "wagerSettle"
       wagerId: string
-      faction: FactionId
-      marketId: MarketId
+      faction?: FactionId
+      marketId?: MarketId
       outcome: Settlement
       payout: number
       stake: number
