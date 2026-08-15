@@ -35,7 +35,7 @@ Host 45.55.240.159
 ```
 
 `s-1vcpu-1gb` is 1 GB, so cloud-init provisions 2 GB of swap. The process that
-must never be OOM-killed is the 21:00 tick.
+must never be OOM-killed is the midnight tick.
 
 **Ports 3001 and 3002 are not reachable from outside.** ufw allows 22, 80 and
 443 only; Caddy proxies to the services over loopback. This is load-bearing
@@ -126,10 +126,21 @@ territories per faction. A 15-member roster on the default 42-territory map is
 
 ## The tick
 
-`riskety-tick.timer` fires at **21:00:30**, not 21:00:00. The settlement poller
-runs at `*:00/30`, and the offset keeps the tick clear of its firing instant --
-the poller's writes are transactional, so this is the second layer rather than
-the only one.
+`riskety-tick.timer` fires at **00:05:30**, and both offsets are load-bearing.
+
+The five minutes are Slack delivery grace. The cutoff is frozen at exactly
+00:00:00 by `tickInstant()` and does NOT move with the timer, so a workout
+posted at 23:59:58 and delivered at 00:00:03 still lands before the tick's
+transaction reads, and still belongs to the day that just closed.
+
+The `:30` is the older reason. The settlement poller runs at `*:00/30`, and the
+offset keeps the tick clear of its firing instant -- the poller's writes are
+transactional, so this is the second layer rather than the only one.
+
+**Deploy order is directional.** New code with a stale 21:00 timer is a harmless
+no-op: it computes yesterday, sees `already-run`, skips, and the day resolves at
+the next 00:05. The 00:05 timer with OLD code stalls the season -- it computes
+today, hits `before-cutoff`, skips, and there is no 21:00 run left to catch it.
 
 The tick's claim, resolve and save are one transaction. A crash therefore leaves
 nothing behind and the next run starts clean; a concurrent second run blocks,
@@ -320,7 +331,7 @@ Caddy needs to route `/slack/events` to port 3001.
   three retries of the same DM do not re-run the scope checks all day.
 
 - **Approvals are read by Slack timestamp, never by write time.** A reaction at
-  20:59:59 delivered at 21:00:01 still counts for that day. Do not "fix" a
+  23:59:59 delivered at 00:00:01 still counts for that day. Do not "fix" a
   seemingly late row.
 
 - **Deleting a photo retracts the action**, including its approvals and the
@@ -404,7 +415,7 @@ counting both.
 
 `riskety-poll-prices.timer` runs every 30 minutes at `*:15/30`, offset from the
 settlement poller at `*:00/30` so the two do not contend for the write lock,
-and clear of the 21:00:30 tick.
+and clear of the 00:05:30 tick.
 
 It exists because the published slate is frozen. `publishSlate` refuses a second
 write so a rerun cannot re-snapshot the day's prices — and that freeze is what

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm test                                  # vitest run — 860 tests, none touch the network
+npm test                                  # vitest run — 1,018 tests, none touch the network
 npm test -- src/engine/combat.test.ts     # a single file
 npm test -- -t "largest surviving force"  # a single test by name
 npm run test:watch
@@ -33,7 +33,7 @@ npm run publish-slate                         # the 08:00 job
 npm run rules:publish                         # the 08:05 rule-vote offer
 npm run poll-settlements                      # the 30-minute settlement job
 npm run poll-prices                           # the 30-minute price job
-npm run tick                                  # the 21:00 job
+npm run tick                                  # the 00:05 job (resolves the day that just ended)
 npm run modules:set -- markets irl veto       # mid-season module change; refuses while escrow > 0
 npm run order -- f1 --file order.json         # or --stdin; never a shell argument
 npm run wager -- f1 --file wager.json
@@ -76,9 +76,9 @@ engine, the answer is a new field on `DailyContext`.
 That purity is why `src/sim/` can run thousands of seasons, and the simulator is
 the only evidence the economy isn't broken. Do not weaken it.
 
-**The 21:00 tick never touches the network.** Slack approvals arrive
+**The midnight tick never touches the network.** Slack approvals arrive
 continuously by webhook and market settlements are written by a 30-minute poller,
-both landing in SQLite hours earlier. A Kalshi outage at 20:59 cannot stall the
+both landing in SQLite hours earlier. A Kalshi outage at 23:59 cannot stall the
 season. Keep new work on that side of the line.
 
 **Everything is one function**: `resolve(state, orders, context) → GameState`.
@@ -100,6 +100,35 @@ that opens a `BEGIN` — `migrate` is the single documented exemption.
 **Every component derives the day from the calendar**, through `currentDay` in
 `src/season.ts`. A second, state-derived clock ("highest saved day + 1") agrees
 only while no tick is ever missed, and shears permanently after one miss.
+
+**The boundary is the midnight ENDING a season day, and the tick resolves
+`calendarDay - 1`.** `tickInstant(season, day)` is hour 0 of `startDate + day +
+1` — the `+ 1` is the whole thing, and reading it as "midnight starting day N"
+puts the deadline before the day it closes. Because the job fires *at* the
+boundary, `currentDay` has already rolled by the time it runs, so `runTick`
+resolves the day that just ended. Every guard in that table is written against
+`day`, never `calendarDay`; the after-season one especially, since the final
+tick of the season runs when `calendarDay` is already `lengthDays + 1` and a
+`calendarDay > lengthDays` test skips the last night silently. `before-cutoff`
+is now unreachable and kept deliberately.
+
+This is inherent to alignment rather than to midnight: at any hour where the
+deadline and the rollover coincide, the job wakes in the day after the one it
+must resolve. The alignment is what makes every workout fall into exactly one
+day — while the tick ran at 21:00, `postsOn(date)` collected the whole ET date
+and the cutoff discarded three hours of it, and that hole was unfixable, because
+the approval cutoff is structurally bounded above by the tick instant.
+
+**The timer runs at 00:05 while the cutoff stays frozen at 00:00.** Five minutes
+of Slack delivery grace; `tickInstant` is calendar-derived and does not move with
+the timer. Deploy order is directional — code before timer. The reverse stalls
+the season (`before-cutoff` skips at 00:05 under old code, and no 21:00 run is
+left).
+
+**`backfillContext` pins the legacy 21:00, never the live `tickInstant`.** A
+frozen context missing the field predates the change by definition, and rerun
+saves the synthesized context back — replaying through today's formula would
+launder midnight into frozen history. Same hazard as its hardcoded module list.
 
 ## Rules that are load-bearing and counterintuitive
 
@@ -130,6 +159,17 @@ exploitable. Full list with reasoning in `HANDOFF.md`; the ones most likely to b
   about +16% rather than +10%. Bounded, symmetric, and down from +422%.
 - **Settlement is credit-only.** The stake left the reserve at escrow; "credit or
   debit" charges losers twice. Payout uses `round`, not `floor`.
+- **A settled wager has THREE outcomes, not two.** A market that never settles
+  refunds the stake after `REFUND_AFTER_TICKS`, emitting `outcome: "unsettled"`
+  with `payout === stake`. Classifying on `payout > 0` alone reports that as a
+  win — which is what the recap did until the Markets section was rewritten.
+  `outcome === "unsettled"` is the discriminator.
+- **The recap's Markets section names players; the replay's bank does not.** A
+  settled wager is past, so naming it publicly discloses no position anyone can
+  still trade against, and the recap already publishes reserves and attacks per
+  player. A replay is one viewer's projection, so banking a payout under
+  `e.faction` instead of `markets` would put every other player's wagers on
+  their screen.
 - **`protect` is filtered inside the engine**, on both `postedToday` and zero
   territories in the *input* state. The golden file only pins what crosses the
   engine boundary, so moving that filter into a caller would let a regression
@@ -140,12 +180,12 @@ exploitable. Full list with reasoning in `HANDOFF.md`; the ones most likely to b
   reactions; `dailyApprovals` computes it at read time. Storing approvals makes
   `reaction_removed` a state machine.
 - **So is the day's rule.** `rule_reactions` holds RAW numeral reactions and the
-  tally derives the winner at 21:00. It is a separate table from `reactions`
+  tally derives the winner at midnight. It is a separate table from `reactions`
   because that one cannot represent a vote: no emoji column, one row per player
   per message, and `INSERT OR IGNORE` first-timestamp-wins — votes are
   latest-wins. **The cutoff predicate is two-part**: a row counts only if it is
   present when the tick's transaction reads AND `reacted_at <= tickInstant`, or
-  a delayed tick counts votes cast after 21:00.
+  a delayed tick counts votes cast after midnight.
 - **Rule *selection* is frozen in `ctx.rules`; rule *behavior* is engine code.**
   A rerun replays the frozen id, never a re-derived tally — deleting the votes
   afterwards cannot change the replay. Behavior drift is `engineVersion`'s

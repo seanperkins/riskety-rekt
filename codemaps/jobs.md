@@ -14,7 +14,7 @@ never clears with time; non-zero would restart-loop all night.
 | `runPublishRules` | 08:05 daily | `publish-rules.ts` — the rule-vote offer |
 | `runPollSettlements` | every 30 min | `poll-settlements.ts` |
 | `runPollPrices` | every 30 min | `poll-prices.ts` — reuses `getCandidates`, writes `market_prices` |
-| `runTick` | 21:00 daily | `tick.ts` |
+| `runTick` | 00:05 daily, resolves `calendarDay - 1` | `tick.ts` |
 | `runRerun` | operator | `rerun.ts` — replay from `tick_context` |
 | `runModulesSet` | operator | `modules-set.ts` — mid-season module change |
 | `runPostRecap` | after the tick | `post-recap.ts`, via the `recaps` claim-then-post ledger |
@@ -33,7 +33,7 @@ transaction: `stateExists` re-check (concurrency belt) → `assembleOrders` +
 
 The rule tally runs INSIDE the transaction: a `rule_reactions` row counts only
 if present when the transaction reads AND `reacted_at <= tickInstant`. The
-second half is what stops a delayed tick from counting post-21:00 votes.
+second half is what stops a delayed tick from counting post-midnight votes.
 
 ## rerun (`runRerun`)
 
@@ -89,7 +89,7 @@ slate whose wagers settle a tick later. No poster configured → `claimed`.
 
 `npm run order|wager -- f1 --file x.json` (or `--stdin`; never a shell arg).
 `parseOrderBody` bounds counts and list sizes. Writes go through the store's
-`orderGate` (day range, 21:00 deadline, day-already-resolved, per-market
+`orderGate` (day range, midnight deadline, day-already-resolved, per-market
 `stillOpen` lock, `markets-off`).
 
 ## CLI (`src/jobs/cli.ts`)
@@ -109,7 +109,9 @@ Flags parse by name (`flags.ts`), never by position. **Never
 `riskety-publish-slate.timer` 08:00; `riskety-publish-rules.timer` 08:05;
 `riskety-poll-settlements.timer` `*:00/30`;
 `riskety-poll-prices.timer` `*:15/30` (offset, not simultaneous);
-`riskety-tick.timer` `21:00:30` (refusals exit 0 on purpose, so
+`riskety-tick.timer` `00:05:30` — five minutes of Slack delivery grace while
+the cutoff stays frozen at 00:00; deploy code before timer, never the reverse
+(refusals exit 0 on purpose, so
 `Restart=on-failure` cannot loop); `riskety-slack.service` and
 `riskety-web.service` long-running; a Caddyfile routes the public HTTPS side.
 All read `/etc/riskety-rekt/env`. Target is a droplet, not App Platform — an

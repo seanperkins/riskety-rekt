@@ -49,7 +49,8 @@ is the only interpreter; `saveState` asserts a JSON round-trip. `markets` holds
 { t: "attack";      from, to, attacker, committed, survivors, captured,
                     lost, defenderLost, fee? }     // lost = target-combat only;
                                                    // defenderLost once per territory
-{ t: "wagerSettle"; wagerId, outcome, payout, stake }
+{ t: "wagerSettle"; wagerId, faction, marketId, outcome, payout, stake }
+  // outcome "unsettled" + payout === stake is a REFUND, not a win
 { t: "rejected";    faction, field, reason, ref? } // ref names the dropped item
 ```
 
@@ -100,12 +101,13 @@ have a null prototype — spread them. WAL, `busy_timeout = 5000`.
 ## Constants
 
 `src/config.ts`: `SEASON_LENGTH = 14`, `SLATE_MIN/MAX = 3/5`,
-`WINDOW_OPEN_HOUR/CLOSE_HOUR = 9/21` (close **pinned equal to `TICK_HOUR`** in
+`WINDOW_OPEN_HOUR/CLOSE_HOUR = 9/21` (close **strictly inside the day**, 0 < 21 < 24, in
 `config.test.ts` — claim seniority depends on it), `PRICE_MIN/MAX = 0.1/0.9`
 (pinned equal to the engine clamp), `VOLUME_FLOOR = 500`,
 `QUESTION_MAX_CHARS = 200`, Kalshi HTTP knobs, `SETTLEMENT_HORIZON_DAYS = 4`.
 
-`src/slack/config.ts`: `APPROVAL_EMOJI = {"+1"}` + aliases, `TICK_HOUR = 21`,
+`src/slack/config.ts`: `APPROVAL_EMOJI = {"+1"}` + aliases (no `TICK_HOUR` —
+the boundary is a day offset in `tickInstant`), `RECAP_MARKET_MAX_CHARS = 90`,
 recap block/section caps. `src/engine/mechanics.ts`: `MAX_DEPARTURE_COST = 2`.
 
 ## Time (`src/time.ts`, `src/season.ts`)

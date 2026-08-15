@@ -252,6 +252,32 @@ Announce the 27-hour day in the channel.
 
 ## Spec deltas
 
-Recorded here as reality corrects the design during implementation.
+- **`WINDOW_CLOSE_HOUR === TICK_HOUR` was a pinned equality the design missed.**
+  `config.test.ts` asserted it, and the reason is load-bearing: the publisher
+  rejects markets closing at or after `WINDOW_CLOSE_HOUR`, which is what
+  guarantees a wager claim's `lockedAt` is strictly earlier than a deploy's
+  `tickInstant`. Only the *inequality* was ever the point. The constant stays
+  at 21 and the test became `0 < WINDOW_CLOSE_HOUR < 24` — with the boundary at
+  hour 24, equality is the wrong shape and raising it to 24 would reopen the
+  deploy-inflation exploit for late-closing markets.
 
-- (none yet)
+- **No golden regeneration was needed, because the golden never covered
+  settlement.** The spec said the `wagerSettle` shape change would regenerate
+  it. In fact `__golden__/season-1.json` contains zero `wagerSettle` events —
+  its log holds only `income`, `protected` and `rejected`. The file's only diff
+  was the `engineVersion` string; engine behavior is byte-identical, and
+  `npm run sim` reproduced the committed baseline digit for digit (day-3 leader
+  47.4%, GymRat 32.9%). **Open gap, not fixed here:** the engine's settlement
+  and combat paths are outside the golden regression entirely. Widening the
+  golden order script to settle a wager is worth doing and is its own change.
+
+- **The replay's rationale was wrong, though its behavior was right.**
+  `replay.test.ts` justified banking payouts under `markets` with "no faction on
+  the event". The event has one now, and the behavior must still not change: a
+  replay is one viewer's projection, so banking under `e.faction` would put
+  every other player's settled wagers on their screen. Comment corrected in
+  place.
+
+- **Codemaps were updated surgically rather than regenerated.** The stale facts
+  were confined to what this change touched; a full regeneration would have
+  churned unrelated content.

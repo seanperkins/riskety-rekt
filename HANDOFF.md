@@ -27,7 +27,7 @@ variance, with uncertainty players can actually reason about.
 
 **Done:** the pure rules engine, the offline season simulator, the Kalshi market
 adapter with its slate publisher and settlement/price pollers, the Slack ingress with
-its recap and slate renderers, the 21:00 tick runner with `season-init`, `tick:rerun`,
+its recap and slate renderers, the midnight tick runner with `season-init`, `tick:rerun`,
 the recap ledger and CLI order entry, the world map (264 territories from Natural
 Earth) with roster-sized board selection, session auth via `/login`, the player web
 app (Leaflet board, autosaving orders, wagers page, nightly replay), the wager
@@ -39,7 +39,7 @@ modules, the seniority allocation phase (the deploy-inflation fix),
 combat dial — and the **rule catalogue + voting** that completes that spec:
 thirteen rules across grant, lock and dial hooks, a three-slot daily ballot
 drawn by seeded shuffle, the 08:05 offer job with its claim-then-post ledger,
-numeral-reaction votes in `rule_reactions`, the 21:00 tally frozen into
+numeral-reaction votes in `rule_reactions`, the midnight tally frozen into
 `ctx.rules`, and the bounded-swing balance gate.
 **860 tests passing**, none of which touch the network —
 `test/no-network.ts` replaces `fetch` in every run, so it is enforced.
@@ -119,7 +119,7 @@ the alternative was exploitable.
 +10%/day, compounding to 7.4× over a season. The per-market limit is what kills it.
 
 **Wagers lock per-market at each market's close time**, while deploys and attacks stay
-editable until 21:00. Otherwise every slate market has closed — outcome public — before
+editable until midnight. Otherwise every slate market has closed — outcome public — before
 the order lock, and you bet a certainty at the morning's price.
 
 **Orders are validated *after* pipeline steps 1–3, not before.** Deploys draw from the
@@ -164,7 +164,7 @@ or may not have existed. Deriving makes removal one `DELETE`.
 stakes above `10p`; below that it was negative-EV, worst case ≈ −45% just above p=0.55.
 
 **The day's rule is derived too, and its cutoff has two parts.** `rule_reactions`
-holds raw numeral reactions; the tally computes the winner at 21:00 and freezes it
+holds raw numeral reactions; the tally computes the winner at midnight and freezes it
 into `ctx.rules`. A row counts only if it is present when the tick's transaction
 reads AND `reacted_at <= tickInstant` — without the second half, a tick delayed to
 22:00 counts votes cast after the deadline. It is a separate table from `reactions`
