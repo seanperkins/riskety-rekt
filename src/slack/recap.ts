@@ -100,16 +100,27 @@ function titleCase(id: string): string {
 export function renderRecap(input: RecapInput): { text: string; blocks: Block[] } {
   const { state, previous, lengthDays } = input
 
+  // `Object.hasOwn` on both lookups below, not a bare index. These maps are
+  // built with Object.fromEntries and so inherit Object.prototype, where a key
+  // of "toString" or "constructor" returns a FUNCTION rather than undefined --
+  // which then reaches safeText and throws on `value.replace`, taking the whole
+  // recap post down. A Kalshi ticker of "toString" satisfies the ingest regex
+  // (`^[A-Za-z0-9._-]{1,64}$`), so this is cheap insurance, not theory.
+  const own = (m: Record<string, string> | undefined, k: string): string | undefined =>
+    m !== undefined && Object.hasOwn(m, k) ? m[k] : undefined
+
   const nameOf = (id: FactionId): string => {
     // Roster first, then the state's frozen copy, then the bare id.
-    const live = input.names?.[id]
+    const live = own(input.names, id)
     const f = state.factions.find((x) => x.id === id)
     return safeText(live ?? f?.playerName ?? id, RECAP_NAME_MAX_CHARS)
   }
   // The market's question, falling back to its id. Third-party text from
   // Kalshi, so capped and quoted rather than dropped into the sentence bare.
+  // The wrapping quotes are added AFTER safeText, which folds any quote inside
+  // the question itself -- otherwise the text could close this wrapper.
   const marketOf = (id: string): string => {
-    const q = input.marketTitles?.[id]
+    const q = own(input.marketTitles, id)
     return q === undefined
       ? safeText(id, RECAP_MARKET_MAX_CHARS)
       : `“${safeText(q, RECAP_MARKET_MAX_CHARS)}”`

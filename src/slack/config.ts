@@ -59,9 +59,15 @@ export const RECAP_NAME_MAX_CHARS = 40
 /**
  * Market questions are third-party text from Kalshi and run far longer than a
  * name -- "Will the Fed cut rates by 50bps or more at the March 2026 meeting?"
- * is 78 characters before any of the sentence around it. Capped separately
- * from RECAP_NAME_MAX_CHARS, which would mangle most of them, but still capped:
- * a settled slate could otherwise push one Markets section past
- * MAX_SECTION_CHARS on its own and truncate real lines away.
+ * is 78 characters before any of the sentence around it. Capped separately from
+ * RECAP_NAME_MAX_CHARS, which would mangle most of them.
+ *
+ * What this bounds is ONE pathological question, and that is all it can bound.
+ * It does NOT keep the Markets section inside MAX_SECTION_CHARS, which an
+ * earlier version of this comment claimed: the fixed cost of a settlement line
+ * is already ~129 characters (a 40-char name plus the sentence template), so 20
+ * lines exceed 2,900 whatever this value is -- fitting 20 would need a question
+ * cap of about 14. The section's own `…and N more` truncation is what actually
+ * holds the limit; on a busy day it renders roughly 13 lines and says so.
  */
 export const RECAP_MARKET_MAX_CHARS = 90

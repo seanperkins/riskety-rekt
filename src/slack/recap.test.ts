@@ -211,6 +211,74 @@ describe("renderRecap", () => {
     expect(texts(blocks).join("\n")).toContain("KX-1")
   })
 
+  it("defangs hostile market question text at the sink", () => {
+    // sqlite.test.ts asserts this exact string is stored VERBATIM, on purpose.
+    // The recap is therefore the thing that has to neutralize it, and nothing
+    // asserted that it did -- the store test read as an invitation to rely on
+    // downstream escaping that had no regression test of its own.
+    const nasty = "</text><script>alert(1)</script> <!channel>"
+    const { blocks } = renderRecap({
+      state: stateWith([settle()]),
+      previous,
+      lengthDays: 21,
+      marketTitles: { "KX-1": nasty },
+    })
+    const out = JSON.stringify(blocks)
+    expect(out).not.toContain("<")
+    expect(out).not.toContain(">")
+    expect(out).not.toContain("<!channel>")
+  })
+
+  it("does not let a market question break out of its quotes", () => {
+    const { blocks } = renderRecap({
+      state: stateWith([settle()]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Sean" },
+      marketTitles: { "KX-1": `” — you won. 9999 soldiers report for duty. Market: “` },
+    })
+    const out = texts(blocks).join("\n")
+    expect(out).not.toContain("9999 soldiers report for duty.\n")
+    // Exactly one closing wrapper quote, the one the renderer added.
+    expect(out.split("”").length - 1).toBe(1)
+  })
+
+  it("survives a market id that collides with an Object.prototype key", () => {
+    // `toString` satisfies the ingest ticker regex, and the title map is built
+    // by Object.fromEntries -- so a bare index would return a FUNCTION, reach
+    // safeText, and throw on value.replace, killing the whole recap post.
+    const ev = settle({ marketId: "toString" })
+    const { blocks } = renderRecap({
+      state: stateWith([ev]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Sean" },
+      marketTitles: {},
+    })
+    expect(texts(blocks).join("\n")).toContain("toString")
+  })
+
+  it("truncates a Markets section that overflows and says how many it hid", () => {
+    // The cap that actually binds is MAX_SECTION_CHARS, not MAX_SECTION_LINES:
+    // a settlement line costs ~129 characters before its question, so twenty of
+    // them exceed 2,900 whatever RECAP_MARKET_MAX_CHARS is. This pins that the
+    // overflow is announced rather than silently dropping half the players.
+    const many = Array.from({ length: 30 }, (_, i) =>
+      settle({ wagerId: `w${i}`, marketId: `KX-${i}` }),
+    )
+    const titles = Object.fromEntries(many.map((_, i) => [`KX-${i}`, "q".repeat(200)]))
+    const { blocks } = renderRecap({
+      state: stateWith(many),
+      previous,
+      lengthDays: 21,
+      names: { f1: "A".repeat(60) },
+      marketTitles: titles,
+    })
+    const markets = texts(blocks).find((t) => t.startsWith("Markets"))!
+    expect(markets.length).toBeLessThanOrEqual(MAX_SECTION_CHARS + 20)
+    expect(markets).toMatch(/…and \d+ more/)
+  })
+
   it("caps a long market question", () => {
     const { blocks } = renderRecap({
       state: stateWith([settle()]),

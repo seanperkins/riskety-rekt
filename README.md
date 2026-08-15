@@ -38,7 +38,7 @@ The pure rules engine (module-dispatched: markets, IRL and the veto are pluggabl
 mechanics, and a voted daily rule catalogue rides the same hooks), the offline
 season simulator, the Kalshi market adapter, the Slack ingress, the midnight tick
 runner, the order-entry CLI and the player web app are built and tested.
-**1,018 tests, none of which touch the network** — `test/no-network.ts` replaces
+**1,034 tests, none of which touch the network** — `test/no-network.ts` replaces
 `fetch` in every test run, so that is enforced rather than asserted.
 
 The player app is built: sign in with `/login` in Slack, act on a real map,
@@ -48,7 +48,7 @@ snowballing — see "Not built" in `CLAUDE.md`.
 
 ```bash
 npm install
-npm test          # 1,018 tests
+npm test          # 1,034 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom policy roster

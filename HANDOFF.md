@@ -41,7 +41,7 @@ thirteen rules across grant, lock and dial hooks, a three-slot daily ballot
 drawn by seeded shuffle, the 08:05 offer job with its claim-then-post ledger,
 numeral-reaction votes in `rule_reactions`, the midnight tally frozen into
 `ctx.rules`, and the bounded-swing balance gate.
-**1,018 tests passing**, none of which touch the network —
+**1,034 tests passing**, none of which touch the network —
 `test/no-network.ts` replaces `fetch` in every run, so it is enforced.
 
 **Not built:** nothing from the pluggable-mechanics spec. The catalogue now
@@ -64,7 +64,7 @@ points, multi-front capability costs 3.
 
 ```bash
 npm install
-npm test          # 1,018 tests
+npm test          # 1,034 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom roster

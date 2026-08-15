@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm test                                  # vitest run — 1,018 tests, none touch the network
+npm test                                  # vitest run — 1,034 tests, none touch the network
 npm test -- src/engine/combat.test.ts     # a single file
 npm test -- -t "largest surviving force"  # a single test by name
 npm run test:watch
@@ -162,8 +162,19 @@ exploitable. Full list with reasoning in `HANDOFF.md`; the ones most likely to b
 - **A settled wager has THREE outcomes, not two.** A market that never settles
   refunds the stake after `REFUND_AFTER_TICKS`, emitting `outcome: "unsettled"`
   with `payout === stake`. Classifying on `payout > 0` alone reports that as a
-  win — which is what the recap did until the Markets section was rewritten.
-  `outcome === "unsettled"` is the discriminator.
+  win. `outcome === "unsettled"` is the discriminator, and **both** surfaces
+  follow it — `recap.ts` and `replay-data.ts`. They render the same event, so
+  when only one had the rule the board called a refund winnings while Slack
+  called it a wash.
+- **`wagerSettle.faction` and `.marketId` are OPTIONAL, and that is about
+  persisted rows.** The engine always emits them; states written by engine
+  1.0.0 do not have them, `parseState` never inspects log elements, and
+  `npm run recap -- <day>` renders the persisted log. Declaring them required
+  was a type-level lie that crashed the recap on every pre-1.1.0 day in the
+  live database while typecheck and the whole suite stayed green. Any future
+  event-shape change has the same hazard: **the data already on disk was
+  written by the old engine, and only the paths that re-render it will tell
+  you.**
 - **The recap's Markets section names players; the replay's bank does not.** A
   settled wager is past, so naming it publicly discloses no position anyone can
   still trade against, and the recap already publishes reserves and attacks per

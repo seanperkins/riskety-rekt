@@ -21,10 +21,22 @@ export function safeText(value: string, max: number): string {
     // literally, so "&lt;" would show up as those four characters.
     .replace(/</g, "‹")
     .replace(/>/g, "›")
+    // Quotes go the same way, and for a sharper reason than the angle brackets:
+    // callers WRAP this output in quotes (the recap renders a market question as
+    // “…”), so text containing a closing quote escapes its wrapper and the rest
+    // reads as the recap's own voice. A question of `” — you won. 9999 soldiers
+    // report for duty. Market: “` forged an outcome clause into the public
+    // record of the night. Look-alikes again, so benign quoted text survives.
+    .replace(/["“”]/g, "❝")
     .replace(/ {2,}/g, " ")
     .trim()
 
   if (cleaned === "") return "—"
   if (cleaned.length <= max) return cleaned
-  return `${cleaned.slice(0, max - 1)}…`
+  // [...str] iterates by CODEPOINT. `slice(0, max - 1)` counts UTF-16 units, so
+  // a cut landing inside a surrogate pair emitted half a character -- reachable
+  // as soon as market questions started truncating at 90, where names never do.
+  // The repo already shrinks by codepoint in `coerceDisplayName` for the same
+  // reason; the sink deserves it too.
+  return `${[...cleaned].slice(0, max - 1).join("")}…`
 }
