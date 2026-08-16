@@ -145,7 +145,7 @@ export function openStore(
   Transactional {
   const db = new DatabaseSync(path)
   // WAL lets the web app, the Slack bot and the timer share one file. The
-  // likeliest thing to block the 21:00 tick is our own second process.
+  // likeliest thing to block the midnight tick is our own second process.
   db.exec("PRAGMA journal_mode = WAL")
   // The ONE layer of contention handling. Every transaction here opens with
   // BEGIN IMMEDIATE, which takes the write lock up front, and busy_timeout
@@ -202,7 +202,7 @@ export function openStore(
    * file should be able to check the gates without also doing the write.
    *
    * The clock is the deadline and the state row is the race guard: a submit at
-   * 20:59:59.9 is legal by the clock and either commits before the tick's
+   * 23:59:59.9 is legal by the clock and either commits before the tick's
    * transaction or waits behind it — and if it waits, it then sees the state row
    * rather than landing on a day that has already resolved.
    */
@@ -294,6 +294,19 @@ export function openStore(
           .prepare("SELECT 1 FROM slate_publications WHERE season_id = ? AND day = ?")
           .get(seasonId, day) !== undefined
       )
+    },
+
+    marketQuestions(seasonId: string): Record<string, string> {
+      // DISTINCT, because a market can sit on several days' slates. Two rows
+      // for one id would differ only if Kalshi reworded the question; last
+      // write wins, which is the more recent wording.
+      const rows = db
+        .prepare(
+          `SELECT DISTINCT market_id, question FROM slate_markets
+            WHERE season_id = ? ORDER BY day`,
+        )
+        .all(seasonId) as { market_id: string; question: string }[]
+      return Object.fromEntries(rows.map((r) => [r.market_id, r.question]))
     },
 
     loadSlate(seasonId: string, day: number): Market[] {
@@ -418,7 +431,7 @@ export function openStore(
 
     recordPost(post: { messageTs: string; factionId: FactionId }): void {
       // Both derived from the Slack ts, never from the write time: a post at
-      // 20:59:59 delivered at 21:00:01 still belongs to that day.
+      // 23:59:59 delivered at 00:00:01 still belongs to that day.
       const postedAt = slackTsToIso(post.messageTs)
       db.prepare(
         `INSERT INTO posts (message_ts, faction_id, posted_at, et_date, deleted)
@@ -436,7 +449,7 @@ export function openStore(
       // that counts, because approvedAt is defined as the second distinct
       // approver's reaction and a re-reaction must not move it later.
       //
-      // Stored as an ISO instant so it is directly comparable with the 21:00
+      // Stored as an ISO instant so it is directly comparable with the midnight
       // cutoff. A raw Slack ts and an ISO string compare as strings and would
       // put every reaction on the wrong side of the cutoff, silently.
       db.prepare(

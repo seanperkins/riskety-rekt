@@ -43,6 +43,6 @@ describe("engine purity", () => {
   })
 
   it("exports a version", () => {
-    expect(ENGINE_VERSION).toBe("1.0.0")
+    expect(ENGINE_VERSION).toBe("1.1.0")
   })
 })

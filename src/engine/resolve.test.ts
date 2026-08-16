@@ -33,7 +33,7 @@ describe("resolve", () => {
   it("advances the day and stamps the engine version", () => {
     const next = resolve(createSeason("s1", factions, ids), [], emptyCtx)
     expect(next.day).toBe(1)
-    expect(next.engineVersion).toBe("1.0.0")
+    expect(next.engineVersion).toBe("1.1.0")
   })
 
   it("does not mutate the input state", () => {

@@ -119,10 +119,10 @@ export function renderRules(): string {
     for everybody, with nobody moving first.</p>
 
   <h2>The tick</h2>
-  <p>Orders resolve at <strong>21:00 Eastern</strong>, once a day. Until then nothing
+  <p>Orders resolve at <strong>midnight Eastern</strong>, once a day. Until then nothing
     you save has happened yet — deploys, moves and attacks are a plan, and you can
     change them as often as you like.</p>
-  <p>At 21:00 every player's orders resolve <strong>simultaneously</strong>. There is no
+  <p>At midnight every player's orders resolve <strong>simultaneously</strong>. There is no
     turn order and no advantage to submitting early or late. You cannot see anyone
     else's plan, and they cannot see yours.</p>
   <p>Soldiers you earn tonight are spendable tonight — income arrives before your
@@ -139,7 +139,7 @@ export function renderRules(): string {
       players</strong> react 👍 it counts, and you get +1. Up to two photos a day.
       Only 👍 counts, and your own reaction never does.</li>
     <li><strong>Timing bonuses.</strong> The first person to post that day gets +1.
-      The last person to be approved before 21:00 gets +1. One bonus each, so if
+      The last person to be approved before midnight gets +1. One bonus each, so if
       you hold both ends the second goes to the next player.</li>
     <li><strong>Settled wagers.</strong> See below.</li>
   </ul>
@@ -184,7 +184,7 @@ export function renderRules(): string {
       same market would be a guaranteed profit, so it is not allowed.</li>
     <li>A wager is priced <strong>when you place it</strong>, not at the tick. Changing
       your stake re-prices it at the current odds.</li>
-    <li>Each market <strong>locks at its own close time</strong>, not at 21:00 — often
+    <li>Each market <strong>locks at its own close time</strong>, not at midnight — often
       hours earlier, and sooner still if it settles early.</li>
     <li>Your stake leaves your reserve at the tick. Winning pays it back with a
       premium; losing returns nothing.</li>
@@ -193,7 +193,7 @@ export function renderRules(): string {
   <h2>The daily rule</h2>
   <p>Every morning the bot offers three rules from the catalogue in Slack. React with
     the numeral next to the one you want. You can change your mind — your latest
-    reaction is the one that counts — and the most-voted rule is applied at 21:00
+    reaction is the one that counts — and the most-voted rule is applied at midnight
     for that night only. If nobody votes, nothing changes.</p>
 
   <h2>Being knocked out</h2>
@@ -583,9 +583,9 @@ export function renderBoard(p: Projection, now: Date = new Date()): string {
 
     <p class="note">Tap one of your territories to select it, then tap a neighbour —
       an enemy to attack it, one of yours to reinforce it. Orders save as you make
-      them and lock at 21:00, when <strong>everyone resolves at once</strong>; nobody
+      them and lock at midnight, when <strong>everyone resolves at once</strong>; nobody
       moves first.
-      <a href="/day/${esc(p.day)}">Last night</a> · <a href="/rules">How this works</a></p>
+      <a href="/day/${esc(p.resolvedDay)}">Last night</a> · <a href="/rules">How this works</a></p>
   </aside>
 </div>
 ${wagersPanel(p, now)}
@@ -677,7 +677,7 @@ function wagersPanel(p: Projection, now: Date): string {
         the same soldiers your deploys draw on.</p>
       <ul class="wagers">${rows === "" ? `<li class="hint">No slate published yet.</li>` : rows}</ul>
       <p class="note">A market locks at its close time, or as soon as its outcome is
-        public — whichever comes first. That is usually well before 21:00, so a wager
+        public — whichever comes first. That is usually well before midnight, so a wager
         is not something you can leave until the evening.</p>
     </div>
   </div>

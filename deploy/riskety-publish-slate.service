@@ -9,7 +9,7 @@ User=riskety
 WorkingDirectory=/srv/riskety-rekt
 EnvironmentFile=/etc/riskety-rekt/env
 ExecStart=/usr/bin/npm run publish-slate
-# An early failure still leaves 13 hours before the 21:00 lock, so retry.
+# An early failure still leaves 16 hours before the midnight lock, so retry.
 # Exit 2 is an operator mistake and is final — see riskety-tick.service.
 Restart=on-failure
 RestartPreventExitStatus=2

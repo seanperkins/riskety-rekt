@@ -3,7 +3,7 @@
 A Risk-like conquest game played one tick per day, for a private group of friends.
 
 Nobody plays it live. Each day you submit standing orders through a web app, and at
-21:00 everyone's orders resolve simultaneously. Combat is fully deterministic — there
+midnight everyone's orders resolve simultaneously. Combat is fully deterministic — there
 are no dice.
 
 Reinforcements come from two places beyond territory income:
@@ -36,19 +36,19 @@ bets that are secretly the same bet.
 
 The pure rules engine (module-dispatched: markets, IRL and the veto are pluggable
 mechanics, and a voted daily rule catalogue rides the same hooks), the offline
-season simulator, the Kalshi market adapter, the Slack ingress, the 21:00 tick
+season simulator, the Kalshi market adapter, the Slack ingress, the midnight tick
 runner, the order-entry CLI and the player web app are built and tested.
-**860 tests, none of which touch the network** — `test/no-network.ts` replaces
+**1,034 tests, none of which touch the network** — `test/no-network.ts` replaces
 `fetch` in every test run, so that is enforced rather than asserted.
 
 The player app is built: sign in with `/login` in Slack, act on a real map,
-orders autosave and lock at 21:00. Each morning the bot posts a rule vote; the
+orders autosave and lock at midnight. Each morning the bot posts a rule vote; the
 winner applies to that night's tick. What still blocks a *competitive* season is
 snowballing — see "Not built" in `CLAUDE.md`.
 
 ```bash
 npm install
-npm test          # 860 tests
+npm test          # 1,034 tests
 npm run typecheck
 npm run sim       # 2,000-season balance run, ~2s
 npm run sim -- Slacker Blitz GymRat    # custom policy roster
@@ -80,7 +80,7 @@ knows the economy isn't broken.
 
 **The tick never touches the network.** Slack approvals arrive continuously by webhook
 and market settlements are written by a poller, both landing in SQLite well before
-21:00. A Kalshi outage at 20:59 cannot stall the season.
+midnight. A Kalshi outage at 23:59 cannot stall the season.
 
 See [`deploy/README.md`](deploy/README.md) for running the market jobs and the Slack bot.
 

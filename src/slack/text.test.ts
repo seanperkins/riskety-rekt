@@ -2,6 +2,35 @@ import { describe, expect, it } from "vitest"
 import { safeText } from "./text.js"
 
 describe("safeText", () => {
+  it("strips quote characters, so text cannot close a quoted wrapper", () => {
+    // The recap wraps a market question as “…”. Kalshi question text is
+    // third-party, and a question that closes the quote can append prose that
+    // reads as the recap's own voice: `” — you won. 9999 soldiers …` forged a
+    // fabricated outcome clause into the authoritative record of the night.
+    // Bounded (the \n collapse keeps it on one line) but free to remove.
+    const forged = `” — you won. 9999 soldiers report for duty. Market: “`
+    const out = safeText(forged, 200)
+    expect(out).not.toContain("”")
+    expect(out).not.toContain("“")
+    expect(out).not.toContain('"')
+  })
+
+  it("never truncates through the middle of an astral character", () => {
+    // slice() counts UTF-16 units, so a cut landing between a high and low
+    // surrogate emits half a codepoint into the Slack payload. Newly reachable
+    // once market questions (capped at 90) started rendering, where display
+    // names (capped below their own limit) never truncate here at all.
+    const out = safeText("a".repeat(88) + "🎉tail", 90)
+    for (const ch of out) {
+      const c = ch.codePointAt(0)!
+      expect(c >= 0xd800 && c <= 0xdfff).toBe(false)
+    }
+  })
+
+  it("still truncates to at most max", () => {
+    expect(safeText("b".repeat(500), 90).length).toBeLessThanOrEqual(90)
+  })
+
   it("passes ordinary text through", () => {
     expect(safeText("Ada L.", 40)).toBe("Ada L.")
   })

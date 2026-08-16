@@ -33,7 +33,7 @@ function object(raw: unknown, what: string): Record<string, unknown> {
 /**
  * Unknown fields are rejected rather than ignored. A typo'd `"protects"` that
  * parsed as "no protect" would silently drop the one order a player cannot
- * resubmit after 21:00.
+ * resubmit after midnight.
  */
 function only(obj: Record<string, unknown>, allowed: string[], what: string): void {
   for (const key of Object.keys(obj)) {

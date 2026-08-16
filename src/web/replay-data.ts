@@ -106,7 +106,21 @@ export function replayFor(args: {
         if (e.amount > 0) bank.push({ faction: e.faction, text: `+${e.amount} ${e.source}` })
         break
       case "wagerSettle":
-        if (e.payout > 0) bank.push({ faction: MARKETS, text: `+${e.payout} from a market` })
+        // The same three-outcome rule the recap follows. `payout > 0` alone
+        // banked a matured refund as "+N from a market" -- a credit did happen,
+        // so the number was never wrong, but the two surfaces disagreed about
+        // the same event: Slack said "your 10 came home, no worse off" while
+        // the replay called it winnings.
+        //
+        // Still banked under MARKETS rather than `e.faction`, which the event
+        // now carries. That is deliberate: a replay is ONE viewer's projection,
+        // so banking under the faction would put every other player's settled
+        // wagers on their screen.
+        if (e.outcome === "unsettled") {
+          bank.push({ faction: MARKETS, text: `${e.payout} refunded, market never called` })
+        } else if (e.payout > 0) {
+          bank.push({ faction: MARKETS, text: `+${e.payout} from a market` })
+        }
         break
 
       case "deploy":

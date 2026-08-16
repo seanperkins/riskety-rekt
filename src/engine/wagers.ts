@@ -41,7 +41,7 @@ export function payout(stake: number, price: number): number {
  *
  * Price comes from the WAGER when it carries one — the price at the moment it
  * was placed — and from the slate otherwise. The slate is the 08:00 snapshot,
- * so using it for a wager placed at 20:59 is what made late betting on a
+ * so using it for a wager placed late in the day is what made late betting on a
  * nearly-decided market worth roughly +94% EV.
  */
 export function escrow(order: Order, slate: Market[], day: number, seq: number): PendingWager[] {
@@ -86,7 +86,15 @@ export function settleAll(
     if (outcome === "unsettled") {
       if (today - w.placedOnDay >= REFUND_AFTER_TICKS) {
         credit(w.factionId, w.stake)
-        events.push({ t: "wagerSettle", wagerId: w.wagerId, outcome, payout: w.stake, stake: w.stake })
+        events.push({
+          t: "wagerSettle",
+          wagerId: w.wagerId,
+          faction: w.factionId,
+          marketId: w.marketId,
+          outcome,
+          payout: w.stake,
+          stake: w.stake,
+        })
       } else {
         keep.push(w)
       }
@@ -95,7 +103,15 @@ export function settleAll(
 
     const amount = outcome === w.side ? payout(w.stake, w.price) : 0
     if (amount > 0) credit(w.factionId, amount)
-    events.push({ t: "wagerSettle", wagerId: w.wagerId, outcome, payout: amount, stake: w.stake })
+    events.push({
+      t: "wagerSettle",
+      wagerId: w.wagerId,
+      faction: w.factionId,
+      marketId: w.marketId,
+      outcome,
+      payout: amount,
+      stake: w.stake,
+    })
   }
 
   return { keep, credits, events }

@@ -33,6 +33,19 @@ const project = (over = {}) =>
   })
 
 describe("the projection", () => {
+  it('links "Last night" at the RESOLVED day, not the day being ordered', () => {
+    // /day/N 404s unless a state exists for N, and `p.day` is always the day
+    // being ordered for -- which by definition has not resolved. Under the
+    // 21:00 boundary the link happened to work between the tick and midnight,
+    // when currentDay still equalled the freshly-saved day; at midnight that
+    // window closed and the link 404'd every hour of every day.
+    const p = project()
+    const html = renderBoard(p)
+    expect(p.resolvedDay).toBe(state.day)
+    expect(html).toContain(`href="/day/${p.resolvedDay}"`)
+    expect(html).not.toContain(`href="/day/${p.day}"`)
+  })
+
   it("carries the viewer's own plan", () => {
     const p = project()
     expect(p.plan.deploys).toEqual([{ territory: "alaska", count: 3 }])

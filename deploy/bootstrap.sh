@@ -100,9 +100,15 @@ cat > /etc/systemd/system/riskety-backup.timer <<'UNIT'
 Description=Riskety Rekt — nightly SQLite backup
 
 [Timer]
-# 21:30, half an hour after the tick: the day is resolved and the recap posted,
-# so the snapshot is of a settled state rather than mid-season-night.
-OnCalendar=*-*-* 21:30:00
+# 00:35, half an hour after the 00:05:30 tick: the day is resolved and the recap
+# posted, so the snapshot is of a settled state rather than mid-season-night.
+#
+# This MUST move with the tick. At 21:30 under a midnight boundary it ran 2.5
+# hours BEFORE the day resolved, so it captured exactly the mid-night state the
+# comment says it avoids -- a full day of unresolved orders, wagers and
+# approvals stacked on the previous game day -- and a restore would have lost
+# the whole day's play instead of none of it.
+OnCalendar=*-*-* 00:35:00
 Persistent=true
 
 [Install]

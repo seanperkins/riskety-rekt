@@ -61,12 +61,27 @@ describe("dailyApprovals", () => {
     store.close()
   })
 
-  it("excludes an approval that landed after the 21:00 cutoff", () => {
+  it("counts an approval at 21:01, which the old cutoff threw away", () => {
+    // The boundary moved to midnight on 2026-08-15. Every evening approval
+    // between 21:00 and midnight used to be collected here and discarded.
     const store = seeded()
     const post = ts(7, 0)
     store.recordPost({ messageTs: post, factionId: "f1" })
     store.recordApproval({ messageTs: post, factionId: "f2", reactedAt: ts(20, 59) })
     store.recordApproval({ messageTs: post, factionId: "f3", reactedAt: ts(21, 1) })
+    expect(dailyApprovals(store, "s1", DAY).approvals).toHaveLength(1)
+    store.close()
+  })
+
+  it("excludes an approval that landed after midnight, on the next day", () => {
+    // The cutoff is still a cutoff — it just sits at the end of the day now. A
+    // 👍 on yesterday's workout arriving this morning must not count, or the
+    // approver filter would stop bounding anything at all.
+    const store = seeded()
+    const post = ts(7, 0)
+    store.recordPost({ messageTs: post, factionId: "f1" })
+    store.recordApproval({ messageTs: post, factionId: "f2", reactedAt: ts(23, 59) })
+    store.recordApproval({ messageTs: post, factionId: "f3", reactedAt: ts(24, 30) })
     expect(dailyApprovals(store, "s1", DAY).approvals).toEqual([])
     store.close()
   })
@@ -114,10 +129,25 @@ describe("dailyApprovals", () => {
     store.close()
   })
 
-  it("excludes a post made after the cutoff from postedToday", () => {
+  it("counts a 21:30 post — the workout that used to fall into no day at all", () => {
+    // The reason the tick moved. postsOn selects the whole ET date; the cutoff
+    // used to chop it at 21:00, so this post was stored and then belonged to
+    // nothing: not to this day, which had already read its approvals, and not
+    // to the next, whose date it does not share.
     const store = seeded()
     store.recordPost({ messageTs: ts(21, 30), factionId: "f1" })
-    expect(dailyApprovals(store, "s1", DAY).postedToday).toEqual([])
+    expect(dailyApprovals(store, "s1", DAY).postedToday).toEqual(["f1"])
+    store.close()
+  })
+
+  it("counts a 23:59 post, and gives 00:01 to the next day", () => {
+    // Every workout falls into exactly one day. The boundary is the only place
+    // the answer changes.
+    const store = seeded()
+    store.recordPost({ messageTs: ts(23, 59), factionId: "f1" })
+    store.recordPost({ messageTs: ts(24, 1), factionId: "f2" })
+    expect(dailyApprovals(store, "s1", DAY).postedToday).toEqual(["f1"])
+    expect(dailyApprovals(store, "s1", DAY + 1).postedToday).toEqual(["f2"])
     store.close()
   })
 

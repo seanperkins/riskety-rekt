@@ -94,13 +94,199 @@ describe("renderRecap", () => {
     expect(texts(blocks).join("\n")).toContain("Brazil")
   })
 
-  it("reports wager settlements", () => {
+  const settle = (over: Partial<Extract<TickEvent, { t: "wagerSettle" }>> = {}) =>
+    ({
+      t: "wagerSettle" as const,
+      wagerId: "w1",
+      faction: "f1",
+      marketId: "KX-1",
+      outcome: "yes" as const,
+      payout: 22,
+      stake: 10,
+      ...over,
+    }) satisfies Extract<TickEvent, { t: "wagerSettle" }>
+
+  it("names the player, the stake and the market on a win", () => {
     const { blocks } = renderRecap({
-      state: stateWith([{ t: "wagerSettle", wagerId: "w1", outcome: "yes", payout: 22, stake: 10 }]),
+      state: stateWith([settle()]),
       previous,
       lengthDays: 21,
+      names: { f1: "Sean" },
+      marketTitles: { "KX-1": "Will BTC close above $100k?" },
     })
-    expect(texts(blocks).join("\n")).toContain("22")
+    const out = texts(blocks).join("\n")
+    expect(out).toContain("Sean, you wagered 10 on “Will BTC close above $100k?”")
+    expect(out).toContain("you won. 22 soldiers report for duty.")
+    // The bare wagerId was the whole line before this change and means nothing
+    // to a player.
+    expect(out).not.toContain("w1")
+  })
+
+  it("sends a lost wager to the mines", () => {
+    const { blocks } = renderRecap({
+      state: stateWith([settle({ payout: 0 })]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Ricky" },
+      marketTitles: { "KX-1": "Will it rain in Seattle?" },
+    })
+    const out = texts(blocks).join("\n")
+    expect(out).toContain("Ricky, you wagered 10 on “Will it rain in Seattle?” — you lost.")
+    expect(out).toContain("working it off in the mines")
+  })
+
+  it("does NOT report a matured refund as a win", () => {
+    // The regression this section was rewritten for. A market that never
+    // settles refunds the stake after REFUND_AFTER_TICKS, and the old
+    // `payout > 0` test rendered that as "resolved unsettled — paid 10",
+    // which reads exactly like a winning wager that moved the reserve.
+    const { blocks } = renderRecap({
+      state: stateWith([settle({ outcome: "unsettled", payout: 10 })]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Dana" },
+      marketTitles: { "KX-1": "Will it snow in Miami?" },
+    })
+    const out = texts(blocks).join("\n")
+    expect(out).toContain("Dana, nobody ever called “Will it snow in Miami?”")
+    expect(out).toContain("your 10 came home, no worse off.")
+    expect(out).not.toContain("you won")
+  })
+
+  it("uses the roster name over the one frozen into the state at the deal", () => {
+    // RecapInput.names existed and documented exactly this for several
+    // releases while no caller passed it, so every recap showed the day-0
+    // name. Every Markets line carries a name, which is what made it visible.
+    const { blocks } = renderRecap({
+      state: stateWith([settle()]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Renamed" },
+      marketTitles: { "KX-1": "q" },
+    })
+    expect(texts(blocks).join("\n")).toContain("Renamed,")
+  })
+
+  it("renders a legacy 1.0.0 wagerSettle instead of crashing on it", () => {
+    // The mid-season deploy hazard. Every day resolved before engine 1.1.0 has
+    // wagerSettle events with no faction and no marketId, and `npm run recap --
+    // <day> --force` renders the PERSISTED log rather than a fresh resolve --
+    // so it fed undefined into safeText and died with `Cannot read properties
+    // of undefined (reading 'replace')`. That is the break-glass command, so it
+    // failed exactly when someone was already recovering from something else.
+    const legacy = { t: "wagerSettle", wagerId: "3-f1-0", outcome: "yes", payout: 22, stake: 10 }
+    const { blocks } = renderRecap({
+      state: stateWith([legacy as unknown as TickEvent]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Sean" },
+    })
+    const out = texts(blocks).join("\n")
+    // The wagerId is the only identity a legacy row carries, so it comes back
+    // for these lines alone -- it embeds the faction (`day-faction-seq`).
+    expect(out).toContain("3-f1-0")
+    expect(out).toContain("22")
+    expect(out).not.toContain("undefined")
+  })
+
+  it("still renders the named line for every other event in a legacy log", () => {
+    // A legacy log must not poison the whole section: one old-shape row beside
+    // a new-shape one renders both.
+    const legacy = { t: "wagerSettle", wagerId: "3-f2-0", outcome: "no", payout: 0, stake: 4 }
+    const { blocks } = renderRecap({
+      state: stateWith([settle(), legacy as unknown as TickEvent]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Sean" },
+      marketTitles: { "KX-1": "Will BTC close above $100k?" },
+    })
+    const out = texts(blocks).join("\n")
+    expect(out).toContain("Sean, you wagered 10")
+    expect(out).toContain("3-f2-0")
+  })
+
+  it("falls back to the market id when no title is supplied", () => {
+    // The simulator and the fixtures have no store to read questions from.
+    const { blocks } = renderRecap({ state: stateWith([settle()]), previous, lengthDays: 21 })
+    expect(texts(blocks).join("\n")).toContain("KX-1")
+  })
+
+  it("defangs hostile market question text at the sink", () => {
+    // sqlite.test.ts asserts this exact string is stored VERBATIM, on purpose.
+    // The recap is therefore the thing that has to neutralize it, and nothing
+    // asserted that it did -- the store test read as an invitation to rely on
+    // downstream escaping that had no regression test of its own.
+    const nasty = "</text><script>alert(1)</script> <!channel>"
+    const { blocks } = renderRecap({
+      state: stateWith([settle()]),
+      previous,
+      lengthDays: 21,
+      marketTitles: { "KX-1": nasty },
+    })
+    const out = JSON.stringify(blocks)
+    expect(out).not.toContain("<")
+    expect(out).not.toContain(">")
+    expect(out).not.toContain("<!channel>")
+  })
+
+  it("does not let a market question break out of its quotes", () => {
+    const { blocks } = renderRecap({
+      state: stateWith([settle()]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Sean" },
+      marketTitles: { "KX-1": `” — you won. 9999 soldiers report for duty. Market: “` },
+    })
+    const out = texts(blocks).join("\n")
+    expect(out).not.toContain("9999 soldiers report for duty.\n")
+    // Exactly one closing wrapper quote, the one the renderer added.
+    expect(out.split("”").length - 1).toBe(1)
+  })
+
+  it("survives a market id that collides with an Object.prototype key", () => {
+    // `toString` satisfies the ingest ticker regex, and the title map is built
+    // by Object.fromEntries -- so a bare index would return a FUNCTION, reach
+    // safeText, and throw on value.replace, killing the whole recap post.
+    const ev = settle({ marketId: "toString" })
+    const { blocks } = renderRecap({
+      state: stateWith([ev]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "Sean" },
+      marketTitles: {},
+    })
+    expect(texts(blocks).join("\n")).toContain("toString")
+  })
+
+  it("truncates a Markets section that overflows and says how many it hid", () => {
+    // The cap that actually binds is MAX_SECTION_CHARS, not MAX_SECTION_LINES:
+    // a settlement line costs ~129 characters before its question, so twenty of
+    // them exceed 2,900 whatever RECAP_MARKET_MAX_CHARS is. This pins that the
+    // overflow is announced rather than silently dropping half the players.
+    const many = Array.from({ length: 30 }, (_, i) =>
+      settle({ wagerId: `w${i}`, marketId: `KX-${i}` }),
+    )
+    const titles = Object.fromEntries(many.map((_, i) => [`KX-${i}`, "q".repeat(200)]))
+    const { blocks } = renderRecap({
+      state: stateWith(many),
+      previous,
+      lengthDays: 21,
+      names: { f1: "A".repeat(60) },
+      marketTitles: titles,
+    })
+    const markets = texts(blocks).find((t) => t.startsWith("Markets"))!
+    expect(markets.length).toBeLessThanOrEqual(MAX_SECTION_CHARS + 20)
+    expect(markets).toMatch(/…and \d+ more/)
+  })
+
+  it("caps a long market question", () => {
+    const { blocks } = renderRecap({
+      state: stateWith([settle()]),
+      previous,
+      lengthDays: 21,
+      marketTitles: { "KX-1": "q".repeat(400) },
+    })
+    expect(texts(blocks).join("\n")).not.toContain("q".repeat(200))
   })
 
   it("caps and defangs a player name", () => {

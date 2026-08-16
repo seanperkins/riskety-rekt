@@ -92,6 +92,12 @@ function describeRerunRefusal(r: RerunRefusal): string {
       return `day ${r.day} has no recorded context; pass --assemble-missing to build one from live tables`
     case "day-not-over":
       return `day ${r.day} has not finished yet`
+    case "within-grace":
+      return (
+        `day ${r.day} ended less than six minutes ago; assembling now would read ` +
+        `approvals and votes Slack may still be delivering, and the saved state ` +
+        `would make tonight's tick skip the day. Wait for the tick, or re-run after 00:06`
+      )
   }
 }
 
@@ -131,6 +137,11 @@ async function postRecapFor(
     correction,
     force,
     ...(ruleIds.length === 0 ? {} : { ruleIds }),
+    // Roster names, not the copies createSeason froze at the deal. Every
+    // Markets line names a player, so a renamed player would otherwise be
+    // addressed by a name they no longer use.
+    names: Object.fromEntries(s.roster().map((m) => [m.factionId, m.displayName])),
+    marketTitles: s.marketQuestions(seasonId),
     log,
   })
   if (out.status === "suppressed") {
@@ -406,7 +417,7 @@ try {
 } catch (err) {
   // Exit 1 so systemd's Restart=on-failure can retry. The publish job in
   // particular is worth retrying: an early failure still leaves hours before
-  // the 21:00 lock.
+  // the midnight lock.
   const operatorError = err instanceof UsageError || err instanceof ParseError
   console.error(operatorError ? (err as Error).message : err instanceof Error ? err.stack : String(err))
   // 2 for an operator mistake, 1 for a system failure worth a systemd retry.

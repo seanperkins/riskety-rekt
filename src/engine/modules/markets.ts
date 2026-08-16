@@ -35,14 +35,21 @@ export const marketsModule: Mechanic = {
   // loss contributes amount 0 but its event still logs — the recap shows
   // losing wagers today and must keep doing so.
   grant(state, ctx) {
-    const prior = marketsStateOf(state).pending
-    const byId = new Map(prior.map((w) => [w.wagerId, w]))
-    const settled = settleAll(prior, ctx.settlements, state.day + 1)
-    return settled.events.flatMap((e) => {
-      if (e.t !== "wagerSettle") return []
-      const w = byId.get(e.wagerId)!
-      return [{ faction: w.factionId, amount: e.payout, event: e }]
-    })
+    const settled = settleAll(marketsStateOf(state).pending, ctx.settlements, state.day + 1)
+    // The event carries its own faction now. This used to rebuild a wagerId ->
+    // PendingWager map purely to recover it, which is also why the recap could
+    // not name anyone.
+    //
+    // The `faction !== undefined` narrowing is a type obligation, not a real
+    // branch: these events were produced by settleAll two lines up, which sets
+    // the field on every one. It is optional on the type only because PERSISTED
+    // 1.0.0 rows lack it (see TickEvent). Nothing legacy can reach here --
+    // moduleState holds PendingWager, never events.
+    return settled.events.flatMap((e) =>
+      e.t === "wagerSettle" && e.faction !== undefined
+        ? [{ faction: e.faction, amount: e.payout, event: e }]
+        : [],
+    )
   },
 
   // Step 2 — one claim per validated wager. lockedAt is the market's slate

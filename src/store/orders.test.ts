@@ -40,11 +40,20 @@ describe("saveOrder", () => {
     store.close()
   })
 
-  it("rejects after the 21:00 deadline even with no state row", () => {
-    // The clock is the deadline. An earlier draft used a lock row alone, which
-    // silently extended editing whenever the tick ran late.
+  it("accepts an order at 21:01, in the window the old deadline refused", () => {
+    // The deadline moved to midnight on 2026-08-15. These three hours were
+    // dead: day 3 was past-deadline and day 4 unreachable, because the web
+    // endpoints pin the target to currentDay, which was still 3.
     const store = seeded()
-    expect(store.saveOrder("s1", DAY, "f1", BODY, at(21, 1))).toEqual({
+    expect(store.saveOrder("s1", DAY, "f1", BODY, at(21, 1))).toEqual({ ok: true })
+    store.close()
+  })
+
+  it("rejects after the midnight deadline even with no state row", () => {
+    // The clock is still the deadline. An earlier draft used a lock row alone,
+    // which silently extended editing whenever the tick ran late.
+    const store = seeded()
+    expect(store.saveOrder("s1", DAY, "f1", BODY, at(24, 1))).toEqual({
       ok: false,
       reason: "past-deadline",
     })

@@ -16,7 +16,7 @@ const CLOSE_FMT = new Intl.DateTimeFormat("en-US", {
  * them.
  *
  * Each market's own close time is shown because wagers lock per-market at that
- * close, not at 21:00 — players cannot plan around a window they cannot see.
+ * close, not at midnight — players cannot plan around a window they cannot see.
  */
 export function renderSlate(day: number, slate: Market[]): { text: string; blocks: Block[] } {
   const blocks: Block[] = [{ type: "header", text: plain(`Day ${day} — today's markets`) }]
@@ -43,7 +43,7 @@ export function renderSlate(day: number, slate: Market[]): { text: string; block
   blocks.push({
     type: "context",
     elements: [
-      plain("One wager per market. Wagers lock at each market's own close, not at 21:00."),
+      plain("One wager per market. Wagers lock at each market's own close, not at midnight."),
     ],
   })
 

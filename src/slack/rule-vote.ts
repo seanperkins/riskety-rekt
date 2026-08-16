@@ -1,13 +1,13 @@
 import type { RuleOfferRow, RuleReactionRow, RuleVoteStore } from "../store/types.js"
 
 /**
- * Derive the day's winning rule from RAW reaction rows, at the 21:00 tally.
+ * Derive the day's winning rule from RAW reaction rows, at the midnight tally.
  * Never stored — the frozen ctx.rules is the durable record of what won.
  *
  * The cutoff predicate is explicit and two-part: a row counts only if it is
  * present when the tick's transaction reads AND reacted_at <= tickInstant.
  * Both sides are ISO instants (slackTsToIso at write), so the comparison is
- * a plain string compare — a delayed tick must not count a 21:00:01 reaction
+ * a plain string compare — a delayed tick must not count a 00:00:01 reaction
  * just because its webhook landed before the transaction began.
  */
 export function tallyRuleVote(

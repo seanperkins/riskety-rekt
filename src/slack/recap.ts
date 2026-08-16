@@ -5,6 +5,7 @@ import {
   MAX_RECAP_BLOCKS,
   MAX_SECTION_CHARS,
   MAX_SECTION_LINES,
+  RECAP_MARKET_MAX_CHARS,
   RECAP_NAME_MAX_CHARS,
 } from "./config.js"
 import { safeText } from "./text.js"
@@ -35,6 +36,20 @@ export interface RecapInput {
    * neither should need one to render a recap.
    */
   names?: Record<FactionId, string>
+  /**
+   * Market question by id, for the Markets section.
+   *
+   * Not derivable inside the engine: a settling wager was placed on an EARLIER
+   * day, so `ctx.slate` is the wrong slate, and carrying the question across
+   * ticks in `moduleState` would inflate every frozen context to render one
+   * line. The caller passes every question published this season instead —
+   * `slate_markets` already stores them per (season, day, market), so one
+   * DISTINCT read covers the day-1 settlement and the day-2 refund alike.
+   *
+   * Optional, falling back to the bare market id, which is what keeps the
+   * fixtures and the simulator rendering without a store.
+   */
+  marketTitles?: Record<string, string>
 }
 
 /**
@@ -85,11 +100,30 @@ function titleCase(id: string): string {
 export function renderRecap(input: RecapInput): { text: string; blocks: Block[] } {
   const { state, previous, lengthDays } = input
 
+  // `Object.hasOwn` on both lookups below, not a bare index. These maps are
+  // built with Object.fromEntries and so inherit Object.prototype, where a key
+  // of "toString" or "constructor" returns a FUNCTION rather than undefined --
+  // which then reaches safeText and throws on `value.replace`, taking the whole
+  // recap post down. A Kalshi ticker of "toString" satisfies the ingest regex
+  // (`^[A-Za-z0-9._-]{1,64}$`), so this is cheap insurance, not theory.
+  const own = (m: Record<string, string> | undefined, k: string): string | undefined =>
+    m !== undefined && Object.hasOwn(m, k) ? m[k] : undefined
+
   const nameOf = (id: FactionId): string => {
     // Roster first, then the state's frozen copy, then the bare id.
-    const live = input.names?.[id]
+    const live = own(input.names, id)
     const f = state.factions.find((x) => x.id === id)
     return safeText(live ?? f?.playerName ?? id, RECAP_NAME_MAX_CHARS)
+  }
+  // The market's question, falling back to its id. Third-party text from
+  // Kalshi, so capped and quoted rather than dropped into the sentence bare.
+  // The wrapping quotes are added AFTER safeText, which folds any quote inside
+  // the question itself -- otherwise the text could close this wrapper.
+  const marketOf = (id: string): string => {
+    const q = own(input.marketTitles, id)
+    return q === undefined
+      ? safeText(id, RECAP_MARKET_MAX_CHARS)
+      : `“${safeText(q, RECAP_MARKET_MAX_CHARS)}”`
   }
   const place = (id: string) => safeText(titleCase(id), RECAP_NAME_MAX_CHARS)
 
@@ -184,16 +218,41 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
     )
   }
 
+  // Named, not anonymous. This used to print the bare wagerId — "3-f1-0" — and
+  // no stake, because the event carried no faction; it was the only section
+  // that did not name its player. A SETTLED wager is past, so naming it
+  // discloses no position anyone could still trade against, which is why this
+  // is public where the board's own wager panel is not.
   const settles = of("wagerSettle")
   if (settles.length > 0) {
     blocks.push(
       section(
         "Markets",
-        settles.map((e) =>
-          e.payout > 0
-            ? `${safeText(e.wagerId, RECAP_NAME_MAX_CHARS)} resolved ${e.outcome} — paid ${e.payout}`
-            : `${safeText(e.wagerId, RECAP_NAME_MAX_CHARS)} resolved ${e.outcome} — lost`,
-        ),
+        settles.map((e) => {
+          // A log saved by engine 1.0.0 has neither field, and `recap --force`
+          // renders persisted logs. Fall back to the wagerId, which is the only
+          // identity a legacy row carries -- and it embeds the faction, being
+          // `${day}-${factionId}-${seq}`. Anonymous, which is exactly what the
+          // section looked like when that row was written.
+          if (e.faction === undefined || e.marketId === undefined) {
+            const id = safeText(e.wagerId, RECAP_NAME_MAX_CHARS)
+            if (e.outcome === "unsettled") return `${id} — never called, ${e.stake} refunded`
+            return e.payout > 0
+              ? `${id} resolved ${e.outcome} — paid ${e.payout}`
+              : `${id} resolved ${e.outcome} — lost`
+          }
+          const who = nameOf(e.faction)
+          const what = marketOf(e.marketId)
+          // Three outcomes. Classifying on `payout > 0` alone reports a refund
+          // as a win — a matured unsettled wager pays the stake straight back.
+          if (e.outcome === "unsettled") {
+            return `${who}, nobody ever called ${what} — your ${e.stake} came home, no worse off.`
+          }
+          if (e.payout > 0) {
+            return `${who}, you wagered ${e.stake} on ${what} — you won. ${e.payout} soldiers report for duty.`
+          }
+          return `${who}, you wagered ${e.stake} on ${what} — you lost. Those soldiers are working it off in the mines.`
+        }),
       ),
     )
   }

@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = "1.0.0"
+export const ENGINE_VERSION = "1.1.0"
 
 export type FactionId = string
 export type TerritoryId = string
@@ -125,7 +125,7 @@ export interface WagerOrder {
    *
    * Absent means "use the slate's price", which is what every wager did before
    * prices moved during the day. Present is the fix for the stale-price
-   * exploit: the published slate is frozen at 08:00, so a wager placed at 20:59
+   * exploit: the published slate is frozen at 08:00, so a wager placed late
    * on a nearly-decided market used to pay at the morning's odds — roughly +94%
    * EV. Pricing at placement removes the free money without unfreezing the
    * slate, which exists so a rerun cannot re-snapshot the day.
@@ -187,8 +187,32 @@ export type TickEvent =
       defenderLost: number
       fee?: number
     }
-  /** stake retained so settlement accounting can classify win/refund/loss. */
-  | { t: "wagerSettle"; wagerId: string; outcome: Settlement; payout: number; stake: number }
+  /**
+   * stake retained so settlement accounting can classify win/refund/loss;
+   * faction and marketId so the recap can name WHO and WHICH MARKET without
+   * parsing wagerId (`${day}-${factionId}-${seq}`) or reaching back into
+   * moduleState. Three outcomes, not two: `outcome === "unsettled"` is a
+   * matured refund with payout === stake, which reads exactly like a win if
+   * classified on payout > 0 alone.
+   *
+   * **faction and marketId are OPTIONAL, and that is about persisted rows, not
+   * about the engine.** `settleAll` always sets both; every event this engine
+   * emits carries them. But states saved by engine 1.0.0 predate the fields,
+   * `parseState` checks only the top level of a loaded state and never its log
+   * elements, and `npm run recap -- <day>` renders a PERSISTED log. Declaring
+   * them required made that a type-level lie about every pre-1.1.0 row in a
+   * live database, and the recap crashed on `undefined.replace` -- reproduced,
+   * see recap.test.ts. Optional here is what forces each reader to decide.
+   */
+  | {
+      t: "wagerSettle"
+      wagerId: string
+      faction?: FactionId
+      marketId?: MarketId
+      outcome: Settlement
+      payout: number
+      stake: number
+    }
   /** ref names the order item an allocation or lock drop rejected. */
   | { t: "rejected"; faction: FactionId; field: string; reason: string; ref?: string }
 

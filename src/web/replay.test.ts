@@ -37,16 +37,52 @@ describe("replayFor", () => {
       states([
         { t: "income", faction: "f1", amount: 5 },
         { t: "irl", faction: "f1", actions: 2, bonus: 1 },
-        // No faction on the event — a settlement names the WAGER, not its
-        // owner, which is why payouts bank under "markets" rather than a
-        // player. Getting this wrong is a type error, not a wrong picture.
-        { t: "wagerSettle", wagerId: "w1", outcome: "yes", stake: 4, payout: 9 },
+        // The event carries a faction now (the recap names who won what), but
+        // the replay still banks payouts under "markets" and that is
+        // deliberate, not an oversight: a replay is one viewer's projection,
+        // so banking under e.faction would put every other player's settled
+        // wagers on their screen. See also the refund case below — the two
+        // surfaces must agree on what a matured refund is.
+        {
+          t: "wagerSettle",
+          wagerId: "w1",
+          faction: "f2",
+          marketId: "KX-1",
+          outcome: "yes",
+          stake: 4,
+          payout: 9,
+        },
       ]),
     )
     expect(r.beats).toHaveLength(0)
     expect(r.bank).toHaveLength(3)
     expect(r.bank.map((b) => b.faction)).toEqual(["f1", "f1", MARKETS])
     expect(r.bank[1]!.text).toBe("+3 workout")
+  })
+
+  it("banks a matured refund as a refund, not as winnings", () => {
+    // The recap discriminates three outcomes; this surface used to test
+    // `payout > 0` alone, so a refund (payout === stake) banked as
+    // "+N from a market". The credit was real, so no number was wrong -- but
+    // Slack said "your 4 came home, no worse off" about the same event the
+    // board called winnings.
+    const r = replayFor(
+      states([
+        {
+          t: "wagerSettle",
+          wagerId: "w1",
+          faction: "f2",
+          marketId: "KX-1",
+          outcome: "unsettled",
+          stake: 4,
+          payout: 4,
+        },
+      ]),
+    )
+    expect(r.bank).toHaveLength(1)
+    expect(r.bank[0]!.faction).toBe(MARKETS)
+    expect(r.bank[0]!.text).not.toContain("+4 from a market")
+    expect(r.bank[0]!.text).toContain("refunded")
   })
 
   it("keeps the engine's own numbers in the attack beat", () => {

@@ -3,6 +3,7 @@ import { ENGINE_VERSION } from "../engine/index.js"
 import { DEFAULT_MODULES, marketIdsOf } from "../engine/modules/index.js"
 import type { DailyContext, GameState, MarketId, Settlement } from "../engine/index.js"
 import { currentDay, tickInstant } from "../season.js"
+import { etDateAdd, etInstant } from "../time.js"
 import { dailyApprovals } from "../slack/approvals.js"
 import { dailyRuleSelection } from "../slack/rule-vote.js"
 import { UsageError } from "./flags.js"
@@ -21,6 +22,23 @@ export type RerunRefusal =
   | { reason: "no-deal" }
   | { reason: "missing-context"; day: number }
   | { reason: "day-not-over"; day: number }
+  | { reason: "within-grace"; day: number }
+
+/**
+ * How long after a day's boundary `--assemble-missing` must wait before it may
+ * read the live approval and vote tables.
+ *
+ * Mirrors the delivery grace the tick timer buys by firing at 00:05:30 while
+ * the cutoff stays frozen at 00:00. That grace only means anything if nothing
+ * else commits the day first: assembleContext reads live tables, so an operator
+ * assembling at 00:01 snapshots a table a 23:59:58-but-slow workout has not
+ * reached yet, saves the state, and the 00:05 tick then skips the day as
+ * already-run. The workout is lost with no error on any path.
+ *
+ * Deliberately a touch longer than the timer's 5m30s: the timer is when the
+ * tick STARTS, and this is the earliest a human may pre-empt it.
+ */
+const ASSEMBLE_GRACE_MS = 6 * 60_000
 
 export type RerunOutcome =
   | { status: "replayed"; days: number[]; states: { day: number; next: GameState; previous: GameState }[] }
@@ -93,11 +111,21 @@ export function runRerun(deps: RerunDeps): RerunOutcome {
 
   // Every day in the range must have a context before anything is deleted, or a
   // partial rerun would delete states it cannot rebuild. --assemble-missing is
-  // what waives this, and only for days whose 21:00 has passed -- which is what
-  // `last` already guarantees, since it stops at calendarDay - 1.
+  // what waives this, and only for days whose boundary has passed -- which is
+  // what `last` already guarantees, since it stops at calendarDay - 1.
   for (const d of days) {
-    if (store.loadTickContext(seasonId, d) === undefined && deps.assembleMissing !== true) {
-      return { status: "refused", refusal: { reason: "missing-context", day: d } }
+    if (store.loadTickContext(seasonId, d) === undefined) {
+      if (deps.assembleMissing !== true) {
+        return { status: "refused", refusal: { reason: "missing-context", day: d } }
+      }
+      // `last` stops at calendarDay - 1, which at 00:01 already includes the day
+      // that ended sixty seconds ago -- inside the delivery grace. Assembling
+      // there reads live tables a late-delivered post has not reached, and the
+      // saved state then makes the real tick skip. Recorded contexts are exempt:
+      // replaying frozen inputs reads nothing live.
+      if (now.getTime() < tickInstant(season, d).getTime() + ASSEMBLE_GRACE_MS) {
+        return { status: "refused", refusal: { reason: "within-grace", day: d } }
+      }
     }
   }
 
@@ -165,15 +193,23 @@ export function runRerun(deps: RerunDeps): RerunOutcome {
  * pluggable-mechanics change, each from an authoritative, deterministic
  * source — anything else missing still refuses loudly downstream:
  *
- * - tickInstant: the calendar computation the original tick performed. The
- *   season row's startDate is immutable (insertSeason is insert-only), so
- *   this reproduces the historical instant exactly.
+ * - tickInstant: the LEGACY 21:00 computation, never the live tickInstant().
+ *   A row missing this field predates the midnight boundary by definition —
+ *   every context written since the pluggable-mechanics change carries it —
+ *   so 21:00 is unconditionally correct for it. Calling tickInstant() here
+ *   would replay a historical day at midnight when the original tick used
+ *   21:00, and rerun saves the synthesized context back, freezing the wrong
+ *   instant permanently. Exactly the hazard the modules literal below exists
+ *   for. The season row's startDate is immutable (insertSeason is
+ *   insert-only), so this reproduces the historical instant exactly.
  * - modules: the LITERAL all-three. NEVER the season row — this spec makes
  *   the row mutable, and rerun saves the synthesized context back via
  *   saveTickContext, so a season-row read would launder a mid-season module
  *   change into a permanently frozen pre-change record.
  * - rules: [] — no rules existed before this change.
  */
+const LEGACY_TICK_HOUR = 21
+
 function backfillContext(
   frozen: DailyContext,
   season: { startDate: string; lengthDays: number; seasonId: string },
@@ -182,7 +218,9 @@ function backfillContext(
   if (frozen.tickInstant !== undefined && frozen.modules !== undefined) return frozen
   return {
     ...frozen,
-    tickInstant: frozen.tickInstant ?? tickInstant(season, day).toISOString(),
+    tickInstant:
+      frozen.tickInstant ??
+      etInstant(etDateAdd(season.startDate, day), LEGACY_TICK_HOUR).toISOString(),
     modules: frozen.modules ?? ["markets", "irl", "veto"],
     rules: frozen.rules ?? [],
   }

@@ -3,7 +3,7 @@
 # Engine (`src/engine/`)
 
 Pure. Zero imports outside the folder, no I/O, no clock, no randomness, input
-state never mutated. `ENGINE_VERSION = "1.0.0"`. Barrel: `index.ts`.
+state never mutated. `ENGINE_VERSION = "1.1.0"`. Barrel: `index.ts`.
 
 ## The tick
 
@@ -32,8 +32,11 @@ Why this order (all panel-reviewed, all pinned by tests):
   garrisons; a deploy dropped after validation leaves an attack legal for
   troops that never arrived (phantom troops).
 - **Seniority is the deploy-inflation fix**: a wager locks at its market's
-  close (strictly < tick, pinned `WINDOW_CLOSE_HOUR === TICK_HOUR` in
-  `config.test.ts`), so a 20:59 deploy can no longer evict a locked wager.
+  close (strictly < tick; `WINDOW_CLOSE_HOUR = 21 < 24` since the boundary
+  moved to midnight). The property itself is asserted in `season.test.ts`
+  (`etInstant(date, WINDOW_CLOSE_HOUR) < tickInstant(season, day)`);
+  `config.test.ts` only bounds the constant. So a late deploy can no longer
+  evict a locked wager.
 - **Locks before caps**: a voided attack must not crowd out a valid one.
 - Malformed hook returns (negative/fractional amount, unknown faction,
   unparseable `lockedAt`) THROW — the tick refuses.
@@ -146,7 +149,8 @@ payout(stake, price) = round(stake / clamp(price) * 1.1)     // round, not floor
 ```
 
 Settlement is **credit-only** (the stake left at escrow); unsettled ≥2 ticks
-refunds; `wagerSettle` events carry `stake` so accounting can classify
+refunds; `wagerSettle` events carry `stake`, `faction` and `marketId` so the
+recap can name who/which and accounting can classify
 win (`payout − stake` created) / refund (net zero) / loss (`stake` destroyed).
 Price comes from the WAGER when present (placement price), else the slate.
 

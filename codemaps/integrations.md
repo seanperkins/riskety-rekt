@@ -3,7 +3,7 @@
 # Integrations — Kalshi and Slack
 
 The only two places the process speaks to a network, and both are cached to
-SQLite well before the 21:00 tick. Both sides are gated by `season.modules`:
+SQLite well before the midnight tick. Both sides are gated by `season.modules`:
 with `markets` off the slate job and both pollers skip (exit 0) without a
 network call; with `irl` off the approval flow is never invoked.
 
@@ -102,7 +102,7 @@ Everything else is pure, which is what keeps the suite offline.
 | `recap.ts` | `renderRecap(input)` → `{ text, blocks }`; `ruleIds` renders "Rule in force" |
 | `announce.ts` | `renderSlate(day, slate)` → `{ text, blocks }` |
 | `offer.ts` | `renderRuleOffer(day, offers, {supersedes})` — the numeral ballot |
-| `rule-vote.ts` | `tallyRuleVote` (pure), `dailyRuleSelection` — derived at the 21:00 tick |
+| `rule-vote.ts` | `tallyRuleVote` (pure), `dailyRuleSelection` — derived at the midnight tick |
 | `login.ts` | the `/login` slash command → hashed magic link DM (web session entry) |
 | `post.ts` | `createPoster(env, client?)` → `Poster` |
 | `text.ts` | `safeText(value, max)` |
@@ -157,14 +157,16 @@ it a player with a skin tone set never approves anything.
 ### Approval derivation
 
 `dailyApprovals` reads posts on `etDateAdd(season.startDate, day)`, keeps those
-with `postedAt <= etInstant(date, TICK_HOUR)`, and for each takes approvers
+with `postedAt <= tickInstant(season, day)` (midnight ending the day, so the
+cutoff and the ET date `postsOn` selects describe the same window), and for
+each takes approvers
 excluding the poster's own faction and past the cutoff. The **second** approver's
 `reactedAt` becomes `approvedAt`; `eventId` is the post's own `message_ts` (stable,
 unlike a reaction's `event_ts`, which moves when an approval is removed and
 re-added). `postedToday` is the distinct set of posting factions, sorted.
 
 Everything filters on Slack timestamps, never on database write time: a reaction
-at 20:59:59 delivered at 21:00:01 must still count, or an eliminated player's
+at 23:59:59 delivered at 00:00:01 must still count, or an eliminated player's
 veto silently evaporates.
 
 The self-approval check runs twice — at ingest and again here — to catch a row
@@ -181,11 +183,11 @@ battles reads exactly like a quiet day. `correction: true` marks a re-run tick
 visibly instead of posting a silent second recap.
 
 `renderSlate` shows whole-cent prices and each market's own close time, because
-wagers lock per-market at that close, not at 21:00. An empty slate posts "the day
+wagers lock per-market at that close, not at midnight. An empty slate posts "the day
 runs as plain Risk."
 
 `renderRuleOffer` numbers candidates `:one:`…`:nine:` and states the vote rules
-in the message itself (latest reaction counts, remove to un-vote, tally at 9pm).
+in the message itself (latest reaction counts, remove to un-vote, tally at midnight).
 A recap renders `ruleIds` as name + description — an id the catalogue no longer
 knows renders bare rather than throwing, so frozen history outlives an edit.
 

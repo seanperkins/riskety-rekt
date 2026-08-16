@@ -4,7 +4,6 @@ import {
   MIN_FACTIONS,
   MIN_TERRITORIES_PER_FACTION,
 } from "./config.js"
-import { TICK_HOUR } from "./slack/config.js"
 import { etDate, etDateAdd, etDaysBetween, etInstant } from "./time.js"
 import type { SeasonRow } from "./store/types.js"
 
@@ -27,13 +26,24 @@ export function currentDay(season: SeasonRow, now: Date): number {
 }
 
 /**
- * The 21:00 America/New_York instant of a season day — the order deadline.
+ * The America/New_York midnight that ENDS a season day — the order deadline,
+ * the approval cutoff and the instant `currentDay` rolls to `day + 1`, all one.
+ *
+ * Note the `day + 1`. Day N is the ET date `startDate + N`, so the midnight
+ * that ends it is hour 0 of the FOLLOWING date. Reading this as hour 0 of
+ * `startDate + N` puts the deadline before the day it closes, which is the
+ * off-by-one that breaks the whole clock. That is also why there is no
+ * TICK_HOUR constant any more: the boundary is a day offset, not an hour, and
+ * a `TICK_HOUR = 0` sitting here would invite exactly the wrong reading.
  *
  * Goes through `etInstant` rather than adding hours, so a season spanning a DST
- * transition still locks at 21:00 wall-clock on both sides of it.
+ * transition still lands on midnight wall-clock on both sides of it.
+ *
+ * Before 2026-08-15 this was 21:00 on `startDate + day`. Frozen contexts from
+ * that era must NOT be replayed through this function — see `backfillContext`.
  */
 export function tickInstant(season: SeasonRow, day: number): Date {
-  return etInstant(etDateAdd(season.startDate, day), TICK_HOUR)
+  return etInstant(etDateAdd(season.startDate, day + 1), 0)
 }
 
 /**

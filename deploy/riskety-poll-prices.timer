@@ -3,7 +3,9 @@ Description=Riskety Rekt — price refresh, every 30 minutes
 
 [Timer]
 # Offset from the settlement poller at *:00/30 so the two do not contend for
-# the write lock, and clear of the 21:00:30 tick.
+# the write lock. NOTE: at *:15/30 it no longer straddles the tick, which moved
+# to 00:05:30 -- the *:00/30 settlement poller does. That contention is handled
+# by the poller's transactional write loop, not by this offset.
 OnCalendar=*:15/30
 Persistent=false
 

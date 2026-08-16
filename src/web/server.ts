@@ -209,8 +209,8 @@ export function createWebServer(deps: WebDeps): Server {
 
     // Which day has resolved. The board polls it after the tick instant so it
     // can reload itself once the night has actually landed — a page left open
-    // through 21:00 otherwise shows yesterday's map indefinitely, and the
-    // countdown reaching zero is NOT the signal: the tick fires at 21:00:30 and
+    // through midnight otherwise shows yesterday's map indefinitely, and the
+    // countdown reaching zero is NOT the signal: the tick fires at 00:05 and
     // takes a moment, so reloading on the countdown races it and reloads into
     // the same stale board.
     //
@@ -529,7 +529,7 @@ function saveName(
  * Place or change one wager.
  *
  * A separate endpoint from /api/plan, because a wager is not part of the plan:
- * deploys and attacks stay editable until 21:00, while a wager locks at its own
+ * deploys and attacks stay editable until midnight, while a wager locks at its own
  * market's close time -- often hours earlier. Folding them together would give
  * one save button two different deadlines.
  *

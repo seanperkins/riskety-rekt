@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { checkDeal, currentDay, tickInstant } from "./season.js"
-import { etDate, etDaysBetween } from "./time.js"
+import { WINDOW_CLOSE_HOUR } from "./config.js"
+import { etDate, etDateAdd, etDaysBetween, etInstant } from "./time.js"
 import type { SeasonRow } from "./store/types.js"
 
 const SEASON: SeasonRow = { seasonId: "s1", startDate: "2026-09-01", lengthDays: 14 }
@@ -13,7 +14,8 @@ describe("currentDay", () => {
 
   it("reads the ET calendar date, not the UTC one", () => {
     // 01:30Z on Sep 3 is 21:30 ET on Sep 2 — day 1, not day 2. This is the
-    // classic off-by-one-day bug, and the tick runs at 21:00 ET, right on it.
+    // classic off-by-one-day bug: 21:30 ET is inside the ET day but a UTC read
+    // would call it the next one.
     expect(currentDay(SEASON, new Date("2026-09-03T01:30:00Z"))).toBe(1)
   })
 
@@ -33,18 +35,59 @@ describe("currentDay", () => {
 })
 
 describe("tickInstant", () => {
-  it("is 21:00 ET on that season day", () => {
-    // Day 3 of a Sep 1 season is Sep 4; 21:00 EDT is 01:00Z on Sep 5.
-    expect(tickInstant(SEASON, 3).toISOString()).toBe("2026-09-05T01:00:00.000Z")
+  it("is midnight ET ENDING that season day, not starting it", () => {
+    // Day 3 of a Sep 1 season is Sep 4, so its boundary is midnight on Sep 5 —
+    // 04:00Z at EDT. The off-by-one that breaks everything is reading this as
+    // midnight STARTING day 3, which would put the deadline before the day.
+    expect(tickInstant(SEASON, 3).toISOString()).toBe("2026-09-05T04:00:00.000Z")
+  })
+
+  it("is the instant currentDay rolls to the next day", () => {
+    // The whole point of the change: the deadline and the rollover are one
+    // instant. A millisecond before, it is still day 3; at it, day 4.
+    const boundary = tickInstant(SEASON, 3)
+    expect(currentDay(SEASON, new Date(boundary.getTime() - 1))).toBe(3)
+    expect(currentDay(SEASON, boundary)).toBe(4)
+  })
+
+  it("keeps every wager claim strictly senior to a deploy", () => {
+    // THE invariant, asserted directly instead of through a proxy. config.test
+    // used to pin `WINDOW_CLOSE_HOUR === TICK_HOUR`, which was a LINK between
+    // the slate window and the tick's clock: it failed if either side moved.
+    // Replacing it with a bound on one constant left nothing tying the two
+    // together, and this is the property both were standing in for -- a wager
+    // claim locks at its market's close, a deploy at tickInstant, and the
+    // earlier-locked commitment is senior. If they ever tie, the
+    // deploy-inflation exploit reopens.
+    for (const day of [0, 3, 60, 61]) {
+      const date = etDateAdd(SEASON.startDate, day)
+      expect(etInstant(date, WINDOW_CLOSE_HOUR).getTime()).toBeLessThan(
+        tickInstant(SEASON, day).getTime(),
+      )
+    }
+  })
+
+  it("resolves midnight on both 2026 DST transitions", () => {
+    // The whole change turns on hour 0 existing. US transitions are at 02:00,
+    // so midnight is neither skipped in March nor repeated in November -- but
+    // only the November case was pinned, and spring-forward is the direction
+    // that would delete an instant rather than duplicate one.
+    const spring: SeasonRow = { ...SEASON, startDate: "2026-03-07", lengthDays: 5 }
+    expect(tickInstant(spring, 0).toISOString()).toBe("2026-03-08T05:00:00.000Z")
+    expect(tickInstant(spring, 1).toISOString()).toBe("2026-03-09T04:00:00.000Z")
+    // Day 1 is the 23-hour day; the boundary still lands on midnight wall-clock.
+    expect(currentDay(spring, new Date(tickInstant(spring, 1).getTime() - 1))).toBe(1)
+    expect(currentDay(spring, tickInstant(spring, 1))).toBe(2)
   })
 
   it("tracks the DST offset rather than a fixed one", () => {
-    // DST ends Nov 1 in 2026. Day 60 is Oct 31 (EDT, -04:00) and day 61 is
-    // Nov 1 (EST, -05:00), so 21:00 wall-clock lands an hour apart in UTC.
-    // Adding hours to a start instant instead would drift the deadline.
+    // DST ends Nov 1 in 2026. Day 59 ends at midnight opening Oct 31 (EDT,
+    // -04:00) and day 60 ends at midnight opening Nov 1 — still EDT, since the
+    // transition is at 02:00. Day 61 ends at midnight opening Nov 2, by which
+    // time EST (-05:00) applies. Adding hours to a start instant would drift.
     const winter: SeasonRow = { ...SEASON, lengthDays: 90 }
-    expect(tickInstant(winter, 60).toISOString()).toBe("2026-11-01T01:00:00.000Z")
-    expect(tickInstant(winter, 61).toISOString()).toBe("2026-11-02T02:00:00.000Z")
+    expect(tickInstant(winter, 60).toISOString()).toBe("2026-11-01T04:00:00.000Z")
+    expect(tickInstant(winter, 61).toISOString()).toBe("2026-11-02T05:00:00.000Z")
   })
 })
 

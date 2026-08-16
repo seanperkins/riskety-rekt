@@ -17,7 +17,7 @@ export interface PollDeps {
 }
 
 /**
- * The 30-minute job. Writes resolved outcomes to the database so the 21:00 tick
+ * The 30-minute job. Writes resolved outcomes to the database so the midnight tick
  * can read settlements locally and never touch the network.
  *
  * Never throws. A Kalshi outage leaves markets unsettled, the next run retries,
@@ -53,7 +53,7 @@ export async function runPollSettlements(deps: PollDeps): Promise<PollResult> {
   // permanently authoritative for the day, including on every later replay.
   //
   // The network call is deliberately OUTSIDE: holding the write lock across an
-  // HTTP request would let a slow Kalshi response block the 21:00 tick, which
+  // HTTP request would let a slow Kalshi response block the midnight tick, which
   // is the exact coupling this job exists to prevent.
   const recorded = store.transaction(() => {
     let n = 0
