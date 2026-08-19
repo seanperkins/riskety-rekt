@@ -56,6 +56,31 @@ describe("renderRecap", () => {
     expect(serialized).not.toContain("<!channel>")
   })
 
+  it("defangs URLs in the fallback only", () => {
+    const payload = renderRecap({
+      state: stateWith([settle({})]),
+      previous,
+      lengthDays: 21,
+      marketTitles: { "KX-1": "Visit https://kalshi.com/foo" },
+    })
+    const markets = texts(payload.blocks).find((text) => text.startsWith("*Markets*"))!
+    expect(markets).toContain("https://kalshi.com/foo")
+    expect(payload.text).not.toContain("://")
+  })
+
+  it("keeps backtick runs inside fenced tables", () => {
+    const hostile: Faction[] = [{ id: "f1", playerName: "Name ``` <!channel>", color: "#f00" }]
+    const payload = renderRecap({
+      state: { ...stateWith([settle({})]), factions: hostile },
+      previous,
+      lengthDays: 21,
+      marketTitles: { "KX-1": "Question ``` <!channel>" },
+    })
+    const markets = texts(payload.blocks).find((text) => text.startsWith("*Markets*"))!
+    expect(markets.split("\n").filter((line) => line === "```")).toHaveLength(2)
+    expect(markets).not.toContain("<!channel>")
+  })
+
   it("reports a capture with both players named", () => {
     const { blocks } = renderRecap({
       state: stateWith([
@@ -168,13 +193,14 @@ describe("renderRecap", () => {
       ]),
       previous,
       lengthDays: 21,
-      names: { f1: "A", f2: "Long name" },
+      names: { f1: "A1️⃣𠀀", f2: "Long name" },
     })
     const reinforcement = blocks.find(
       (block): block is Extract<Block, { type: "section" }> => block.type === "section" && block.text.text.startsWith("*Reinforcements*"),
     )
     expect(reinforcement).toBeDefined()
-    expect(reinforcement?.text.text).toMatch(/A +\+6 income\nLong name +\+9 income/)
+    expect(reinforcement?.text.text.split("\n")).toContain("A1️⃣𠀀      +6 income")
+    expect(reinforcement?.text.text.split("\n")).toContain("Long name  +9 income")
   })
 
   it("renders standings column headers", () => {
@@ -374,10 +400,6 @@ describe("renderRecap", () => {
   })
 
   it("truncates a Markets section that overflows and says how many it hid", () => {
-    // The cap that actually binds is MAX_SECTION_CHARS, not MAX_SECTION_LINES:
-    // a settlement line costs ~129 characters before its question, so twenty of
-    // them exceed 2,900 whatever RECAP_MARKET_MAX_CHARS is. This pins that the
-    // overflow is announced rather than silently dropping half the players.
     const many = Array.from({ length: 30 }, (_, i) =>
       settle({ wagerId: `w${i}`, marketId: `KX-${i}` }),
     )
@@ -390,8 +412,12 @@ describe("renderRecap", () => {
       marketTitles: titles,
     })
     const markets = texts(blocks).find((t) => t.startsWith("*Markets*"))!
-    expect(markets.length).toBeLessThanOrEqual(MAX_SECTION_CHARS + 20)
-    expect(markets).toMatch(/…and \d+ more/)
+    const lines = markets.split("\n")
+    const rows = lines.slice(2, -1)
+    const marker = rows.at(-1)!.match(/^…and (\d+) more$/)!
+    expect(Number(marker[1])).toBe(30 - (rows.length - 2))
+    expect(rows.length).toBeLessThanOrEqual(20)
+    expect(markets.length).toBeLessThanOrEqual(3000)
   })
 
   it("caps a long market question", () => {
@@ -436,9 +462,16 @@ describe("renderRecap", () => {
       defenderLost: 0,
       captured: false,
     }))
-    const { blocks } = renderRecap({ state: stateWith(busy), previous, lengthDays: 21 })
+    const { blocks, text } = renderRecap({ state: stateWith(busy), previous, lengthDays: 21 })
     expect(blocks.length).toBeLessThanOrEqual(MAX_RECAP_BLOCKS)
-    for (const t of texts(blocks)) expect(t.length).toBeLessThanOrEqual(MAX_SECTION_CHARS)
+    expect(text.length).toBeLessThan(10000)
+    expect(text).toContain("…and 282 more")
+    for (const section of texts(blocks).filter((t) => t.startsWith("*"))) {
+      expect(section.length).toBeLessThanOrEqual(3000)
+      expect(section.split("\n").length).toBeLessThanOrEqual(23)
+      const fenceRows = section.split("\n").slice(2, -1)
+      expect(fenceRows.length).toBeLessThanOrEqual(20)
+    }
   })
 
   it("says how many lines it dropped rather than truncating silently", () => {
