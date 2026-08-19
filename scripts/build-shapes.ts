@@ -23,7 +23,7 @@
 import { createRequire } from "node:module"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { COORDS } from "../src/map/coords.js"
-import { WORLD } from "../src/map/world.js"
+import { SEA_LINKS, WORLD } from "../src/map/world.js"
 import { ALIASES, MERGES, PARENTS } from "./shape-map.js"
 
 const require_ = createRequire(import.meta.url)
@@ -897,12 +897,25 @@ function seamContact(a: string, b: string): { hits: number; span: number } {
   return { hits, span }
 }
 
-let seams = 0
+/**
+ * Seam-recovered pairs, kept separately so the heuristic half of adjacency can
+ * be reviewed on its own — and so a test can assert what it must never do.
+ *
+ * A seam is a hairline between two datasets drawing the same border. A STRAIT is
+ * water, and 0.1 degrees is 11km at the equator, so the Strait of Messina at 3km
+ * would qualify on distance alone. Anything already listed as a sea crossing is
+ * therefore excluded here: those pairs are adjacent regardless, through
+ * SEA_LINKS, and letting the heuristic claim them as LAND would put invented
+ * water crossings into the generated table where nobody reviews them.
+ */
+const seamPairs: [string, string][] = []
+const seaLinked = new Set(SEA_LINKS.map(([a, b]) => (a < b ? `${a}|${b}` : `${b}|${a}`)))
 for (let i = 0; i < ids.length; i++) {
   for (let j = i + 1; j < ids.length; j++) {
     const a = ids[i]!
     const b = ids[j]!
     if (landBorders[a]!.includes(b)) continue
+    if (seaLinked.has(a < b ? `${a}|${b}` : `${b}|${a}`)) continue
     // Cheap reject first: the pairwise vertex walk below is the expensive part,
     // and two territories 25 degrees apart cannot share a hairline seam.
     const ca = COORDS[a]
@@ -916,7 +929,7 @@ for (let i = 0; i < ids.length; i++) {
     const span = Math.max(contact.span, back.span)
     if (hits < SEAM_MIN_VERTICES || span <= 0) continue
     link(a, b)
-    seams++
+    seamPairs.push([a, b])
   }
 }
 
@@ -1071,17 +1084,37 @@ const adjacency = `import type { TerritoryId } from "../engine/index.js"
  *
  * - **A corner touch is not a border.** A junction ends an arc instead of
  *   sharing one, so territories meeting at a point are not neighbours.
- * - **Sea crossings are absent by construction.** There is no shared edge to
- *   find, so every water link stays hand-authored in \`SEA_LINKS\` in
- *   \`world.ts\`, with a named strait per entry.
+ * - **A shared arc can cross water.** Natural Earth's admin-1 boundaries meet
+ *   mid-strait in places, so Ceuta gives Andalusia a real land border with
+ *   Morocco and Northern Ireland gives Ireland one with its UK neighbour. Those
+ *   pairs are ALSO listed in \`SEA_LINKS\`; \`world.ts\` joins the two and
+ *   de-duplicates. What is never derived is a crossing with no shared edge.
  *
  * ${Object.keys(landBorders).length} territories, ${pairs.toLocaleString()} land borders.
  */
 export const LAND_BORDERS: Record<TerritoryId, TerritoryId[]> = ${JSON.stringify(landBorders)}
+
+/**
+ * The subset of \`LAND_BORDERS\` recovered by the 0.1° SEAM rule rather than by a
+ * shared arc — the heuristic half, exported so it can be reviewed and tested on
+ * its own.
+ *
+ * A seam is one border drawn twice by two datasets, which happens where a
+ * Voronoi-carved shape meets an admin-1 one. Pairs already listed in
+ * \`SEA_LINKS\` are excluded from the rule: 0.1° is 11 km at the equator, so a
+ * narrow strait would otherwise qualify on distance alone and the generated
+ * table would claim an unreviewed water crossing as land.
+ *
+ * ${seamPairs.length} pairs.
+ */
+export const SEAM_BORDERS: readonly (readonly [TerritoryId, TerritoryId])[] = ${JSON.stringify(seamPairs)}
 `
 
 writeFileSync(new URL("../src/map/adjacency.ts", import.meta.url), adjacency)
 
 console.log(`src/map/shapes.ts — ${Object.keys(shapes).length} territories, ${points.toLocaleString()} points, ${(body.length / 1024).toFixed(0)} KB`)
 console.log(`src/map/adjacency.ts — ${Object.keys(landBorders).length} territories, ${pairs.toLocaleString()} land borders`)
+console.log(
+  `  seam-recovered (${seamPairs.length}): ${seamPairs.map(([a, b]) => `${a}|${b}`).join(", ")}`,
+)
 if (report.length > 0) console.log(`EMPTY (${report.length}): ${report.join(", ")}`)

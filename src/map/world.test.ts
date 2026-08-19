@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { REGION_MAX, REGION_MIN } from "../config.js"
 import { readFileSync } from "node:fs"
 import { COORDS } from "./coords.js"
+import { SEAM_BORDERS } from "./adjacency.js"
 import { SHAPES } from "./shapes.js"
 import { validateMap } from "./validate.js"
 import { WORLD } from "./world.js"
@@ -148,6 +149,27 @@ describe("WORLD", () => {
         expect(shapeGap(t.id, n), `${key} is a land border but the shapes are far apart`).toBeLessThan(6)
       }
     }
+  })
+
+  it("never lets the seam rule claim a water crossing", () => {
+    // Adjacency has two halves. Shared arcs are a geometric fact and may cross
+    // water where the source data's boundaries meet mid-strait: Ceuta gives
+    // Andalusia a real land border with Morocco, Northern Ireland gives Ireland
+    // one, and the Kanmon and Tsugaru straits are drawn closed. Those pairs are
+    // in SEA_LINKS too, and world.ts de-duplicates.
+    //
+    // The SEAM half is a 0.1-degree heuristic for one border drawn twice by two
+    // datasets, and 0.1 degrees is 11km at the equator -- the Strait of Messina
+    // is 3km. Six documented crossings clear that bar on distance alone
+    // (ireland|wales, ireland|scotland, sicily|apulia, kyushu|honshu,
+    // honshu|hokkaido, sulawesi|new_guinea), so the generator excludes every
+    // SEA_LINKS pair from the rule. A heuristic must never be the thing that
+    // says water is land.
+    for (const [a, b] of SEAM_BORDERS) {
+      expect(SEA_LINKS.has([a, b].sort().join("|")), `${a}|${b} is a sea link`).toBe(false)
+    }
+    // And it stays a small, reviewable set rather than a second source of truth.
+    expect(SEAM_BORDERS.length).toBeLessThan(20)
   })
 
   it("keeps every SEA link short, since those are the hand-authored ones", () => {
