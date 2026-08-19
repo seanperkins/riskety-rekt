@@ -79,7 +79,10 @@ type LayerCall = {
 }
 
 /** The smallest Leaflet that lets the client run to completion. */
-function fakeLeaflet(log: LayerCall[] = []): Record<string, unknown> {
+function fakeLeaflet(
+  log: LayerCall[] = [],
+  mapOpts: Record<string, unknown>[] = [],
+): Record<string, unknown> {
   const layer = (kind: string) => (latlngs: unknown, opts: Record<string, unknown> = {}) => {
     const handlers = new Map<string, () => void>()
     const call: LayerCall = {
@@ -129,35 +132,42 @@ function fakeLeaflet(log: LayerCall[] = []): Record<string, unknown> {
   })
   const pane = (): Record<string, unknown> => ({ style: {} })
   return {
-    map: () => ({
-      options: {},
-      createPane: () => pane(),
-      getPane: () => pane(),
-      on() {
-        return this
-      },
-      fitBounds() {
-        return this
-      },
-      flyToBounds() {
-        return this
-      },
-      setView() {
-        return this
-      },
-      removeLayer() {
-        return this
-      },
-      addLayer() {
-        return this
-      },
-      getZoom: () => 4,
-      // A crude equirectangular stand-in rather than a constant point. The
-      // arrowheads take their bearing through this call, and a projection that
-      // maps every coordinate to the origin makes every bearing zero -- which
-      // is indistinguishable from a head that never got one.
-      latLngToLayerPoint: (ll: [number, number]) => ({ x: ll[1] * 8, y: -ll[0] * 8 }),
-    }),
+    // The options are RECORDED rather than swallowed. Two of them carry meaning
+    // the client cannot express anywhere else: doubleClickZoom off is what stops
+    // a fast second tap zooming instead of deploying, and zoomSnap is mutated on
+    // this very object once the opening fit is done.
+    map: (_id: string, opts: Record<string, unknown> = {}) => {
+      mapOpts.push(opts)
+      return {
+        options: opts,
+        createPane: () => pane(),
+        getPane: () => pane(),
+        on() {
+          return this
+        },
+        fitBounds() {
+          return this
+        },
+        flyToBounds() {
+          return this
+        },
+        setView() {
+          return this
+        },
+        removeLayer() {
+          return this
+        },
+        addLayer() {
+          return this
+        },
+        getZoom: () => 4,
+        // A crude equirectangular stand-in rather than a constant point. The
+        // arrowheads take their bearing through this call, and a projection that
+        // maps every coordinate to the origin makes every bearing zero -- which
+        // is indistinguishable from a head that never got one.
+        latLngToLayerPoint: (ll: [number, number]) => ({ x: ll[1] * 8, y: -ll[0] * 8 }),
+      }
+    },
     polygon: layer("polygon"),
     polyline: layer("polyline"),
     marker: layer("marker"),
@@ -205,6 +215,8 @@ type Harness = {
   winEvents: string[]
   P: Projection
   log: LayerCall[]
+  /** The options each `L.map(...)` was constructed with, in call order. */
+  mapOpts: Record<string, unknown>[]
   ran: () => void
 }
 
@@ -277,10 +289,11 @@ function harness(map: GameMap = RISK_MAP): Harness {
     "fetch",
   ]
   const log: LayerCall[] = []
+  const mapOpts: Record<string, unknown>[] = []
   const values = [
     win,
     doc,
-    fakeLeaflet(log),
+    fakeLeaflet(log, mapOpts),
     { search: "" },
     URLSearchParams,
     () => 0,
@@ -297,6 +310,7 @@ function harness(map: GameMap = RISK_MAP): Harness {
     winEvents,
     P,
     log,
+    mapOpts,
     ran: () => run(...values),
   }
 }
@@ -305,6 +319,18 @@ describe("the client script", () => {
   it("parses", () => {
     // A stray backtick in a comment silently ends the template literal.
     expect(() => new Function("window", "document", "L", CLIENT)).not.toThrow()
+  })
+
+  it("builds the map with double-click zoom OFF", () => {
+    // The board's gesture is tap-to-select then tap-again-to-deploy, so a fast
+    // pair of taps is the normal way to place two soldiers -- and to the browser
+    // it is also a double click. With Leaflet's default on, every quick pair
+    // deployed AND flew the map half a zoom level in under the finger: measured
+    // in Chrome, two taps 700ms apart left a province at 64px while the same
+    // pair 60ms apart took it to 86px.
+    const h = harness()
+    h.ran()
+    expect(h.mapOpts[0]?.doubleClickZoom).toBe(false)
   })
 
   it("runs to completion against a real projection", () => {

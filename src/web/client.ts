@@ -88,6 +88,19 @@ const map = L.map("map", {
   // The +/- buttons and the keyboard move in readable steps rather than whole
   // levels, since fractional zoom is available anyway.
   zoomDelta: 0.5,
+  // OFF, and this is a correctness fix rather than a preference. The board's
+  // whole gesture is "tap your territory, tap it again to put a soldier on
+  // it", so two taps in quick succession are the NORMAL way to deploy -- and
+  // to the browser they are also a double click. Leaflet's DoubleClickZoom
+  // listens on the container, the polygon's own click handler does not stop
+  // dblclick, so every fast pair deployed a soldier AND flew the map in half a
+  // zoom level under the finger. Measured: two taps 700ms apart leave the
+  // geometry at 64px, the same pair 60ms apart takes it to 86px.
+  //
+  // Nothing is lost. The +/- control, the wheel, the keyboard and clicking a
+  // player in the rail all still zoom; this removes the one zoom gesture that
+  // collides with acting on the map.
+  doubleClickZoom: false,
 })
 const layers = {}
 
@@ -504,6 +517,15 @@ function paint() {
   for (const t of P.territories) {
     const l = layers[t.id]
     if (!l) continue
+    // Name the drawn element after its territory, HERE rather than where the
+    // polygon is built: setLatLngs replaces the path element outright, so a tag
+    // written once at creation is gone the first time updateDetail swaps in the
+    // fine geometry. paint() runs after every one of those swaps.
+    //
+    // dataset, never className -- Leaflet rewrites the class list on zoom, which
+    // is the bug paintCounts already carries a comment about.
+    const el = l.getElement ? l.getElement() : null
+    if (el && el.dataset.territory !== t.id) el.dataset.territory = t.id
     const isMine = mine(t.id)
     const isSel = selected === t.id
     const isLit = lit(t.id)
@@ -579,7 +601,9 @@ function updateDetail() {
 // A territory's pixel size depends on the SCALE alone, so nothing but a zoom
 // can change which counts fit: not panning, not hovering, not selecting. The
 // two calls that move the map -- fitBounds on load and flyToBounds when you
-// click a player -- are the only ones in the file.
+// click a player -- are the only ones in the file, but they were never the only
+// SOURCES of a zoom: Leaflet's own handlers (wheel, keyboard, the +/- control)
+// move it too, and double click did until it was turned off above.
 map.on("zoomend", () => { updateCountVisibility(); updateDetail() })
 
 const played = P.territories.map((t) => layers[t.id]).filter(Boolean)
