@@ -33,7 +33,7 @@
 - Consumes: `deploy/bootstrap.sh` (unchanged), `npm run typecheck`, `npm test`
 - Produces: secret names `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS` and variable `DEPLOY_HOST`, which Task 2 populates
 
-- [ ] **Step 1: Write the workflow**
+- [x] **Step 1: Write the workflow**
 
 ```yaml
 name: deploy
@@ -114,17 +114,17 @@ jobs:
             root@"$DEPLOY_HOST" 'bash -s' < deploy/bootstrap.sh
 ```
 
-- [ ] **Step 2: Lint the workflow**
+- [x] **Step 2: Lint the workflow**
 
 Run: `actionlint .github/workflows/deploy.yml` (skip if `actionlint` is not installed; GitHub's parser is the final gate)
 Expected: no output
 
-- [ ] **Step 3: Verify the local gates still pass unchanged**
+- [x] **Step 3: Verify the local gates still pass unchanged**
 
 Run: `npm run typecheck && npm test`
 Expected: typecheck silent; `Test Files 83 passed`, `Tests 1059 passed`
 
-- [ ] **Step 4: Document it for operators**
+- [x] **Step 4: Document it for operators**
 
 In `deploy/README.md`, above "## Running the jobs by hand", add:
 
@@ -151,7 +151,7 @@ ssh -i ~/.ssh/digitalocean root@45.55.240.159 'bash -s' < deploy/bootstrap.sh
 In `CLAUDE.md`, next to the deploy commands, add one line: pushing `main`
 deploys automatically when deployable files change; docs-only pushes do not.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .github/workflows/deploy.yml deploy/README.md CLAUDE.md
@@ -171,7 +171,7 @@ git commit -m "ci: deploy main to the droplet through the existing bootstrap"
 - Consumes: workflow env names from Task 1 — `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `DEPLOY_HOST`
 - Produces: a working `root@45.55.240.159` login for that key alone
 
-- [ ] **Step 1: Mint a key used by nothing else**
+- [x] **Step 1: Mint a key used by nothing else**
 
 ```bash
 ssh-keygen -t ed25519 -N '' \
@@ -179,14 +179,14 @@ ssh-keygen -t ed25519 -N '' \
   -f ~/.ssh/riskety-deploy
 ```
 
-- [ ] **Step 2: Authorise it on the droplet**
+- [x] **Step 2: Authorise it on the droplet**
 
 ```bash
 ssh -i ~/.ssh/digitalocean root@45.55.240.159 \
   "cat >> /root/.ssh/authorized_keys" < ~/.ssh/riskety-deploy.pub
 ```
 
-- [ ] **Step 3: Verify the new key logs in, and only as itself**
+- [x] **Step 3: Verify the new key logs in, and only as itself**
 
 Run:
 ```bash
@@ -195,7 +195,7 @@ ssh -i ~/.ssh/riskety-deploy -o IdentitiesOnly=yes root@45.55.240.159 \
 ```
 Expected: `root` and the currently deployed short SHA
 
-- [ ] **Step 4: Load the three values into GitHub**
+- [x] **Step 4: Load the three values into GitHub**
 
 ```bash
 gh secret set DEPLOY_SSH_KEY < ~/.ssh/riskety-deploy
@@ -206,7 +206,7 @@ gh variable set DEPLOY_HOST --body 45.55.240.159
 `ssh-keyscan` runs HERE, on a trusted machine, and its output is pinned as a
 secret. The workflow never runs it.
 
-- [ ] **Step 5: Confirm what GitHub now holds**
+- [x] **Step 5: Confirm what GitHub now holds**
 
 Run: `gh secret list && gh variable list`
 Expected: `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, and `DEPLOY_HOST` present
@@ -222,7 +222,7 @@ Expected: `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, and `DEPLOY_HOST` present
 - Consumes: Tasks 1 and 2 complete and pushed
 - Produces: a green run whose deploy log ends in bootstrap's own `==> deployed <sha>`
 
-- [ ] **Step 1: Push and watch the run**
+- [x] **Step 1: Push and watch the run**
 
 ```bash
 git push origin main
@@ -230,12 +230,12 @@ gh run watch --exit-status
 ```
 Expected: exit 0
 
-- [ ] **Step 2: Read the deploy step's tail**
+- [x] **Step 2: Read the deploy step's tail**
 
 Run: `gh run view --log | tail -30`
 Expected: `==> deployed <short sha>` then `==> done`
 
-- [ ] **Step 3: Confirm the server actually moved**
+- [x] **Step 3: Confirm the server actually moved**
 
 Run:
 ```bash
@@ -244,7 +244,7 @@ ssh -i ~/.ssh/digitalocean root@45.55.240.159 \
 ```
 Expected: the SHA matches `git rev-parse --short origin/main`; both services `active`
 
-- [ ] **Step 4: Confirm a docs-only push does NOT deploy**
+- [x] **Step 4: Confirm a docs-only push does NOT deploy**
 
 ```bash
 printf '\n' >> docs/superpowers/plans/2026-08-19-github-actions-deploy.md
@@ -253,7 +253,7 @@ gh run list --limit 3
 ```
 Expected: no new `deploy` run for that commit
 
-- [ ] **Step 5: Commit any doc corrections found while verifying**
+- [x] **Step 5: Commit any doc corrections found while verifying**
 
 ```bash
 git add -A && git commit -m "docs: correct the deploy runbook after the first CI deploy"

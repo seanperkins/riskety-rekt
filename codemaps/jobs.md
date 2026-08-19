@@ -186,3 +186,17 @@ public HTTPS side. All read `/etc/riskety-rekt/env`. Target is a droplet, not
 App Platform — an ephemeral filesystem wipes SQLite. `map-resync` and every
 `roster-*`/`order`/`wager` command are operator-run, no timer. Demo tooling:
 `riskety-demo-web.service`, `seed-demo.sh`. Full setup in `deploy/README.md`.
+
+## Shipping (`.github/workflows/deploy.yml`)
+
+A push to `main` touching `src/`, `scripts/`, `deploy/`, the workflow, or a
+package/tsconfig/vitest file runs `npm ci`, `npm run typecheck`, `npm test`, then
+streams `deploy/bootstrap.sh` to `root@$DEPLOY_HOST` over SSH — bootstrap stays
+the only upgrade path, and the workflow adds no deploy logic. Docs-only pushes
+open no connection. Node pinned to `24` (bootstrap refuses lower; no `engines`
+field to inherit). `concurrency: production-deploy` with
+`cancel-in-progress: false`, because a cancelled run kills bootstrap between a
+`daemon-reload` and a service restart. Secrets `DEPLOY_SSH_KEY` (a root key used
+by nothing else) and `DEPLOY_KNOWN_HOSTS` (pinned host key — the runner never
+calls `ssh-keyscan`); variable `DEPLOY_HOST`. `workflow_dispatch` redeploys
+without a code change.
