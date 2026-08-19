@@ -71,6 +71,59 @@ describe("renderRecap", () => {
     expect(all).toContain("Kamchatka")
   })
 
+  it("names the owner on a failed attack", () => {
+    const prior = stateWith([], 2)
+    const previousWithOwner = {
+      ...prior,
+      ownership: { ...prior.ownership, alaska: "f2" },
+    }
+    const { blocks } = renderRecap({
+      state: stateWith([
+        {
+          t: "attack",
+          from: "kamchatka",
+          to: "alaska",
+          attacker: "f1",
+          committed: 4,
+          survivors: 0,
+          captured: false,
+          lost: 4,
+          defenderLost: 0,
+        },
+      ]),
+      previous: previousWithOwner,
+      lengthDays: 21,
+      names: { f1: "Sean", f2: "Sam" },
+    })
+    expect(texts(blocks)).toContain("Battles\nSean failed against Alaska (Sam) — 4 sent, 0 came back")
+  })
+
+  it("omits the owner when a failed attack has no previous owner", () => {
+    const prior = stateWith([], 2)
+    const ownership = Object.fromEntries(
+      Object.entries(prior.ownership).filter(([id]) => id !== "alaska"),
+    )
+    const { blocks } = renderRecap({
+      state: stateWith([
+        {
+          t: "attack",
+          from: "kamchatka",
+          to: "alaska",
+          attacker: "f1",
+          committed: 4,
+          survivors: 0,
+          captured: false,
+          lost: 4,
+          defenderLost: 0,
+        },
+      ]),
+      previous: { ...prior, ownership },
+      lengthDays: 21,
+      names: { f1: "Sean" },
+    })
+    expect(texts(blocks)).toContain("Battles\nSean failed against Alaska — 4 sent, 0 came back")
+  })
+
   it("surfaces every rejection", () => {
     // Silent validation is how a validator bug survives a whole season.
     const { blocks } = renderRecap({
