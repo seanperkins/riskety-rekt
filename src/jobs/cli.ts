@@ -227,8 +227,10 @@ try {
   } else if (command === "recap") {
     const seasonId = required("RR_SEASON_ID")
     const day = Number(process.argv[3])
-    const flags = parseFlags(process.argv.slice(4), ["kind"])
+    // takeBool first: parseFlags reads strict `--name value` pairs and rejects a
+    // bare `--force`, which made the flag the suppression hint recommends unusable.
     const force = takeBool(["--force"])
+    const flags = parseFlags(process.argv.slice(4), ["kind"])
     if (!Number.isSafeInteger(day)) throw new UsageError("usage: recap <day> [--kind correction] [--force]")
     const correction = flags.kind === "correction"
     const state = store.loadState(seasonId, day)
