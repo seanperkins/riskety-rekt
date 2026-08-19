@@ -104,6 +104,13 @@ function assertSymmetric(territories: Territory[], seasonId: string, day: number
  * Walks EVERY saved day from 0 upward — day 0 is the deal, and both the board
  * and the replay render old days, so a half-rewritten season would render two
  * different topologies depending on which day a viewer opens.
+ *
+ * The survey runs INSIDE the write transaction when it is going to write. The
+ * tick appends a day, and a day appearing between `latestSavedDay` and the
+ * rewrite would be skipped: the season would carry the corrected map on every
+ * day but the newest, which is the exact half-rewritten state the walk above
+ * exists to avoid. Planning re-surveys because it writes nothing, so a stale
+ * read costs an operator one re-run rather than a torn season.
  */
 export function runMapResync(deps: MapResyncDeps): MapResyncOutcome {
   const { store, seasonId, map } = deps
@@ -114,15 +121,21 @@ export function runMapResync(deps: MapResyncDeps): MapResyncOutcome {
 
   const correctedById = new Map(map.territories.map((t) => [t.id, t]))
 
-  const latest = store.latestSavedDay(seasonId)
-  const days: number[] = []
-  const rewrittenMaps = new Map<number, GameMap>()
-  let changed = false
-  let dayZeroBefore: Territory[] | undefined
-  let dayZeroAfter: Territory[] | undefined
+  const survey = (): {
+    days: number[]
+    rewritten: Map<number, GameMap>
+    changed: boolean
+    added: [string, string][]
+    removed: [string, string][]
+  } => {
+    const latest = store.latestSavedDay(seasonId)
+    const days: number[] = []
+    const rewritten = new Map<number, GameMap>()
+    let changed = false
+    let dayZeroBefore: Territory[] = []
+    let dayZeroAfter: Territory[] = []
 
-  if (latest !== undefined) {
-    for (let d = 0; d <= latest; d++) {
+    for (let d = 0; latest !== undefined && d <= latest; d++) {
       const frozen = store.loadState(seasonId, d)
       if (frozen === undefined) continue // a gap should not happen, but is not this job's to repair
       days.push(d)
@@ -137,29 +150,34 @@ export function runMapResync(deps: MapResyncDeps): MapResyncOutcome {
       }
 
       const beforeSorted = before.map((t) => [...t.neighbors].sort().join(","))
-      const afterSorted = after.map((t) => t.neighbors.join(","))
-      if (beforeSorted.join("|") !== afterSorted.join("|")) changed = true
+      if (beforeSorted.join("|") !== after.map((t) => t.neighbors.join(",")).join("|")) {
+        changed = true
+      }
 
-      rewrittenMaps.set(d, { territories: after, regions: frozen.map.regions })
+      rewritten.set(d, { territories: after, regions: frozen.map.regions })
+    }
+
+    const oldPairs = pairsOf(dayZeroBefore)
+    const newPairs = pairsOf(dayZeroAfter)
+    return {
+      days,
+      rewritten,
+      changed,
+      added: toPairList([...newPairs].filter((p) => !oldPairs.has(p))),
+      removed: toPairList([...oldPairs].filter((p) => !newPairs.has(p))),
     }
   }
-
-  if (!changed) return { status: "unchanged", days }
-
-  const oldPairs = pairsOf(dayZeroBefore ?? [])
-  const newPairs = pairsOf(dayZeroAfter ?? [])
-  const added = toPairList([...newPairs].filter((p) => !oldPairs.has(p)))
-  const removed = toPairList([...oldPairs].filter((p) => !newPairs.has(p)))
 
   if (deps.confirm !== true) {
-    return { status: "planned", days, added, removed }
+    const planned = survey()
+    if (!planned.changed) return { status: "unchanged", days: planned.days }
+    return { status: "planned", days: planned.days, added: planned.added, removed: planned.removed }
   }
 
-  store.transaction(() => {
-    for (const d of days) {
-      store.updateStateMap(seasonId, d, rewrittenMaps.get(d)!)
-    }
+  return store.transaction(() => {
+    const found = survey()
+    if (!found.changed) return { status: "unchanged", days: found.days }
+    for (const d of found.days) store.updateStateMap(seasonId, d, found.rewritten.get(d)!)
+    return { status: "rewritten", days: found.days, added: found.added, removed: found.removed }
   })
-
-  return { status: "rewritten", days, added, removed }
 }

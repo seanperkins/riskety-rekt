@@ -150,7 +150,7 @@ describe("runMapResync", () => {
     store.close()
   })
 
-  it("reports unchanged and opens no transaction when already correct", () => {
+  it("reports unchanged and writes nothing when already correct", () => {
     // The frozen map already agrees with the corrected map after intersection:
     // a-b present, c-d absent, e/f absent from CORRECTED entirely.
     const already: GameMap = {
@@ -165,10 +165,35 @@ describe("runMapResync", () => {
       ],
     }
     const store = seedSeason(already)
-    const spy = vi.spyOn(store, "transaction")
+    const writes = vi.spyOn(store, "updateStateMap")
     const out = runMapResync({ store, seasonId: "s1", map: CORRECTED, confirm: true })
     expect(out).toEqual({ status: "unchanged", days: [0, 1, 2] })
-    expect(spy).not.toHaveBeenCalled()
+    // A confirmed run opens its transaction before it surveys -- see the read
+    // ordering test below -- so the guarantee here is that nothing was WRITTEN,
+    // not that no BEGIN was issued.
+    expect(writes).not.toHaveBeenCalled()
+    store.close()
+  })
+
+  it("surveys inside the write transaction, not before it", () => {
+    // The tick appends a day. A day arriving between latestSavedDay and the
+    // rewrite would be skipped, leaving the season corrected on every day but
+    // the newest -- the torn state the day-0-upward walk exists to prevent.
+    // store.transaction is BEGIN IMMEDIATE, so the read has the write lock.
+    const store = seedSeason()
+    const calls: string[] = []
+    const real = store.transaction.bind(store)
+    vi.spyOn(store, "transaction").mockImplementation((fn) => {
+      calls.push("begin")
+      return real(fn)
+    })
+    vi.spyOn(store, "latestSavedDay").mockImplementation((seasonId) => {
+      calls.push("latestSavedDay")
+      return 2
+    })
+    vi.spyOn(store, "updateStateMap")
+    runMapResync({ store, seasonId: "s1", map: CORRECTED, confirm: true })
+    expect(calls).toEqual(["begin", "latestSavedDay"])
     store.close()
   })
 })
