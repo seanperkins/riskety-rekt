@@ -69,6 +69,11 @@ export type Block =
 
 type TableRow = string[]
 
+type TableLayout = {
+  rows: TableRow[]
+  dropped: number
+}
+
 const plain = (text: string) => ({ type: "plain_text" as const, text, emoji: true as const })
 const header = (text: string): Block => ({ type: "header", text: plain(text) })
 const context = (lines: string[]): Block => ({ type: "context", elements: lines.map(plain) })
@@ -83,7 +88,11 @@ const wideCodePoint = (codePoint: number): boolean =>
   (codePoint >= 0xff00 && codePoint <= 0xff60) ||
   (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
   (codePoint >= 0x1f000 && codePoint <= 0x1faff) ||
-  (codePoint >= 0x2600 && codePoint <= 0x27ff)
+  (codePoint >= 0x20000 && codePoint <= 0x3fffd) ||
+  (codePoint >= 0x2600 && codePoint <= 0x27ff) ||
+  codePoint === 0xfe0f ||
+  codePoint === 0x20e3 ||
+  (codePoint >= 0x1f1e6 && codePoint <= 0x1f1ff)
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" })
 
@@ -99,11 +108,16 @@ function displayWidth(value: string): number {
   )
 }
 
+function cleanCell(value: string): string {
+  return value.replace(/`{3,}/g, "`")
+}
+
 function truncateCell(value: string, maxWidth = 200): string {
-  if (displayWidth(value) <= maxWidth) return value
+  const cleaned = cleanCell(value)
+  if (displayWidth(cleaned) <= maxWidth) return cleaned
   let result = ""
   let width = 0
-  for (const grapheme of graphemes(value)) {
+  for (const grapheme of graphemes(cleaned)) {
     const nextWidth = displayWidth(grapheme)
     if (width + nextWidth > maxWidth - 1) break
     result += grapheme
@@ -112,10 +126,12 @@ function truncateCell(value: string, maxWidth = 200): string {
   return `${result}…`
 }
 
-function tableText(title: string, headers: string[], rows: TableRow[], dropped: number): string {
-  const shown = rows.map((row) => row.map((cell) => truncateCell(cell)))
+function tableText(title: string, headers: string[], layout: TableLayout): string {
+  const shown = layout.rows.map((row) => row.map((cell) => truncateCell(cell)))
   const allRows = [headers.map((cell) => truncateCell(cell)), ...shown]
-  if (dropped > 0) allRows.push([`…and ${dropped} more`, ...headers.slice(1).map(() => "")])
+  if (layout.dropped > 0) {
+    allRows.push([`…and ${layout.dropped} more`, ...headers.slice(1).map(() => "")])
+  }
   const widths = headers.map((_, column) =>
     Math.max(...allRows.map((row) => displayWidth(row[column] ?? ""))),
   )
@@ -131,25 +147,33 @@ function tableText(title: string, headers: string[], rows: TableRow[], dropped: 
   return `*${title}*\n\`\`\`\n${lines.join("\n")}\n\`\`\``
 }
 
-function table(title: string, headers: string[], rows: TableRow[]): Block {
+function tableLayout(title: string, headers: string[], rows: TableRow[]): TableLayout {
   let shown = rows
   let dropped = 0
-  const maxDataRows = Math.max(0, MAX_SECTION_LINES - 1)
-  if (shown.length > maxDataRows) {
-    shown = shown.slice(0, Math.max(0, maxDataRows - 1))
+  // MAX_SECTION_LINES counts header + data + the optional marker inside the fence.
+  const dataCapacity = Math.max(0, MAX_SECTION_LINES - 1)
+  const markerRows = rows.length > dataCapacity ? 1 : 0
+  const visibleCapacity = Math.max(0, dataCapacity - markerRows)
+  if (shown.length > visibleCapacity) {
+    shown = shown.slice(0, visibleCapacity)
     dropped = rows.length - shown.length
   }
-  let text = tableText(title, headers, shown, dropped)
-  while (text.length > MAX_SECTION_CHARS && shown.length > 0) {
-    shown = shown.slice(0, -1)
-    dropped += 1
-    text = tableText(title, headers, shown, dropped)
+  let layout: TableLayout = { rows: shown, dropped }
+  while (tableText(title, headers, layout).length > MAX_SECTION_CHARS && layout.rows.length > 0) {
+    layout = { rows: layout.rows.slice(0, -1), dropped: layout.dropped + 1 }
   }
-  return { type: "section", text: { type: "mrkdwn", text } }
+  return layout
 }
 
-function fallbackTable(title: string, headers: string[], rows: TableRow[]): string {
-  return [title, headers.join("  "), ...rows.map((row) => row.join("  "))].join("\n")
+function table(title: string, headers: string[], layout: TableLayout): Block {
+  return { type: "section", text: { type: "mrkdwn", text: tableText(title, headers, layout) } }
+}
+
+function fallbackTable(title: string, headers: string[], layout: TableLayout): string {
+  const rows = [...layout.rows]
+  if (layout.dropped > 0) rows.push([`…and ${layout.dropped} more`, ...headers.slice(1).map(() => "")])
+  const plain = [title, headers.join("  "), ...rows.map((row) => row.join("  "))].join("\n")
+  return plain.replace(/:\/\//g, ": / ")
 }
 
 /** "eastern_united_states" -> "Eastern United States". */
@@ -179,8 +203,9 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
   const blocks: Block[] = [header(`Day ${state.day} of ${lengthDays}`)]
   const fallback: string[] = [`Riskety Rekt — day ${state.day} of ${lengthDays}`]
   const addTable = (title: string, headers: string[], rows: TableRow[]): void => {
-    blocks.push(table(title, headers, rows))
-    fallback.push(fallbackTable(title, headers, rows))
+    const layout = tableLayout(title, headers, rows)
+    blocks.push(table(title, headers, layout))
+    fallback.push(fallbackTable(title, headers, layout))
   }
   if (input.correction === true) {
     const correction = "Correction — this tick was re-run. It replaces the earlier recap."
