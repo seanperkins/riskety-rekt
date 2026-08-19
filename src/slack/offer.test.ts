@@ -44,14 +44,26 @@ describe("renderRuleOffer", () => {
     expect(JSON.stringify(renderRuleOffer(5, offers).blocks)).not.toContain("Replaces the offer")
   })
 
-  it("keeps hostile offer payloads safe and uses one fenced table", () => {
+  it("keeps hostile offer payloads safe in blocks and fallback text", () => {
     const hostile = [{ ordinal: 1, name: "<!channel>", description: "<script>".repeat(40) }]
-    const { blocks } = renderRuleOffer(1, hostile)
+    const { blocks, text } = renderRuleOffer(1, hostile)
     const json = JSON.stringify(blocks)
     expect(json).not.toContain("<")
     expect(json).not.toContain(">")
     expect(json).not.toContain("<!channel>")
     expect(sectionText(blocks).match(/```/g)).toHaveLength(2)
+    expect(text).not.toContain("<")
+    expect(text).not.toContain(">")
+    expect(text).not.toContain("<!channel>")
+  })
+
+  it("keeps hostile triple backticks inside one fenced table", () => {
+    const { blocks, text } = renderRuleOffer(1, [
+      { ordinal: 1, name: "Rule", description: "before ``` after" },
+    ])
+    expect(sectionText(blocks).match(/```/g)).toHaveLength(2)
+    expect(text).not.toContain("```")
+    expect(text).toContain("before ` after")
   })
 
   it("caps hostile descriptions at the table cell limit", () => {

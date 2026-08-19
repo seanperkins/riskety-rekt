@@ -7,8 +7,6 @@ import {
   fallbackTable,
   table,
   tableLayout,
-  tableText,
-  type TableLayout,
   type TableRow,
 } from "./table.js"
 
