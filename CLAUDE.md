@@ -45,6 +45,12 @@ npm run build:shapes                          # regenerate src/map/shapes.ts AND
 npm run map:resync                            # plan a frozen-map fix for the live season; --confirm writes
 ```
 
+**Pushing `main` deploys.** `.github/workflows/deploy.yml` runs `typecheck` and
+the full suite, then streams `deploy/bootstrap.sh` to the droplet over SSH. A
+docs-only push does not deploy (the trigger is path-filtered); a change under
+`src/`, `scripts/`, `deploy/`, the workflow, or a package/tsconfig/vitest file
+does. Details and credential rotation in `deploy/README.md`.
+
 **Exit codes are three-valued**: 0 success or a deliberate skip, 1 a system
 failure worth a systemd retry, 2 an operator mistake or a write the rules
 rejected. A tick **refusal exits 0** — its condition never clears with time, so

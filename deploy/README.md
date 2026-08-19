@@ -201,6 +201,36 @@ first slate is published on the morning of day 1.
   `MAX_PAGES` in `src/config.ts` if it recurs.
 - `journalctl -u riskety-publish-slate.service -n 50`
 
+## Deploying from GitHub Actions
+
+A push to `main` that touches `src/`, `scripts/`, `deploy/`, the workflow, or a
+package/tsconfig/vitest file runs `npm run typecheck` and the full test suite,
+then streams this same `bootstrap.sh` to the droplet over SSH. Docs-only pushes
+do not deploy at all. The Actions tab's `Run workflow` button
+(`workflow_dispatch`) redeploys on demand without a code change.
+
+`.github/workflows/deploy.yml`, and three values behind it:
+
+| Where | Name | What |
+|---|---|---|
+| Repo secret | `DEPLOY_SSH_KEY` | a root key used by nothing else, comment `github-actions-riskety-deploy-2026-08-19` |
+| Repo secret | `DEPLOY_KNOWN_HOSTS` | the droplet's pinned host key, so the runner never learns one from the network |
+| Repo variable | `DEPLOY_HOST` | `45.55.240.159` |
+
+Revoking CI's access is one line out of `/root/.ssh/authorized_keys` and does
+not touch anybody's laptop key. Rotating it is `ssh-keygen` plus
+`gh secret set DEPLOY_SSH_KEY`.
+
+The concurrency group is deliberately NOT cancel-in-progress: bootstrap reloads
+units and restarts services partway through, so a cancelled run is the one
+failure this must never manufacture. Two rapid pushes queue instead.
+
+The manual path is unchanged and still the recovery path:
+
+```bash
+ssh -i ~/.ssh/digitalocean root@45.55.240.159 'bash -s' < deploy/bootstrap.sh
+```
+
 ## Running the jobs by hand
 
 ```bash

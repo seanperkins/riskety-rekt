@@ -1,0 +1,76 @@
+name: deploy
+
+# Docs-only pushes must not open an SSH connection, so the trigger is
+# path-filtered. The workflow file itself is included: a change to how deploys
+# work should be exercised by the deploy that adopts it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy.yml"
+      - "src/**"
+      - "scripts/**"
+      - "deploy/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "vitest.config.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# NOT cancel-in-progress. Bootstrap is streamed over SSH and reloads systemd
+# units halfway through; killing it mid-flight is the one failure mode this
+# whole file must not create.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to 24 because deploy/bootstrap.sh refuses to run on the droplet
+      # below node 24, and this repo declares no engines field for the runner to
+      # follow. `npm ci` needs devDependencies: vitest is the gate.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # The suite is offline by construction -- test/no-network.ts is wired in as
+      # vitest.config.ts's setupFiles -- so this needs no services and no secrets.
+      - run: npm test
+
+      - name: Deploy
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST" || { echo "DEPLOY_HOST is not set" >&2; exit 1; }
+
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+          # IdentitiesOnly stops ssh offering any other identity the agent knows;
+          # StrictHostKeyChecking=yes means the pinned record above is the only
+          # host this will talk to. bootstrap.sh is idempotent and is the server's
+          # own upgrade path -- it pulls origin/main, installs production deps,
+          # reloads units, restarts services, and health-checks them.
+          ssh -i ~/.ssh/deploy_key \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            root@"$DEPLOY_HOST" 'bash -s' < deploy/bootstrap.sh
