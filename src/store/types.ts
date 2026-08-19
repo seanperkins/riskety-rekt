@@ -1,6 +1,7 @@
 import type {
   DailyContext,
   FactionId,
+  GameMap,
   GameState,
   Market,
   MarketId,
@@ -375,6 +376,18 @@ export interface StateStore {
    * replay inputs whose state is gone.
    */
   deleteStatesFrom(seasonId: string, day: number): void
+}
+
+/**
+ * Rewrites the frozen map inside a saved state. `states` is otherwise
+ * INSERT-only (`saveState` runs once inside the tick's transaction); this is
+ * the one path that overwrites a row already on disk, for a season whose map
+ * was frozen before an adjacency fix landed. `updateStateMap` is the ONLY
+ * updater of `states` — every other write to that table is an INSERT.
+ */
+export interface StateMapStore {
+  /** Throws if no row exists for `seasonId`/`day`. */
+  updateStateMap(seasonId: string, day: number, map: GameMap): void
 }
 
 /** One candidate in a day's rule-vote offer. */

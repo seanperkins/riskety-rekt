@@ -27,6 +27,7 @@ import type {
   OrderBody,
   OrderStore,
   SaveResult,
+  StateMapStore,
   StateStore,
   TickContextRow,
   Transactional,
@@ -47,7 +48,7 @@ import type {
 } from "./types.js"
 import { cmp } from "../engine/index.js"
 import { RULE_REGISTRY } from "../engine/rules/index.js"
-import type { DailyContext, FactionId, GameState, Order } from "../engine/index.js"
+import type { DailyContext, FactionId, GameMap, GameState, Order } from "../engine/index.js"
 import { tickInstant } from "../season.js"
 import { etDate, slackTsToIso } from "../time.js"
 
@@ -142,6 +143,7 @@ export function openStore(
   OrderStore &
   RuleVoteStore &
   StateStore &
+  StateMapStore &
   Transactional {
   const db = new DatabaseSync(path)
   // WAL lets the web app, the Slack bot and the timer share one file. The
@@ -778,6 +780,28 @@ export function openStore(
         .get(seasonId, day) as { state: string } | undefined
       if (row === undefined) return undefined
       return parseState(row.state, seasonId, day)
+    },
+
+    /**
+     * Rewrites the frozen map inside a saved state. The ONLY updater of
+     * `states` — every other write here is an INSERT. Exists for
+     * `map-resync`: the live season's board is frozen per day, and a
+     * code-side adjacency fix does not reach a row already on disk.
+     */
+    updateStateMap(seasonId: string, day: number, map: GameMap): void {
+      const row = db
+        .prepare("SELECT state FROM states WHERE season_id = ? AND day = ?")
+        .get(seasonId, day) as { state: string } | undefined
+      if (row === undefined) {
+        throw new Error(`updateStateMap: no state for ${seasonId} day ${day}`)
+      }
+      const state = parseState(row.state, seasonId, day)
+      const next: GameState = { ...state, map }
+      db.prepare("UPDATE states SET state = ? WHERE season_id = ? AND day = ?").run(
+        JSON.stringify(next),
+        seasonId,
+        day,
+      )
     },
 
     latestSavedDay(seasonId: string): number | undefined {

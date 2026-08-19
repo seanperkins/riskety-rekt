@@ -26,7 +26,8 @@
     "roster:list": "tsx src/jobs/cli.ts roster-list",
     "slack": "tsx src/slack/cli.ts",
     "build:shapes": "tsx scripts/build-shapes.ts",
-    "poll-prices": "tsx src/jobs/cli.ts poll-prices"
+    "poll-prices": "tsx src/jobs/cli.ts poll-prices",
+    "map:resync": "tsx src/jobs/cli.ts map-resync"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

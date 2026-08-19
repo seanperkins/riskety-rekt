@@ -9,6 +9,7 @@
  *   tsx src/jobs/cli.ts tick
  *   tsx src/jobs/cli.ts recap <day> [--kind correction] [--force]
  *   tsx src/jobs/cli.ts tick-rerun <day> [--confirm] [--assemble-missing]
+ *   tsx src/jobs/cli.ts map-resync [--confirm]
  *   tsx src/jobs/cli.ts order <faction> --file order.json | --stdin
  *   tsx src/jobs/cli.ts wager <faction> --file wager.json | --stdin
  *
@@ -38,6 +39,7 @@ import { runSeasonInit } from "./season-init.js"
 import { runModulesSet } from "./modules-set.js"
 import { runTick } from "./tick.js"
 import { runRerun } from "./rerun.js"
+import { runMapResync } from "./map-resync.js"
 import type { RerunRefusal } from "./rerun.js"
 import { runPostRecap } from "./post-recap.js"
 import { ParseError, parseOrderBody, parseWagers } from "./order-entry.js"
@@ -48,6 +50,7 @@ import { createDirectory, createPoster } from "../slack/post.js"
 import { runRosterSync } from "./roster-sync.js"
 import { loadSlackEnv } from "../slack/env.js"
 import { RISK_MAP } from "../engine/index.js"
+import { WORLD } from "../map/world.js"
 import type { GameState, Market } from "../engine/index.js"
 
 function required(name: string): string {
@@ -409,11 +412,32 @@ try {
       log,
     })
     if (out.checked === 0) log("nothing awaiting settlement")
+  } else if (command === "map-resync") {
+    // takeBool first: parseFlags rejects a bare `--confirm`. Report-then-write,
+    // roster-sync's pattern — the live season's board is one command away from
+    // a bad write, so a plan is always printed before anything is touched.
+    const confirm = takeBool(["--confirm"])
+    parseFlags(process.argv.slice(3), [])
+    const seasonId = required("RR_SEASON_ID")
+    const out = runMapResync({ store, seasonId, map: WORLD, confirm, log })
+    const describePairs = (pairs: [string, string][]) =>
+      pairs.map(([a, b]) => `${a}-${b}`).join(", ")
+    if (out.status === "unchanged") {
+      log(`season ${seasonId}: map already matches the corrected adjacency across ${out.days.length} saved day(s)`)
+    } else {
+      if (out.added.length > 0) log(`added: ${describePairs(out.added)}`)
+      if (out.removed.length > 0) log(`removed: ${describePairs(out.removed)}`)
+      if (out.status === "planned") {
+        log(`plan only — pass --confirm to rewrite ${out.days.length} saved day(s)`)
+      } else {
+        log(`season ${seasonId}: rewrote the map on ${out.days.length} saved day(s)`)
+      }
+    }
   } else {
     throw new UsageError(
       `unknown command: ${String(command)}\n` +
         `expected one of: publish-slate, publish-rules, poll-settlements, poll-prices, ` +
-          `season-init, tick, recap, tick-rerun, order, wager, roster-add, roster-sync, roster-list`,
+          `season-init, tick, recap, tick-rerun, map-resync, order, wager, roster-add, roster-sync, roster-list`,
     )
   }
 } catch (err) {
