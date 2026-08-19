@@ -531,8 +531,13 @@ function paint() {
     // paint() runs after the opening fit and after every geometry swap, so the
     // element always exists by then. The guard makes it a no-op on repaints.
     //
-    // dataset, never className -- Leaflet rewrites the class list on zoom, which
-    // is the bug paintCounts already carries a comment about.
+    // dataset rather than className, and the reason is narrower than "Leaflet
+    // rewrites classes": a zoom does NOT touch a path's class list (verified --
+    // leaflet-interactive plus a custom class both survive). What breaks is
+    // ASSIGNING className, which clobbers whatever Leaflet put there; that is the
+    // paintCounts bug, and it bit on marker icons, where the class it wiped
+    // (leaflet-zoom-animated) is what repositions them. dataset cannot collide
+    // with any of it.
     const el = l.getElement ? l.getElement() : null
     if (el && el.dataset.territory !== t.id) el.dataset.territory = t.id
     const isMine = mine(t.id)
@@ -601,7 +606,10 @@ function updateDetail() {
     if (!l || !rings || !rings.length) continue
     l.setLatLngs(rings.map((r) => [r.map(([lon, lat]) => [lat, lon])]))
   }
-  // setLatLngs rebuilds the path, which drops the styling paint() applied.
+  // Leaflet 1.9.4 redraws the existing SVG path here; its element, dataset and
+  // setStyle values survive (verified against the vendored bundle). paint() is
+  // still cheap, and reapplies the board's state deliberately after the shape
+  // changes instead of depending on renderer behaviour across Leaflet upgrades.
   paint()
 }
 

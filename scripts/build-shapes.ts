@@ -1088,11 +1088,13 @@ const adjacency = `import type { TerritoryId } from "../engine/index.js"
  *
  * - **A corner touch is not a border.** A junction ends an arc instead of
  *   sharing one, so territories meeting at a point are not neighbours.
- * - **A border below the drawn resolution is lost.** Botswana and Zambia have a
- *   real ~135 m frontier at Kazungula; simplified to 0.05 area weight the two
- *   shapes share a single vertex, so the derivation drops it. That is a genuine
- *   cost of tying the rules to the picture, not a rounding artefact — add a
- *   \`SEA_LINKS\` entry if a board ever needs that crossing back.
+ * - **A border absent from the source topology is lost.** Botswana and Zambia
+ *   have a real ~135 m frontier at Kazungula, but Natural Earth's admin-1 10m
+ *   source represents it as one shared vertex and zero shared segments BEFORE
+ *   this script simplifies anything. The arc pass has nothing to derive, so the
+ *   game drops it. That is a source-resolution limit, not a 0.05-weight
+ *   simplification artefact — add a \`SEA_LINKS\` entry if a board ever needs
+ *   that crossing back.
  * - **A shared arc can cross water.** Natural Earth's admin-1 boundaries meet
  *   mid-strait in places, so Ceuta gives Andalusia a real land border with
  *   Morocco and Northern Ireland gives Ireland one with its UK neighbour. Those

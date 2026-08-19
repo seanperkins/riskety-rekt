@@ -85,20 +85,21 @@ Two costs, both deliberate:
 
 - **A corner touch is not a border.** A junction ends an arc rather than sharing
   one, so `namibia|zimbabwe` is no longer adjacent.
-- **A border below the drawn resolution is lost.** Botswana and Zambia have a real
-  frontier at Kazungula — about 135 m, the shortest on Earth — but at 0.05 area
-  weight the two simplified shapes share a single vertex, so the derivation drops
-  it. Tying the rules to the picture means the picture's resolution is now a game
-  rule; a board that needs that crossing gets a `SEA_LINKS` entry.
+- **A border absent from the source topology is lost.** Botswana and Zambia have a
+  real frontier at Kazungula — about 135 m, the shortest on Earth — but Natural
+  Earth's admin-1 10m source represents it as one shared vertex and zero shared
+  segments before this script simplifies anything. The arc pass has nothing to
+  derive. A board that needs that crossing gets a `SEA_LINKS` entry.
 
-Water crossings cannot be derived, since there is no shared edge, so `SEA_LINKS`
+Water crossings **without a shared source edge** cannot be derived, so `SEA_LINKS`
 stays hand-authored with a named strait per entry and is the only adjacency a
 person still writes. It is also **excluded from the seam rule**: 0.1° is 11 km at
 the equator and the Strait of Messina is 3 km, so six listed crossings clear that
 bar on distance alone. They are adjacent through `SEA_LINKS` regardless — a
-heuristic must not be what says water is land. Where a shared ARC crosses water
-the pair is genuinely edge-sharing in the data (Ceuta, Northern Ireland, the
-Kanmon and Tsugaru straits); `world.ts` joins both lists and de-duplicates.
+heuristic must not be what says water is land. A different case is a source arc
+drawn across a narrow strait: Ceuta, Northern Ireland, Kanmon and Tsugaru are
+genuinely edge-sharing in this data. `world.ts` joins those pairs to `SEA_LINKS`
+and de-duplicates.
 
 ### Labels
 
