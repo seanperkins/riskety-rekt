@@ -737,9 +737,13 @@ const topo = presimplify(
  * A point-touch is NOT adjacency: a junction ends an arc rather than sharing
  * one, so two territories meeting at a corner have no arc in common.
  *
- * Sea crossings are not here and cannot be -- there is no shared edge to find.
- * They stay hand-authored in `SEA_LINKS`, which is where a reason per crossing
- * belongs anyway.
+ * A water crossing with no shared source edge cannot appear here -- there is
+ * nothing to find -- and stays hand-authored in `SEA_LINKS`, which is where a
+ * reason per crossing belongs anyway. What CAN appear is a narrow strait the
+ * source itself draws closed as a shared arc: Ceuta, Northern Ireland, Kanmon
+ * and Tsugaru are edge-sharing in this data, and `world.ts` joins those pairs
+ * to `SEA_LINKS` and de-duplicates. See `SEAM_BORDERS` below for the heuristic
+ * half, which excludes every `SEA_LINKS` pair precisely so it cannot invent one.
  */
 // `presimplify` is declared as returning `unknown` by the local type stub above,
 // so the arc structure TopoJSON guarantees has to be asserted once, here, by
