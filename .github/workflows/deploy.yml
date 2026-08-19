@@ -31,12 +31,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Pinned to 24 because deploy/bootstrap.sh refuses to run on the droplet
       # below node 24, and this repo declares no engines field for the runner to
       # follow. `npm ci` needs devDependencies: vitest is the gate.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: npm
