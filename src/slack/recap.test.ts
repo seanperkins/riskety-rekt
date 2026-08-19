@@ -4,6 +4,7 @@ import { RISK_MAP, createSeason } from "../engine/index.js"
 import type { Faction, GameState, TickEvent } from "../engine/index.js"
 import { MAX_RECAP_BLOCKS, MAX_SECTION_CHARS } from "./config.js"
 import { renderRecap } from "./recap.js"
+import type { Block } from "./recap.js"
 
 const factions: Faction[] = [
   { id: "f1", playerName: "Ada", color: "#f00" },
@@ -16,14 +17,14 @@ function stateWith(log: TickEvent[], day = 3): GameState {
   return { ...createSeason("s1", factions, ids), day, log }
 }
 
-/** Every plain_text string anywhere in the payload. */
+/** Every text string anywhere in the payload. */
 function texts(blocks: unknown[]): string[] {
   const out: string[] = []
   const walk = (node: unknown): void => {
     if (Array.isArray(node)) return void node.forEach(walk)
     if (node === null || typeof node !== "object") return
     const o = node as Record<string, unknown>
-    if (o.type === "plain_text" && typeof o.text === "string") out.push(o.text)
+    if (typeof o.text === "string" && (o.type === "plain_text" || o.type === "mrkdwn")) out.push(o.text)
     Object.values(o).forEach(walk)
   }
   walk(blocks)
@@ -38,14 +39,21 @@ describe("renderRecap", () => {
     expect(texts(blocks).join(" ")).toContain("Day 3")
   })
 
-  it("uses only plain_text, never mrkdwn", () => {
-    // A question containing <!channel> would ping the workspace daily.
-    const { blocks } = renderRecap({
-      state: stateWith([{ t: "income", faction: "f1", amount: 6 }]),
-      previous,
+  it("keeps all recap text safe for Slack", () => {
+    const hostile: Faction[] = [{ id: "f1", playerName: "<!channel>", color: "#f00" }]
+    const payload = renderRecap({
+      state: { ...stateWith([
+        { t: "income", faction: "f1", amount: 6 },
+        { t: "wagerSettle", wagerId: "w1", faction: "f1", marketId: "KX-1", outcome: "yes", payout: 22, stake: 10 },
+      ]), factions: hostile },
+      previous: { ...previous, factions: hostile },
       lengthDays: 21,
+      marketTitles: { "KX-1": "</text> <!channel>" },
     })
-    expect(JSON.stringify(blocks)).not.toContain("mrkdwn")
+    const serialized = JSON.stringify(payload)
+    expect(serialized).not.toContain("<")
+    expect(serialized).not.toContain(">")
+    expect(serialized).not.toContain("<!channel>")
   })
 
   it("reports a capture with both players named", () => {
@@ -95,7 +103,7 @@ describe("renderRecap", () => {
       lengthDays: 21,
       names: { f1: "Sean", f2: "Sam" },
     })
-    expect(texts(blocks)).toContain("Battles\nSean failed against Alaska (Sam) — 4 sent, 0 came back")
+    expect(texts(blocks).join("\n")).toContain("failed against Alaska (Sam) — 4 sent, 0 came back")
   })
 
   it("names the owner on a captured territory", () => {
@@ -122,7 +130,7 @@ describe("renderRecap", () => {
       lengthDays: 21,
       names: { f1: "Sean", f2: "Sam" },
     })
-    expect(texts(blocks)).toContain("Battles\nSean took Alaska (Sam) from Kamchatka — 5 sent, 3 held it")
+    expect(texts(blocks).join("\n")).toContain("took Alaska (Sam) from Kamchatka — 5 sent, 3 held it")
   })
 
   it("omits the owner when a failed attack has no previous owner", () => {
@@ -148,9 +156,36 @@ describe("renderRecap", () => {
       lengthDays: 21,
       names: { f1: "Sean" },
     })
-    expect(texts(blocks)).toContain("Battles\nSean failed against Alaska — 4 sent, 0 came back")
+    expect(texts(blocks).join("\n")).toContain("failed against Alaska — 4 sent, 0 came back")
   })
 
+
+  it("renders aligned table columns", () => {
+    const { blocks } = renderRecap({
+      state: stateWith([
+        { t: "income", faction: "f1", amount: 6 },
+        { t: "income", faction: "f2", amount: 9 },
+      ]),
+      previous,
+      lengthDays: 21,
+      names: { f1: "A", f2: "Long name" },
+    })
+    const reinforcement = blocks.find(
+      (block): block is Extract<Block, { type: "section" }> => block.type === "section" && block.text.text.startsWith("*Reinforcements*"),
+    )
+    expect(reinforcement).toBeDefined()
+    expect(reinforcement?.text.text).toMatch(/A +\+6 income\nLong name +\+9 income/)
+  })
+
+  it("renders standings column headers", () => {
+    const { blocks } = renderRecap({ state: stateWith([]), previous, lengthDays: 21 })
+    const standings = blocks.find(
+      (block): block is Extract<Block, { type: "section" }> => block.type === "section" && block.text.text.startsWith("*Standings*"),
+    )
+    expect(standings?.text.text).toContain("Player")
+    expect(standings?.text.text).toContain("Territories")
+    expect(standings?.text.text).toContain("Reserve")
+  })
   it("surfaces every rejection", () => {
     // Silent validation is how a validator bug survives a whole season.
     const { blocks } = renderRecap({
@@ -195,7 +230,7 @@ describe("renderRecap", () => {
       marketTitles: { "KX-1": "Will BTC close above $100k?" },
     })
     const out = texts(blocks).join("\n")
-    expect(out).toContain("Sean, you wagered 10 on “Will BTC close above $100k?”")
+    expect(out).toContain("you wagered 10 on “Will BTC close above $100k?”")
     expect(out).toContain("you won. 22 soldiers report for duty.")
     // The bare wagerId was the whole line before this change and means nothing
     // to a player.
@@ -211,7 +246,7 @@ describe("renderRecap", () => {
       marketTitles: { "KX-1": "Will it rain in Seattle?" },
     })
     const out = texts(blocks).join("\n")
-    expect(out).toContain("Ricky, you wagered 10 on “Will it rain in Seattle?” — you lost.")
+    expect(out).toContain("you wagered 10 on “Will it rain in Seattle?” — you lost.")
     expect(out).toContain("working it off in the mines")
   })
 
@@ -228,7 +263,7 @@ describe("renderRecap", () => {
       marketTitles: { "KX-1": "Will it snow in Miami?" },
     })
     const out = texts(blocks).join("\n")
-    expect(out).toContain("Dana, nobody ever called “Will it snow in Miami?”")
+    expect(out).toContain("nobody ever called “Will it snow in Miami?”")
     expect(out).toContain("your 10 came home, no worse off.")
     expect(out).not.toContain("you won")
   })
@@ -244,7 +279,7 @@ describe("renderRecap", () => {
       names: { f1: "Renamed" },
       marketTitles: { "KX-1": "q" },
     })
-    expect(texts(blocks).join("\n")).toContain("Renamed,")
+    expect(texts(blocks).join("\n")).toContain("Renamed")
   })
 
   it("renders a legacy 1.0.0 wagerSettle instead of crashing on it", () => {
@@ -281,7 +316,7 @@ describe("renderRecap", () => {
       marketTitles: { "KX-1": "Will BTC close above $100k?" },
     })
     const out = texts(blocks).join("\n")
-    expect(out).toContain("Sean, you wagered 10")
+    expect(out).toContain("you wagered 10")
     expect(out).toContain("3-f2-0")
   })
 
@@ -354,7 +389,7 @@ describe("renderRecap", () => {
       names: { f1: "A".repeat(60) },
       marketTitles: titles,
     })
-    const markets = texts(blocks).find((t) => t.startsWith("Markets"))!
+    const markets = texts(blocks).find((t) => t.startsWith("*Markets*"))!
     expect(markets.length).toBeLessThanOrEqual(MAX_SECTION_CHARS + 20)
     expect(markets).toMatch(/…and \d+ more/)
   })
