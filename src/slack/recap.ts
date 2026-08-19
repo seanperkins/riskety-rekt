@@ -212,7 +212,7 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
         attacks.map((e) => {
           const owner = previous.ownership[e.to]
           return e.captured
-            ? `${nameOf(e.attacker)} took ${place(e.to)} from ${place(e.from)} — ${e.committed} sent, ${e.survivors} held it`
+            ? `${nameOf(e.attacker)} took ${place(e.to)}${owner === undefined ? "" : ` (${nameOf(owner)})`} from ${place(e.from)} — ${e.committed} sent, ${e.survivors} held it`
             : `${nameOf(e.attacker)} failed against ${place(e.to)}${owner === undefined ? "" : ` (${nameOf(owner)})`} — ${e.committed} sent, ${e.survivors} came back`
         }),
       ),
