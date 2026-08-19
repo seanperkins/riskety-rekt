@@ -1,6 +1,7 @@
-import { QUESTION_MAX_CHARS, TIMEZONE } from "../config.js"
+import { MARKET_QUESTION_MAX, QUESTION_MAX_CHARS, TIMEZONE } from "../config.js"
 import type { Market } from "../engine/index.js"
 import type { Block } from "./recap.js"
+import { fallbackTable, table, tableLayout, truncateCell } from "./table.js"
 import { safeText } from "./text.js"
 
 const plain = (text: string) => ({ type: "plain_text" as const, text, emoji: true as const })
@@ -29,17 +30,15 @@ export function renderSlate(day: number, slate: Market[]): { text: string; block
     return { text: `Day ${day} — no markets today`, blocks }
   }
 
-  for (const m of slate) {
-    blocks.push({
-      type: "section",
-      text: plain(
-        `${safeText(m.question, QUESTION_MAX_CHARS)}\n` +
-          `YES ${Math.round(m.priceYes * 100)}¢ · NO ${Math.round(m.priceNo * 100)}¢ · ` +
-          `wagers lock ${CLOSE_FMT.format(new Date(m.closeTime))}`,
-      ),
-    })
-  }
-
+  const headers = ["Market", "YES", "NO", "LOCK"]
+  const rows = slate.map((m) => [
+    truncateCell(safeText(m.question, QUESTION_MAX_CHARS), MARKET_QUESTION_MAX),
+    `${Math.round(m.priceYes * 100)}¢`,
+    `${Math.round(m.priceNo * 100)}¢`,
+    CLOSE_FMT.format(new Date(m.closeTime)),
+  ])
+  const layout = tableLayout("Today's markets", headers, rows)
+  blocks.push(table("Today's markets", headers, layout))
   blocks.push({
     type: "context",
     elements: [
@@ -47,5 +46,5 @@ export function renderSlate(day: number, slate: Market[]): { text: string; block
     ],
   })
 
-  return { text: `Day ${day} — ${slate.length} markets`, blocks }
+  return { text: fallbackTable("Today's markets", headers, layout), blocks }
 }

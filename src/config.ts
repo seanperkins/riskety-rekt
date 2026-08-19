@@ -121,6 +121,11 @@ export const VOLUME_FLOOR = 500
 
 /** Third-party text cap. A 5,000-char title wrecks the recap layout. */
 export const QUESTION_MAX_CHARS = 200
+/**
+ * Maximum display width for a market question in the daily markets table.
+ * This fence-width budget keeps the odds and close columns on-screen.
+ */
+export const MARKET_QUESTION_MAX = 60
 
 /**
  * Display-name cap, for a name a player chose themselves.
