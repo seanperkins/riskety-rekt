@@ -32,14 +32,25 @@ describe("renderSlate", () => {
     expect(json).toContain("60¢")
   })
 
-  it("keeps hostile market payloads safe and uses one fenced table", () => {
-    const hostile = market({ question: `<!channel> ${"x".repeat(5000)}` })
-    const { blocks } = renderSlate(3, [hostile])
+  it("keeps hostile market payloads safe in blocks and fallback text", () => {
+    const hostile = market({ question: `<!channel> https://kalshi.com/market-x ${"x".repeat(5000)}` })
+    const { blocks, text } = renderSlate(3, [hostile])
     const json = JSON.stringify(blocks)
     expect(json).not.toContain("<")
     expect(json).not.toContain(">")
     expect(json).not.toContain("<!channel>")
     expect(sectionText(blocks).match(/```/g)).toHaveLength(2)
+    expect(text).not.toContain("<")
+    expect(text).not.toContain(">")
+    expect(text).not.toContain("<!channel>")
+    expect(text).not.toContain("://")
+  })
+
+  it("keeps hostile triple backticks inside one fenced table", () => {
+    const { blocks, text } = renderSlate(3, [market({ question: "before ``` after" })])
+    expect(sectionText(blocks).match(/```/g)).toHaveLength(2)
+    expect(text).not.toContain("```")
+    expect(text).toContain("before ` after")
   })
 
   it("caps hostile questions to the daily table width", () => {
@@ -48,6 +59,29 @@ describe("renderSlate", () => {
     expect(questionCell).toContain("…")
     expect(questionCell.length).toBeLessThanOrEqual(MARKET_QUESTION_MAX)
   })
+
+  it("aligns Unicode-width questions by display width, not UTF-16 length", () => {
+    const wideQuestion = "🗣️".repeat(4)
+    const { blocks } = renderSlate(3, [
+      market({ id: "KX-wide", question: wideQuestion, priceYes: 0.22, priceNo: 0.78 }),
+      market({ id: "KX-short", question: "A", priceYes: 0.11, priceNo: 0.89 }),
+    ])
+    const rows = fencedLines(sectionText(blocks)).slice(1)
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    const displayWidth = (value: string): number =>
+      [...segmenter.segment(value)].reduce(
+        (width, part) =>
+          width + ([...part.segment].some((char) => char === "🗣" || char === "️") ? 2 : 1),
+        0,
+      )
+    const rawYesStarts = rows.map((row) => row.indexOf("¢") - 2)
+    const yesStarts = rows.map((row) => displayWidth(row.slice(0, row.indexOf("¢") - 2)))
+    // Each 🗣️ grapheme is width 2, so the question is width 8 and YES starts at 8 + 2 = 10.
+    // Its UTF-16 length is 12, which would incorrectly put the raw index at 12 + 2 = 14.
+    expect(rawYesStarts).toEqual([14, 10])
+    expect(yesStarts).toEqual([10, 10])
+  })
+
 
   it("aligns price and lock columns across differently sized markets", () => {
     const { blocks } = renderSlate(3, [

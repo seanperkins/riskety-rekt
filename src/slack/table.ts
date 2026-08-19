@@ -56,7 +56,7 @@ export function truncateCell(value: string, maxWidth = 200): string {
   return `${result}…`
 }
 
-export function tableText(title: string, headers: string[], layout: TableLayout): string {
+function tableText(title: string, headers: string[], layout: TableLayout): string {
   const shown = layout.rows.map((row) => row.map((cell) => truncateCell(cell)))
   const allRows = [headers.map((cell) => truncateCell(cell)), ...shown]
   if (layout.dropped > 0) {
@@ -100,7 +100,7 @@ export function table(title: string, headers: string[], layout: TableLayout): Bl
 }
 
 export function fallbackTable(title: string, headers: string[], layout: TableLayout): string {
-  const rows = [...layout.rows]
+  const rows = layout.rows.map((row) => row.map(cleanCell))
   if (layout.dropped > 0) rows.push([`…and ${layout.dropped} more`, ...headers.slice(1).map(() => "")])
   const plain = [title, headers.join("  "), ...rows.map((row) => row.join("  "))].join("\n")
   return plain.replace(/:\/\//g, ": / ")
