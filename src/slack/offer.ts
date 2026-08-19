@@ -1,6 +1,7 @@
 import { RECAP_NAME_MAX_CHARS } from "./config.js"
 import { safeText } from "./text.js"
 import type { Block } from "./recap.js"
+import { fallbackTable, table, tableLayout } from "./table.js"
 
 /**
  * Ordinal → Slack emoji name. Shared with the offer job, which pre-seeds these
@@ -26,9 +27,6 @@ const plain = (text: string) => ({ type: "plain_text" as const, text, emoji: tru
  * numeral reactions. `supersedes` marks a re-post after a crash — the copy
  * points players at the live message, because reactions on an orphaned
  * earlier post can never map to a row (the accepted claim-then-post window).
- *
- * All plain_text blocks: rule names and descriptions are in-tree constants,
- * but the sink still caps them, same as every other renderer.
  */
 export function renderRuleOffer(
   day: number,
@@ -39,11 +37,14 @@ export function renderRuleOffer(
   if (opts.supersedes === true) {
     blocks.push({ type: "context", elements: [plain("Replaces the offer above — vote here.")] })
   }
-  const lines = offers.map(
-    (o) =>
-      `:${NUMERAL_NAMES[o.ordinal - 1] ?? "hash"}: ${safeText(o.name, RECAP_NAME_MAX_CHARS)} — ${safeText(o.description, 120)}`,
-  )
-  blocks.push({ type: "section", text: plain(lines.join("\n")) })
+  const headers = ["#", "Rule", "What it does"]
+  const rows = offers.map((o) => [
+    String(o.ordinal),
+    safeText(o.name, RECAP_NAME_MAX_CHARS),
+    safeText(o.description, 120),
+  ])
+  const layout = tableLayout("Candidates", headers, rows)
+  blocks.push(table("Candidates", headers, layout))
   blocks.push({
     type: "context",
     elements: [
@@ -53,5 +54,5 @@ export function renderRuleOffer(
       ),
     ],
   })
-  return { text: safeText(`Day ${day} rule vote`, 200), blocks }
+  return { text: fallbackTable("Candidates", headers, layout), blocks }
 }
