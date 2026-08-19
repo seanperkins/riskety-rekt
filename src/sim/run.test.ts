@@ -81,9 +81,16 @@ describe("runMany", () => {
     // day-3 leader's edge is mostly the contiguous holding, not the combat
     // rules. Loose bounds — this pins the DIRECTION, and the committed
     // magnitudes live in the balance-run doc.
+    //
+    // 500 seasons per arm, not 150. The effect is ~14.5 points at n=2000
+    // (39.4% clustered against 24.9% shuffled), but the seeded 150-season
+    // sample measures only 4.7 of them — under the 5-point bound this test
+    // asserts. It passed for the wrong reason until deriving adjacency from the
+    // drawn shapes moved the topology slightly and tipped it over. Measured
+    // here: 11.8 points at n=500, 7.0 at n=300.
     const six = Array(6).fill("Blitz") as string[]
-    const clustered = runMany(six, 150)
-    const scattered = runMany(six, 150, { deal: "shuffled" })
+    const clustered = runMany(six, 500)
+    const scattered = runMany(six, 500, { deal: "shuffled" })
     expect(clustered.day3LeaderWinRate).toBeGreaterThan(scattered.day3LeaderWinRate + 0.05)
   })
 

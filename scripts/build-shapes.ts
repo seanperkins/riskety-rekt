@@ -80,12 +80,28 @@ const ADMIN1_NAMES: Record<string, string> = {
   hispaniola: "Dominican Republic",
 }
 
+/**
+ * Admin-1 admins folded into another country's unit pool.
+ *
+ * Natural Earth lists de-facto states as their own `admin`, so their land is
+ * absent from the country the board models — and the hole is not cosmetic. With
+ * Somaliland missing, drawn Somalia started 5.5 degrees south of Djibouti, the
+ * Horn had a bite out of it, and the derived border between the two did not
+ * exist. Folding at INGEST rather than through `MERGES` matters: MERGES pulls
+ * 110m country outlines, which share no arcs with 10m provinces, so the seam
+ * would stay.
+ */
+const ADMIN1_FOLD: Record<string, string> = {
+  Somaliland: "Somalia",
+}
+
 const admin1 = new Map<string, Admin1Feature[]>()
 if (existsSync(ADMIN1_PATH)) {
   const raw = JSON.parse(readFileSync(ADMIN1_PATH, "utf8")) as { features: Admin1Feature[] }
   for (const f of raw.features) {
-    const country = f.properties.admin
-    if (country === undefined || f.geometry === null) continue
+    const listed = f.properties.admin
+    if (listed === undefined || f.geometry === null) continue
+    const country = ADMIN1_FOLD[listed] ?? listed
     admin1.set(country, [...(admin1.get(country) ?? []), f])
   }
 }
@@ -441,6 +457,14 @@ function carveByProvince(
   const geometries = buildTopology({ u: { type: "GeometryCollection", geometries: units.map((f) => f.geometry) } })
     .objects.u.geometries
 
+  // An admin-1 unit further than this from every claimant is OVERSEAS and
+  // belongs to no territory on the board. Nearest-centre alone handed French
+  // Guiana to Aquitaine, which drew a France-coloured wedge of South America
+  // and then derived a LAND border from Aquitaine to Para and Suriname across
+  // the Atlantic. Reunion, Mayotte and Hawaii are the same case. 20 degrees is
+  // wide enough for the Canaries, which are genuinely drawn with Andalusia.
+  const OVERSEAS_DEG = 20
+
   units.forEach((f, i) => {
     const [lon, lat] = centreOf(f)
     let best = claimants[0]!
@@ -456,6 +480,7 @@ function carveByProvince(
         best = c
       }
     }
+    if (Math.sqrt(bestD) > OVERSEAS_DEG) return
     assigned.set(best.id, [...(assigned.get(best.id) ?? []), geometries[i]])
   })
 
@@ -690,6 +715,71 @@ const topo = presimplify(
   }),
 )
 
+// ------------------------------------------------------- land adjacency --
+
+/**
+ * Who borders whom, read off the topology's SHARED ARCS.
+ *
+ * This is the same fact `topojson.merge` uses to dissolve an internal border:
+ * an arc belongs to exactly one boundary, so two territories share an arc if
+ * and only if they share a stretch of drawn edge. Sign is dropped -- one side
+ * of a border traverses the arc backwards, as `~index`.
+ *
+ * It replaces a hand-authored `borders` list on every territory, and that list
+ * was wrong: the province dissolve assigns each admin-1 unit to the nearest
+ * claimant, so a board territory silently absorbs the provinces no territory
+ * claims -- the drawn `gauteng` swallowed North West, Free State and
+ * Mpumalanga and reached Botswana, while the hand list still described the real
+ * province and did not. 77 pairs were drawn touching but unreachable and 39
+ * were reachable with no shared edge. Deriving both from one source is the only
+ * way the picture and the rules cannot disagree.
+ *
+ * A point-touch is NOT adjacency: a junction ends an arc rather than sharing
+ * one, so two territories meeting at a corner have no arc in common.
+ *
+ * Sea crossings are not here and cannot be -- there is no shared edge to find.
+ * They stay hand-authored in `SEA_LINKS`, which is where a reason per crossing
+ * belongs anyway.
+ */
+// `presimplify` is declared as returning `unknown` by the local type stub above,
+// so the arc structure TopoJSON guarantees has to be asserted once, here, by
+// name -- rather than inline at each read.
+const arcTopology = topo as {
+  objects: { world: { geometries: { arcs: number[][][] }[] } }
+}
+
+const arcOwners = new Map<number, string[]>()
+{
+  const geometries = arcTopology.objects.world.geometries
+  ids.forEach((id, i) => {
+    for (const poly of geometries[i]?.arcs ?? []) {
+      for (const ring of poly) {
+        for (const a of ring) {
+          const index = a < 0 ? ~a : a
+          const owners = arcOwners.get(index)
+          if (owners === undefined) arcOwners.set(index, [id])
+          else if (!owners.includes(id)) owners.push(id)
+        }
+      }
+    }
+  })
+}
+
+const landBorders: Record<string, string[]> = {}
+for (const id of ids) landBorders[id] = []
+
+function link(a: string, b: string): void {
+  if (a === b) return
+  if (!landBorders[a]!.includes(b)) landBorders[a]!.push(b)
+  if (!landBorders[b]!.includes(a)) landBorders[b]!.push(a)
+}
+
+for (const owners of arcOwners.values()) {
+  // Three owners of one arc is geometrically impossible; if it ever happens,
+  // pairing them all is still the honest reading of "shares this edge".
+  for (const a of owners) for (const b of owners) link(a, b)
+}
+
 function ringsAt(weight: number): Record<string, Ring[]> {
   const simplified = simplifyTopology(topo, weight) as never
   const fc = feature(simplified, (simplified as { objects: { world: unknown } }).objects.world) as unknown as {
@@ -745,6 +835,92 @@ for (const id of ids) {
     }
   }
 }
+
+// --------------------------------------------------------- seam adjacency --
+
+/**
+ * The second half of adjacency: neighbours whose shapes come from DIFFERENT
+ * arc pools and so share no arc to find.
+ *
+ * A shared arc only exists between two shapes cut from the same topology. Most
+ * of the board is admin-1 and shares arcs exactly, but a Voronoi-carved child
+ * is clipped out of the 1:110m country outline, and where such a shape meets an
+ * admin-1 one the same border is drawn twice from two datasets: a hairline seam
+ * instead of one edge. Bohemia, Baluchistan and Chukotka are cut off entirely by
+ * arcs alone.
+ *
+ * Thresholds are MEASURED, not guessed. Against the drawn coarse rings:
+ *
+ * - Every real border missing from the arc pass has >= 2 vertices within 0.1
+ *   degrees of the other side, spanning 1.4 to 11.4 degrees of boundary.
+ * - Every FALSE pair at that distance -- mauritania/morocco, namibia/zimbabwe,
+ *   jordan/sinai -- has exactly ONE such vertex and zero span. They are
+ *   quadripoints and corner touches, which are not borders.
+ *
+ * So the rule is a RUN, not a proximity: two shapes must run alongside each
+ * other, not merely meet. Anything still missing after this is a shape whose
+ * geometry genuinely shows no border, and the rules now agree with the picture
+ * rather than contradicting it.
+ */
+const SEAM_DEG = 0.1
+const SEAM_MIN_VERTICES = 2
+
+function seamContact(a: string, b: string): { hits: number; span: number } {
+  const other = (shapes[b] ?? []).flat()
+  let hits = 0
+  let minLon = Infinity
+  let maxLon = -Infinity
+  let minLat = Infinity
+  let maxLat = -Infinity
+  for (const ring of shapes[a] ?? []) {
+    for (const p of ring) {
+      const near = other.some((q) => {
+        // Longitude compressed by latitude, as everywhere else in this file:
+        // 0.1 degrees of longitude at 70 north is 4 km, not 11.
+        const dx = (p[0] - q[0]) * Math.cos((((p[1] + q[1]) / 2) * Math.PI) / 180)
+        const dy = p[1] - q[1]
+        return dx * dx + dy * dy <= SEAM_DEG * SEAM_DEG
+      })
+      if (!near) continue
+      hits++
+      minLon = Math.min(minLon, p[0])
+      maxLon = Math.max(maxLon, p[0])
+      minLat = Math.min(minLat, p[1])
+      maxLat = Math.max(maxLat, p[1])
+    }
+  }
+  if (hits === 0) return { hits: 0, span: 0 }
+  const span = Math.hypot(
+    (maxLon - minLon) * Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180),
+    maxLat - minLat,
+  )
+  return { hits, span }
+}
+
+let seams = 0
+for (let i = 0; i < ids.length; i++) {
+  for (let j = i + 1; j < ids.length; j++) {
+    const a = ids[i]!
+    const b = ids[j]!
+    if (landBorders[a]!.includes(b)) continue
+    // Cheap reject first: the pairwise vertex walk below is the expensive part,
+    // and two territories 25 degrees apart cannot share a hairline seam.
+    const ca = COORDS[a]
+    const cb = COORDS[b]
+    if (ca === undefined || cb === undefined) continue
+    const dx = (ca.lon - cb.lon) * Math.cos((((ca.lat + cb.lat) / 2) * Math.PI) / 180)
+    if (Math.hypot(dx, ca.lat - cb.lat) > 25) continue
+    const contact = seamContact(a, b)
+    const back = seamContact(b, a)
+    const hits = Math.max(contact.hits, back.hits)
+    const span = Math.max(contact.span, back.span)
+    if (hits < SEAM_MIN_VERTICES || span <= 0) continue
+    link(a, b)
+    seams++
+  }
+}
+
+for (const id of ids) landBorders[id]!.sort()
 
 // ------------------------------------------------------- region outlines --
 
@@ -876,5 +1052,36 @@ export const REGION_OUTLINES: Record<string, [number, number][][]> = ${JSON.stri
 
 writeFileSync(new URL("../src/map/shapes.ts", import.meta.url), body)
 
+const pairs = Object.values(landBorders).reduce((n, list) => n + list.length, 0) / 2
+const adjacency = `import type { TerritoryId } from "../engine/index.js"
+
+/**
+ * Every LAND border on the board, keyed by territory id. GENERATED — do not edit.
+ *
+ *   npm run build:shapes
+ *
+ * Read off the shared arcs of the same TopoJSON topology \`SHAPES\` is drawn
+ * from, so a border exists here if and only if the two territories share a
+ * stretch of drawn edge. That equivalence is the point: adjacency used to be
+ * hand-authored beside the generated geometry, and the two drifted into 116
+ * disagreements — including a \`gauteng\` polygon that absorbed North West
+ * province, visibly touched Botswana, and could not attack it.
+ *
+ * Two consequences worth knowing before editing anything upstream:
+ *
+ * - **A corner touch is not a border.** A junction ends an arc instead of
+ *   sharing one, so territories meeting at a point are not neighbours.
+ * - **Sea crossings are absent by construction.** There is no shared edge to
+ *   find, so every water link stays hand-authored in \`SEA_LINKS\` in
+ *   \`world.ts\`, with a named strait per entry.
+ *
+ * ${Object.keys(landBorders).length} territories, ${pairs.toLocaleString()} land borders.
+ */
+export const LAND_BORDERS: Record<TerritoryId, TerritoryId[]> = ${JSON.stringify(landBorders)}
+`
+
+writeFileSync(new URL("../src/map/adjacency.ts", import.meta.url), adjacency)
+
 console.log(`src/map/shapes.ts — ${Object.keys(shapes).length} territories, ${points.toLocaleString()} points, ${(body.length / 1024).toFixed(0)} KB`)
+console.log(`src/map/adjacency.ts — ${Object.keys(landBorders).length} territories, ${pairs.toLocaleString()} land borders`)
 if (report.length > 0) console.log(`EMPTY (${report.length}): ${report.join(", ")}`)

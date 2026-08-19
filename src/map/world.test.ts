@@ -132,18 +132,13 @@ describe("WORLD", () => {
   })
 
   it("puts every LAND border between shapes that are actually close", () => {
-    // The geographic audit, and the only one that can be automated. Symmetry
-    // and connectivity say nothing about whether a border is real, but two
-    // territories that share a land border have polygons that nearly touch --
-    // so a large gap is a border somebody invented.
+    // Now a guard on the COMMITTED artifact rather than on hand-authored data:
+    // `LAND_BORDERS` is generated from the same topology `SHAPES` is drawn from,
+    // so a pair that is adjacent but far apart means the two files were built
+    // from different runs, or edited by hand against the header's instruction.
     //
-    // It found two: carolinas|texas, with Georgia, Alabama, Mississippi and
-    // Louisiana between them, and gulf_states|kuwait, which is across the
-    // Persian Gulf and is now a sea link.
-    //
-    // The threshold is loose because Voronoi-carved territories have
-    // approximate internal borders by design, and Natural Earth at 110m
-    // renders small countries crudely -- Djibouti and Somalia really do meet.
+    // The threshold stays loose because Voronoi-carved territories have
+    // approximate internal borders by design.
     const seen = new Set<string>()
     for (const t of WORLD.territories) {
       for (const n of t.neighbors) {
@@ -155,17 +150,62 @@ describe("WORLD", () => {
     }
   })
 
-  it("places neighbours within 45 degrees of each other", () => {
-    // A cheap smell test for a mistyped border. Real land neighbours are close;
-    // an accidental "morocco borders kenya" shows up here even though it is
-    // symmetric, connected and in-band, which is everything validateMap checks.
-    for (const t of WORLD.territories) {
-      for (const n of t.neighbors) {
-        if (LONG_LINKS.has([t.id, n].sort().join("|"))) continue
-        const a = COORDS[t.id]!
-        const b = COORDS[n]!
-        expect(Math.abs(a.lat - b.lat), `${t.id}-${n} latitude`).toBeLessThan(45)
-        expect(Math.abs(a.lon - b.lon), `${t.id}-${n} longitude`).toBeLessThan(45)
+  it("keeps every SEA link short, since those are the hand-authored ones", () => {
+    // The smell test now belongs to the sea links alone. Land borders cannot be
+    // mistyped any more -- they are read off shared arcs -- and applying a
+    // centroid rule to them flagged karelia|west_siberia, two Russian districts
+    // wide enough to be 47 degrees apart across a border they genuinely share.
+    //
+    // A strait is a short hop by definition, so a long one is either a typo or
+    // one of the two documented crossings in LONG_LINKS.
+    for (const pair of SEA_LINKS) {
+      const [a, b] = pair.split("|") as [string, string]
+      if (LONG_LINKS.has(pair)) continue
+      const from = COORDS[a]
+      const to = COORDS[b]
+      if (from === undefined || to === undefined) continue
+      expect(Math.abs(from.lat - to.lat), `${pair} latitude`).toBeLessThan(45)
+      expect(Math.abs(from.lon - to.lon), `${pair} longitude`).toBeLessThan(45)
+    }
+  })
+
+  it("makes adjacency and the drawn map say the same thing", () => {
+    // THE regression test for this whole change. A player asked why Gauteng
+    // could not attack Botswana when the two clearly touch on screen: the
+    // shapes were generated and the borders were hand-authored, and they had
+    // drifted into 77 pairs drawn touching but unreachable.
+    //
+    // So: any two territories whose drawn boundaries run alongside each other --
+    // 2+ vertices within 0.1 degrees, spanning real distance, which is the
+    // generator's own seam rule -- MUST be neighbours. A corner touch is not a
+    // border and is excluded by the same rule that excludes it in the build.
+    const neighbors = new Map(WORLD.territories.map((t) => [t.id, new Set(t.neighbors)]))
+    const ids = WORLD.territories.map((t) => t.id)
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = ids[i]!
+        const b = ids[j]!
+        if (neighbors.get(a)?.has(b) === true) continue
+        const other = (SHAPES[b] ?? []).flat()
+        let hits = 0
+        let lo = Infinity
+        let hi = -Infinity
+        for (const ring of SHAPES[a] ?? []) {
+          for (const p of ring) {
+            const near = other.some((q) => {
+              const dx = (p[0] - q[0]) * Math.cos((((p[1] + q[1]) / 2) * Math.PI) / 180)
+              return dx * dx + (p[1] - q[1]) ** 2 <= 0.01
+            })
+            if (!near) continue
+            hits++
+            lo = Math.min(lo, p[1])
+            hi = Math.max(hi, p[1])
+          }
+        }
+        expect(
+          hits < 2 || hi - lo === 0,
+          `${a}|${b} are drawn running alongside each other but are not neighbours`,
+        ).toBe(true)
       }
     }
   })

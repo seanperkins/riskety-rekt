@@ -58,11 +58,34 @@ once, so both sides read back identical geometry and the seam closes by
 construction. Thresholds are **area weights, not distances** — 0.05 coarse,
 0.004 fine — found by measuring point counts, not reasoned from degrees.
 
-Gaps went from 39% of adjacent pairs to 8% of land borders. The rest are pairs
-the game graph calls adjacent that are not adjacent on the ground
-(`andalusia|catalonia`, `provence|switzerland`); the old Voronoi cells hid that
-by sprawling until they touched. That is a `world.ts` data question, not a
-rendering one.
+Gaps went from 39% of adjacent pairs to 8% of land borders.
+
+**Adjacency is now read off the same topology, not authored beside it.** The
+build emits `src/map/adjacency.ts` from the topology's shared arcs — two
+territories border each other exactly when they share a stretch of drawn edge —
+and `world.ts` consumes it. The pairs this section used to shrug at
+(`andalusia|catalonia`, `provence|switzerland`) are gone from the graph because
+they are gone from the picture, and the reverse case is gone too: the drawn
+`gauteng` had absorbed North West province and plainly bordered Botswana while
+the hand-authored list said it did not, so a player could not attack across a
+border on their screen. 77 pairs were drawn touching but unreachable, 39
+reachable with no shared edge.
+
+Two rules fall out of the derivation and both are deliberate:
+
+- **A corner touch is not a border.** A junction ends an arc rather than sharing
+  one. `namibia|zimbabwe` and `botswana|zambia` meet at quadripoints — the latter
+  is the shortest international border on Earth — and are no longer adjacent.
+- **A hairline seam IS a border.** Where a Voronoi-carved shape meets an admin-1
+  one, the same border is drawn twice from two datasets. Pairs with two or more
+  vertices within 0.1° spanning real distance are linked; that recovers Bohemia,
+  Baluchistan and Chukotka, which shared no arc with anything. The thresholds are
+  measured: every real pair spans 1.4–11.4°, every false one has a single vertex
+  and zero span.
+
+Sea crossings cannot be derived — there is no shared edge — so `SEA_LINKS` in
+`world.ts` stays hand-authored with a named strait per entry, and is the only
+adjacency a person still writes.
 
 ### Labels
 

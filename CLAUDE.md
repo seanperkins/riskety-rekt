@@ -41,7 +41,8 @@ npm run recap -- 5 --force                    # re-post a recap the ledger suppr
 npm run tick:rerun -- 5 --confirm             # replay day 5 onward from tick_context
 npm run slack                                 # long-running events bot, PORT default 3001
 npm run web                                   # the player app, PORT default 3002
-npm run build:shapes                          # regenerate src/map/shapes.ts from Natural Earth
+npm run build:shapes                          # regenerate src/map/shapes.ts AND src/map/adjacency.ts
+npm run map:resync                            # plan a frozen-map fix for the live season; --confirm writes
 ```
 
 **Exit codes are three-valued**: 0 success or a deliberate skip, 1 a system
@@ -232,8 +233,18 @@ that seems obviously right — it may already have been considered and declined.
   deploys, attacks or `protect` pick is serialised into the HTML at all. Not
   hidden with CSS — absent. `src/web/board.test.ts` parses it back out and
   asserts it.
-- **`src/map/shapes.ts` is generated.** Edit `scripts/build-shapes.ts` and
-  re-run `npm run build:shapes`; never hand-edit the data.
+- **`src/map/shapes.ts` and `src/map/adjacency.ts` are generated.** Edit
+  `scripts/build-shapes.ts` and re-run `npm run build:shapes`; never hand-edit
+  the data. Land borders are DERIVED from the drawn topology's shared arcs, so
+  the rules and the picture cannot disagree — a hand-authored list beside
+  generated geometry drifted into 116 mismatched pairs, including a `gauteng`
+  that visibly bordered Botswana and could not attack it. `SEA_LINKS` in
+  `world.ts` is the only adjacency still written by hand.
+- **A season freezes its map into every `states` row**, so regenerating
+  adjacency does NOT reach a running season. `npm run map:resync -- --confirm`
+  rewrites the frozen `neighbors` on every saved day, leaving `regions` and each
+  `bonus` as dealt; bonuses were computed from the old adjacency and recomputing
+  them mid-season would move scoring under the players.
 - **`noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` are both on.**
   Expect `!` and `?? 0` at territory and faction lookups; pass optional fields by
   spreading a conditional object, never as an explicit `undefined`.
