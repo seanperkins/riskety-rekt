@@ -59,34 +59,97 @@ export interface RecapInput {
 export type Block =
   | { type: "header"; text: { type: "plain_text"; text: string; emoji: true } }
   | { type: "divider" }
-  | { type: "section"; text: { type: "plain_text"; text: string; emoji: true } }
+  | {
+      type: "section"
+      text:
+        | { type: "plain_text"; text: string; emoji: true }
+        | { type: "mrkdwn"; text: string }
+    }
   | { type: "context"; elements: { type: "plain_text"; text: string; emoji: true }[] }
+
+type TableRow = string[]
 
 const plain = (text: string) => ({ type: "plain_text" as const, text, emoji: true as const })
 const header = (text: string): Block => ({ type: "header", text: plain(text) })
 const context = (lines: string[]): Block => ({ type: "context", elements: lines.map(plain) })
 
-/**
- * A titled section, truncated to fit Slack's limits.
- *
- * Both caps announce themselves. A recap that silently dropped half the day's
- * battles would read exactly like a quiet day.
- */
-function section(title: string, lines: string[]): Block {
-  let shown = lines
-  let dropped = lines.length - shown.length
-  if (shown.length > MAX_SECTION_LINES) {
-    dropped = shown.length - MAX_SECTION_LINES
-    shown = shown.slice(0, MAX_SECTION_LINES)
+const wideCodePoint = (codePoint: number): boolean =>
+  (codePoint >= 0x1100 && codePoint <= 0x115f) ||
+  (codePoint >= 0x2329 && codePoint <= 0x232a) ||
+  (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
+  (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+  (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+  (codePoint >= 0xfe10 && codePoint <= 0xfe6f) ||
+  (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+  (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+  (codePoint >= 0x1f000 && codePoint <= 0x1faff) ||
+  (codePoint >= 0x2600 && codePoint <= 0x27ff)
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" })
+
+function graphemes(value: string): string[] {
+  return [...graphemeSegmenter.segment(value)].map((part) => part.segment)
+}
+
+function displayWidth(value: string): number {
+  return graphemes(value).reduce(
+    (width, grapheme) =>
+      width + ([...grapheme].some((char) => wideCodePoint(char.codePointAt(0)!)) ? 2 : 1),
+    0,
+  )
+}
+
+function truncateCell(value: string, maxWidth = 200): string {
+  if (displayWidth(value) <= maxWidth) return value
+  let result = ""
+  let width = 0
+  for (const grapheme of graphemes(value)) {
+    const nextWidth = displayWidth(grapheme)
+    if (width + nextWidth > maxWidth - 1) break
+    result += grapheme
+    width += nextWidth
   }
-  let text = [title, ...shown].join("\n")
+  return `${result}…`
+}
+
+function tableText(title: string, headers: string[], rows: TableRow[], dropped: number): string {
+  const shown = rows.map((row) => row.map((cell) => truncateCell(cell)))
+  const allRows = [headers.map((cell) => truncateCell(cell)), ...shown]
+  if (dropped > 0) allRows.push([`…and ${dropped} more`, ...headers.slice(1).map(() => "")])
+  const widths = headers.map((_, column) =>
+    Math.max(...allRows.map((row) => displayWidth(row[column] ?? ""))),
+  )
+  const lines = allRows.map((row) =>
+    row
+      .map((cell, column) => {
+        const value = cell ?? ""
+        return value + " ".repeat(Math.max(0, (widths[column] ?? 0) - displayWidth(value)))
+      })
+      .join("  ")
+      .trimEnd(),
+  )
+  return `*${title}*\n\`\`\`\n${lines.join("\n")}\n\`\`\``
+}
+
+function table(title: string, headers: string[], rows: TableRow[]): Block {
+  let shown = rows
+  let dropped = 0
+  const maxDataRows = Math.max(0, MAX_SECTION_LINES - 1)
+  if (shown.length > maxDataRows) {
+    shown = shown.slice(0, Math.max(0, maxDataRows - 1))
+    dropped = rows.length - shown.length
+  }
+  let text = tableText(title, headers, shown, dropped)
   while (text.length > MAX_SECTION_CHARS && shown.length > 0) {
     shown = shown.slice(0, -1)
     dropped += 1
-    text = [title, ...shown].join("\n")
+    text = tableText(title, headers, shown, dropped)
   }
-  if (dropped > 0) text = `${text}\n…and ${dropped} more`
-  return { type: "section", text: plain(text) }
+  return { type: "section", text: { type: "mrkdwn", text } }
+}
+
+function fallbackTable(title: string, headers: string[], rows: TableRow[]): string {
+  return [title, headers.join("  "), ...rows.map((row) => row.join("  "))].join("\n")
 }
 
 /** "eastern_united_states" -> "Eastern United States". */
@@ -99,26 +162,13 @@ function titleCase(id: string): string {
 
 export function renderRecap(input: RecapInput): { text: string; blocks: Block[] } {
   const { state, previous, lengthDays } = input
-
-  // `Object.hasOwn` on both lookups below, not a bare index. These maps are
-  // built with Object.fromEntries and so inherit Object.prototype, where a key
-  // of "toString" or "constructor" returns a FUNCTION rather than undefined --
-  // which then reaches safeText and throws on `value.replace`, taking the whole
-  // recap post down. A Kalshi ticker of "toString" satisfies the ingest regex
-  // (`^[A-Za-z0-9._-]{1,64}$`), so this is cheap insurance, not theory.
   const own = (m: Record<string, string> | undefined, k: string): string | undefined =>
     m !== undefined && Object.hasOwn(m, k) ? m[k] : undefined
-
   const nameOf = (id: FactionId): string => {
-    // Roster first, then the state's frozen copy, then the bare id.
     const live = own(input.names, id)
     const f = state.factions.find((x) => x.id === id)
     return safeText(live ?? f?.playerName ?? id, RECAP_NAME_MAX_CHARS)
   }
-  // The market's question, falling back to its id. Third-party text from
-  // Kalshi, so capped and quoted rather than dropped into the sentence bare.
-  // The wrapping quotes are added AFTER safeText, which folds any quote inside
-  // the question itself -- otherwise the text could close this wrapper.
   const marketOf = (id: string): string => {
     const q = own(input.marketTitles, id)
     return q === undefined
@@ -126,25 +176,27 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
       : `“${safeText(q, RECAP_MARKET_MAX_CHARS)}”`
   }
   const place = (id: string) => safeText(titleCase(id), RECAP_NAME_MAX_CHARS)
-
   const blocks: Block[] = [header(`Day ${state.day} of ${lengthDays}`)]
+  const fallback: string[] = [`Riskety Rekt — day ${state.day} of ${lengthDays}`]
+  const addTable = (title: string, headers: string[], rows: TableRow[]): void => {
+    blocks.push(table(title, headers, rows))
+    fallback.push(fallbackTable(title, headers, rows))
+  }
   if (input.correction === true) {
-    blocks.push(context(["Correction — this tick was re-run. It replaces the earlier recap."]))
+    const correction = "Correction — this tick was re-run. It replaces the earlier recap."
+    blocks.push(context([correction]))
+    fallback.push(correction)
   }
   for (const id of input.ruleIds ?? []) {
-    // An id the registry no longer knows renders as the bare id — frozen
-    // history must outlive a catalogue edit, not crash the recap.
     const r = RULE_REGISTRY.get(id)
     const label = r === undefined ? id : `${r.name} — ${r.description}`
-    blocks.push(context([safeText(`Rule in force: ${label}`, 200)]))
+    const line = safeText(`Rule in force: ${label}`, 200)
+    blocks.push(context([line]))
+    fallback.push(line)
   }
 
   const of = <T extends TickEvent["t"]>(t: T) =>
     state.log.filter((e): e is Extract<TickEvent, { t: T }> => e.t === t)
-
-  // Reinforcements: income, IRL, and generic mechanic grants, one line per
-  // faction. A grant names its source so a doubled-income day reads as the
-  // rule that caused it, not as ordinary income.
   const income = of("income")
   const irl = of("irl")
   const grants = of("grant").filter((e) => e.amount > 0)
@@ -163,115 +215,102 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
     for (const e of grants) {
       byFaction.set(e.faction, [...(byFaction.get(e.faction) ?? []), `+${e.amount} (${e.source})`])
     }
-    const lines = [...byFaction.keys()]
-      .sort()
-      .map((f) => `${nameOf(f)}: ${byFaction.get(f)!.join(", ")}`)
-    blocks.push(section("Reinforcements", lines))
+    addTable(
+      "Reinforcements",
+      ["Player", "Detail"],
+      [...byFaction.keys()]
+        .sort()
+        .map((f) => [nameOf(f), byFaction.get(f)!.join(", ")]),
+    )
   }
 
-  // Picks are secret until now. This is the reveal.
   const protections = of("protected")
   if (protections.length > 0) {
-    blocks.push(
-      section(
-        "Protected",
-        protections.map(
-          (e) => `${place(e.territory)} — held by ${e.byCount} veto${e.byCount === 1 ? "" : "es"}`,
-        ),
-      ),
+    addTable(
+      "Protected",
+      ["Territory", "Vetos"],
+      protections.map((e) => [
+        place(e.territory),
+        `${e.byCount} veto${e.byCount === 1 ? "" : "es"}`,
+      ]),
     )
   }
-
   const movesEv = of("move")
   if (movesEv.length > 0) {
-    blocks.push(
-      section(
-        "Movements",
-        movesEv.map((e) => `${nameOf(e.faction)} moved ${e.count} from ${place(e.from)} to ${place(e.to)}`),
-      ),
+    addTable(
+      "Movements",
+      ["Player", "From", "To", "Troops"],
+      movesEv.map((e) => [nameOf(e.faction), place(e.from), place(e.to), `${e.count}`]),
     )
   }
-
   const field = of("fieldBattle")
   if (field.length > 0) {
-    blocks.push(
-      section(
-        "Field battles",
-        field.map(
-          (e) => `${place(e.a)} ↔ ${place(e.b)} — ${e.aContinues} and ${e.bContinues} continued on`,
-        ),
-      ),
+    addTable(
+      "Field battles",
+      ["Battle"],
+      field.map((e) => [
+        `${place(e.a)} ↔ ${place(e.b)} — ${e.aContinues} and ${e.bContinues} continued on`,
+      ]),
     )
   }
-
   const attacks = of("attack")
   if (attacks.length > 0) {
-    blocks.push(
-      section(
-        "Battles",
-        attacks.map((e) => {
-          const owner = previous.ownership[e.to]
-          return e.captured
-            ? `${nameOf(e.attacker)} took ${place(e.to)}${owner === undefined ? "" : ` (${nameOf(owner)})`} from ${place(e.from)} — ${e.committed} sent, ${e.survivors} held it`
-            : `${nameOf(e.attacker)} failed against ${place(e.to)}${owner === undefined ? "" : ` (${nameOf(owner)})`} — ${e.committed} sent, ${e.survivors} came back`
-        }),
-      ),
+    addTable(
+      "Battles",
+      ["Player", "Detail"],
+      attacks.map((e) => {
+        const owner = previous.ownership[e.to]
+        const detail = e.captured
+          ? `took ${place(e.to)}${owner === undefined ? "" : ` (${nameOf(owner)})`} from ${place(e.from)} — ${e.committed} sent, ${e.survivors} held it`
+          : `failed against ${place(e.to)}${owner === undefined ? "" : ` (${nameOf(owner)})`} — ${e.committed} sent, ${e.survivors} came back`
+        return [nameOf(e.attacker), detail]
+      }),
     )
   }
-
-  // Named, not anonymous. This used to print the bare wagerId — "3-f1-0" — and
-  // no stake, because the event carried no faction; it was the only section
-  // that did not name its player. A SETTLED wager is past, so naming it
-  // discloses no position anyone could still trade against, which is why this
-  // is public where the board's own wager panel is not.
   const settles = of("wagerSettle")
   if (settles.length > 0) {
-    blocks.push(
-      section(
-        "Markets",
-        settles.map((e) => {
-          // A log saved by engine 1.0.0 has neither field, and `recap --force`
-          // renders persisted logs. Fall back to the wagerId, which is the only
-          // identity a legacy row carries -- and it embeds the faction, being
-          // `${day}-${factionId}-${seq}`. Anonymous, which is exactly what the
-          // section looked like when that row was written.
-          if (e.faction === undefined || e.marketId === undefined) {
-            const id = safeText(e.wagerId, RECAP_NAME_MAX_CHARS)
-            if (e.outcome === "unsettled") return `${id} — never called, ${e.stake} refunded`
-            return e.payout > 0
-              ? `${id} resolved ${e.outcome} — paid ${e.payout}`
-              : `${id} resolved ${e.outcome} — lost`
-          }
-          const who = nameOf(e.faction)
-          const what = marketOf(e.marketId)
-          // Three outcomes. Classifying on `payout > 0` alone reports a refund
-          // as a win — a matured unsettled wager pays the stake straight back.
-          if (e.outcome === "unsettled") {
-            return `${who}, nobody ever called ${what} — your ${e.stake} came home, no worse off.`
-          }
-          if (e.payout > 0) {
-            return `${who}, you wagered ${e.stake} on ${what} — you won. ${e.payout} soldiers report for duty.`
-          }
-          return `${who}, you wagered ${e.stake} on ${what} — you lost. Those soldiers are working it off in the mines.`
-        }),
-      ),
+    addTable(
+      "Markets",
+      ["Player", "Detail"],
+      settles.map((e) => {
+        if (e.faction === undefined || e.marketId === undefined) {
+          const id = safeText(e.wagerId, RECAP_NAME_MAX_CHARS)
+          return [
+            id,
+            e.outcome === "unsettled"
+              ? `never called, ${e.stake} refunded`
+              : e.payout > 0
+                ? `resolved ${e.outcome} — paid ${e.payout}`
+                : `resolved ${e.outcome} — lost`,
+          ]
+        }
+        const who = nameOf(e.faction)
+        const what = marketOf(e.marketId)
+        if (e.outcome === "unsettled") {
+          return [who, `nobody ever called ${what} — your ${e.stake} came home, no worse off.`]
+        }
+        if (e.payout > 0) {
+          return [who, `you wagered ${e.stake} on ${what} — you won. ${e.payout} soldiers report for duty.`]
+        }
+        return [
+          who,
+          `you wagered ${e.stake} on ${what} — you lost. Those soldiers are working it off in the mines.`,
+        ]
+      }),
     )
   }
-
-  // Always surfaced. Silent validation is how a validator bug survives a season.
   const rejections = of("rejected")
   if (rejections.length > 0) {
-    blocks.push(
-      section(
-        "Rejected orders",
-        rejections.map(
-          (e) => `${nameOf(e.faction)} — ${safeText(e.field, 40)}: ${safeText(e.reason, 80)}`,
-        ),
-      ),
+    addTable(
+      "Rejected orders",
+      ["Player", "Field: reason"],
+      rejections.map((e) => [
+        nameOf(e.faction),
+        `${safeText(e.field, 40)}: ${safeText(e.reason, 80)}`,
+      ]),
     )
   }
 
-  // Standings, with movement against yesterday.
   blocks.push({ type: "divider" })
   const standings = state.factions
     .map((f) => ({
@@ -282,42 +321,30 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
       reserve: state.reserves[f.id] ?? 0,
     }))
     .sort((a, b) => b.count - a.count || b.reserve - a.reserve || (a.id < b.id ? -1 : 1))
-
-  blocks.push(
-    section(
-      "Standings",
-      standings.map((s) => {
-        const delta = s.count - s.was
-        const move = delta === 0 ? "" : delta > 0 ? ` (+${delta})` : ` (${delta})`
-        const dead = s.count === 0 ? " — eliminated" : ""
-        return `${s.name}: ${s.count} territories${move}, ${s.reserve} in reserve${dead}`
-      }),
-    ),
+  addTable(
+    "Standings",
+    ["Player", "Territories", "Reserve"],
+    standings.map((s) => {
+      const delta = s.count - s.was
+      const move = delta === 0 ? "" : delta > 0 ? ` (+${delta})` : ` (${delta})`
+      const dead = s.count === 0 ? " — eliminated" : ""
+      return [s.name, `${s.count}${move}`, `${s.reserve}${dead}`]
+    }),
   )
-
   if (state.day >= lengthDays) {
     const top = standings[0]!
     const tied = standings.filter((s) => s.count === top.count && s.reserve === top.reserve)
-    blocks.push(
-      section(
-        tied.length > 1
-          ? `The season is a draw between ${tied.map((s) => s.name).join(" and ")}.`
-          : `${top.name} wins the season with ${top.count} territories.`,
-        [],
-      ),
-    )
+    const result =
+      tied.length > 1
+        ? `The season is a draw between ${tied.map((s) => s.name).join(" and ")}.`
+        : `${top.name} wins the season with ${top.count} territories.`
+    addTable("Season result", ["Outcome"], [[result]])
   }
+  if (blocks.length === 1) addTable("A quiet day. No orders resolved.", ["Status"], [["—"]])
 
-  if (blocks.length === 1) blocks.push(section("A quiet day. No orders resolved.", []))
-
-  // Slack rejects more than 50 blocks. A truncated recap beats no recap.
   const capped =
     blocks.length > MAX_RECAP_BLOCKS
       ? [...blocks.slice(0, MAX_RECAP_BLOCKS - 1), context(["Recap truncated — see the web app."])]
       : blocks
-
-  return {
-    text: safeText(`Riskety Rekt — day ${state.day} of ${lengthDays}`, 200),
-    blocks: capped,
-  }
+  return { text: fallback.join("\n"), blocks: capped }
 }
