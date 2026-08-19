@@ -215,6 +215,31 @@ nothing: markets closing inside the 09:00–21:00 window have already closed, an
 markets closing at exactly 21:00 are excluded by spec. Judge the job by an
 08:00 run, not an evening one.
 
+## Fixing the map under a live season
+
+A season freezes its `GameMap` into every `states` row at the deal, so
+regenerating adjacency in the code does NOT reach a season already running --
+`npm run build:shapes` changes what the NEXT season is dealt and nothing else.
+
+```bash
+npm run map:resync              # prints the added/removed pairs, writes nothing
+npm run map:resync -- --confirm # rewrites every saved day
+```
+
+It rewrites only `neighbors`, on every saved day from 0 up. `regions` and each
+`bonus` stay exactly as dealt: bonuses were computed from the old adjacency, and
+recomputing them mid-season would move scoring under the players. Symmetry is
+asserted before anything is written, and the survey runs inside the write
+transaction so a tick appending a day cannot leave the season half-rewritten.
+
+Both halves of a partial fix hurt, so **deploy the code first**: a resync writes
+the adjacency the deployed `WORLD` derives, and running it against an older
+checkout writes that checkout's map instead.
+
+Take a snapshot first -- `sqlite3 "$RR_DB_PATH" ".backup /var/backups/riskety/pre-resync.db"`.
+A re-run is safe: with nothing left to change it reports that the map already
+matches and writes nothing.
+
 ## The Slack bot
 
 A long-running service, not a timer. Slack retries a failed event delivery three
