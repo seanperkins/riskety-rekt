@@ -98,6 +98,33 @@ describe("renderRecap", () => {
     expect(texts(blocks)).toContain("Battles\nSean failed against Alaska (Sam) — 4 sent, 0 came back")
   })
 
+  it("names the owner on a captured territory", () => {
+    const prior = stateWith([], 2)
+    const previousWithOwner = {
+      ...prior,
+      ownership: { ...prior.ownership, alaska: "f2" },
+    }
+    const { blocks } = renderRecap({
+      state: stateWith([
+        {
+          t: "attack",
+          from: "kamchatka",
+          to: "alaska",
+          attacker: "f1",
+          committed: 5,
+          survivors: 3,
+          captured: true,
+          lost: 2,
+          defenderLost: 0,
+        },
+      ]),
+      previous: previousWithOwner,
+      lengthDays: 21,
+      names: { f1: "Sean", f2: "Sam" },
+    })
+    expect(texts(blocks)).toContain("Battles\nSean took Alaska (Sam) from Kamchatka — 5 sent, 3 held it")
+  })
+
   it("omits the owner when a failed attack has no previous owner", () => {
     const prior = stateWith([], 2)
     const ownership = Object.fromEntries(
