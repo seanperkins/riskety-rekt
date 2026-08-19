@@ -235,11 +235,16 @@ that seems obviously right — it may already have been considered and declined.
   asserts it.
 - **`src/map/shapes.ts` and `src/map/adjacency.ts` are generated.** Edit
   `scripts/build-shapes.ts` and re-run `npm run build:shapes`; never hand-edit
-  the data. Land borders are DERIVED from the drawn topology's shared arcs, so
-  the rules and the picture cannot disagree — a hand-authored list beside
-  generated geometry drifted into 116 mismatched pairs, including a `gauteng`
-  that visibly bordered Botswana and could not attack it. `SEA_LINKS` in
-  `world.ts` is the only adjacency still written by hand.
+  the data. Land borders are DERIVED from the drawn geometry — shared topology
+  arcs for all but eight pairs, plus a measured 0.1° seam rule for borders drawn
+  twice by two datasets, which ship separately as `SEAM_BORDERS` — so the rules
+  and the picture cannot disagree. A hand-authored list beside generated geometry
+  drifted into 116 mismatched pairs, including a `gauteng` that visibly bordered
+  Botswana and could not attack it. The cost is that the picture's resolution is
+  now a game rule: Botswana and Zambia's real 135 m frontier at Kazungula
+  survives simplification as a single shared vertex and is no longer a border.
+  `SEA_LINKS` in `world.ts` is the only adjacency still written by hand, and is
+  excluded from the seam rule so a heuristic can never claim water is land.
 - **A season freezes its map into every `states` row**, so regenerating
   adjacency does NOT reach a running season. `npm run map:resync -- --confirm`
   rewrites the frozen `neighbors` on every saved day, leaving `regions` and each

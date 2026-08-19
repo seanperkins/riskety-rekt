@@ -517,10 +517,19 @@ function paint() {
   for (const t of P.territories) {
     const l = layers[t.id]
     if (!l) continue
-    // Name the drawn element after its territory, HERE rather than where the
-    // polygon is built: setLatLngs replaces the path element outright, so a tag
-    // written once at creation is gone the first time updateDetail swaps in the
-    // fine geometry. paint() runs after every one of those swaps.
+    // Name the drawn element after its territory, so anything asking "where is
+    // Gauteng on screen" -- a browser check, a bug report, this file's own
+    // debugging -- can select it instead of hovering every path to read the
+    // tooltip back.
+    //
+    // HERE rather than at creation, for a reason worth stating precisely because
+    // the obvious guess is wrong: Leaflet 1.9.4's setLatLngs calls redraw() and
+    // KEEPS the same path element, tag and all (verified against the vendored
+    // bundle), so element churn is not the hazard. What is: getElement() returns
+    // undefined until the layer has been added and the renderer has built its
+    // path, and tagging at creation left every territory untagged on this board.
+    // paint() runs after the opening fit and after every geometry swap, so the
+    // element always exists by then. The guard makes it a no-op on repaints.
     //
     // dataset, never className -- Leaflet rewrites the class list on zoom, which
     // is the bug paintCounts already carries a comment about.

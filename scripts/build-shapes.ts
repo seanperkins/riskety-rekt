@@ -1073,22 +1073,31 @@ const adjacency = `import type { TerritoryId } from "../engine/index.js"
  *
  *   npm run build:shapes
  *
- * Read off the shared arcs of the same TopoJSON topology \`SHAPES\` is drawn
- * from, so a border exists here if and only if the two territories share a
- * stretch of drawn edge. That equivalence is the point: adjacency used to be
- * hand-authored beside the generated geometry, and the two drifted into 116
+ * Two sources, and the distinction matters: MOST borders are read off the shared
+ * arcs of the same TopoJSON topology \`SHAPES\` is drawn from, and the remaining
+ * ${seamPairs.length} come from the 0.1° seam rule below, which exists because a
+ * Voronoi-carved shape and an admin-1 one draw the same border twice and share
+ * no arc at all. \`SEAM_BORDERS\` names that second set exactly.
+ *
+ * Deriving both from the geometry is the point: adjacency used to be
+ * hand-authored beside generated shapes, and the two drifted into 116
  * disagreements — including a \`gauteng\` polygon that absorbed North West
  * province, visibly touched Botswana, and could not attack it.
  *
- * Two consequences worth knowing before editing anything upstream:
+ * Three consequences worth knowing before editing anything upstream:
  *
  * - **A corner touch is not a border.** A junction ends an arc instead of
  *   sharing one, so territories meeting at a point are not neighbours.
+ * - **A border below the drawn resolution is lost.** Botswana and Zambia have a
+ *   real ~135 m frontier at Kazungula; simplified to 0.05 area weight the two
+ *   shapes share a single vertex, so the derivation drops it. That is a genuine
+ *   cost of tying the rules to the picture, not a rounding artefact — add a
+ *   \`SEA_LINKS\` entry if a board ever needs that crossing back.
  * - **A shared arc can cross water.** Natural Earth's admin-1 boundaries meet
  *   mid-strait in places, so Ceuta gives Andalusia a real land border with
  *   Morocco and Northern Ireland gives Ireland one with its UK neighbour. Those
  *   pairs are ALSO listed in \`SEA_LINKS\`; \`world.ts\` joins the two and
- *   de-duplicates. What is never derived is a crossing with no shared edge.
+ *   de-duplicates.
  *
  * ${Object.keys(landBorders).length} territories, ${pairs.toLocaleString()} land borders.
  */

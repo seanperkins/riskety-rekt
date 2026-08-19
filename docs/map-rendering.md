@@ -60,32 +60,45 @@ construction. Thresholds are **area weights, not distances** — 0.05 coarse,
 
 Gaps went from 39% of adjacent pairs to 8% of land borders.
 
-**Adjacency is now read off the same topology, not authored beside it.** The
-build emits `src/map/adjacency.ts` from the topology's shared arcs — two
-territories border each other exactly when they share a stretch of drawn edge —
-and `world.ts` consumes it. The pairs this section used to shrug at
-(`andalusia|catalonia`, `provence|switzerland`) are gone from the graph because
-they are gone from the picture, and the reverse case is gone too: the drawn
-`gauteng` had absorbed North West province and plainly bordered Botswana while
-the hand-authored list said it did not, so a player could not attack across a
-border on their screen. 77 pairs were drawn touching but unreachable, 39
-reachable with no shared edge.
+**Adjacency is now derived from the same geometry, not authored beside it.** The
+build emits `src/map/adjacency.ts` and `world.ts` consumes it. The pairs this
+section used to shrug at (`andalusia|catalonia`, `provence|switzerland`) are gone
+from the graph because they are gone from the picture, and the reverse case is
+gone too: the drawn `gauteng` had absorbed North West province and plainly
+bordered Botswana while the hand-authored list said it did not, so a player could
+not attack across a border on their screen. 77 pairs were drawn touching but
+unreachable, 39 reachable with no shared edge.
 
-Two rules fall out of the derivation and both are deliberate:
+It comes from **two** sources, and conflating them hides where the judgement is:
+
+- **Shared arcs**, for all but eight pairs. An arc belongs to one boundary, so
+  sharing one is sharing a stretch of drawn edge. This is a fact about the data.
+- **The 0.1° seam rule**, for the remaining eight, exported as `SEAM_BORDERS`.
+  Where a Voronoi-carved shape meets an admin-1 one the same border is drawn
+  twice from two datasets and shares no arc; two or more vertices within 0.1°
+  spanning real distance links them. That recovers Bohemia, Baluchistan and
+  Chukotka, which shared no arc with anything and were cut off entirely. Measured:
+  every real pair spans 1.4–11.4°, every false one has a single vertex and zero
+  span. This is a heuristic, which is why it ships as a separate, reviewable list.
+
+Two costs, both deliberate:
 
 - **A corner touch is not a border.** A junction ends an arc rather than sharing
-  one. `namibia|zimbabwe` and `botswana|zambia` meet at quadripoints — the latter
-  is the shortest international border on Earth — and are no longer adjacent.
-- **A hairline seam IS a border.** Where a Voronoi-carved shape meets an admin-1
-  one, the same border is drawn twice from two datasets. Pairs with two or more
-  vertices within 0.1° spanning real distance are linked; that recovers Bohemia,
-  Baluchistan and Chukotka, which shared no arc with anything. The thresholds are
-  measured: every real pair spans 1.4–11.4°, every false one has a single vertex
-  and zero span.
+  one, so `namibia|zimbabwe` is no longer adjacent.
+- **A border below the drawn resolution is lost.** Botswana and Zambia have a real
+  frontier at Kazungula — about 135 m, the shortest on Earth — but at 0.05 area
+  weight the two simplified shapes share a single vertex, so the derivation drops
+  it. Tying the rules to the picture means the picture's resolution is now a game
+  rule; a board that needs that crossing gets a `SEA_LINKS` entry.
 
-Sea crossings cannot be derived — there is no shared edge — so `SEA_LINKS` in
-`world.ts` stays hand-authored with a named strait per entry, and is the only
-adjacency a person still writes.
+Water crossings cannot be derived, since there is no shared edge, so `SEA_LINKS`
+stays hand-authored with a named strait per entry and is the only adjacency a
+person still writes. It is also **excluded from the seam rule**: 0.1° is 11 km at
+the equator and the Strait of Messina is 3 km, so six listed crossings clear that
+bar on distance alone. They are adjacent through `SEA_LINKS` regardless — a
+heuristic must not be what says water is land. Where a shared ARC crosses water
+the pair is genuinely edge-sharing in the data (Ceuta, Northern Ireland, the
+Kanmon and Tsugaru straits); `world.ts` joins both lists and de-duplicates.
 
 ### Labels
 
