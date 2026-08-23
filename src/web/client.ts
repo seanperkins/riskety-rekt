@@ -29,6 +29,11 @@ let selected = null
 // A transient hover highlight: {kind: "region"|"faction", id}. Distinct from
 // 'selected', which is an ORDER target and survives the pointer leaving.
 let highlight = null
+// The plan row under the pointer, resolved to the ground it names:
+// {kind, from, to} with 'from' null for a deploy or a shield. Separate from
+// 'highlight' because the two answer different questions and can both be live
+// -- one says "whose ground is this", the other "where does THIS order go".
+let hoverOrder = null
 let saveState = "saved"
 
 const mine = (id) => P.ownership[id] === P.factionId
@@ -512,6 +517,41 @@ function hideOutline() {
 const lit = (id) =>
   highlight !== null && highlight.kind === "faction" && owner(id) === highlight.id
 
+// ...or by the plan row under the pointer. Both ends of an attack or a move
+// light up, because the order is the PAIR: "with 4 from Kenya" is unreadable
+// without seeing which Kenya, and a highlight on the target alone leaves the
+// arrow's tail unexplained.
+const litOrder = (id) =>
+  hoverOrder !== null && (id === hoverOrder.to || id === hoverOrder.from)
+
+// Colour is the INTENT, not the actor: red into someone else's ground, green
+// into your own. Declared HERE rather than beside the arrows that spend most of
+// them, for a reason that is easy to miss -- paint() reads them and paint()
+// runs during load, while the arrow section further down has not been reached
+// yet, so a const declared there is still in its dead zone.
+const ARROW_ATTACK = "#ff6a3d"
+const ARROW_MOVE = "#35f0a0"
+
+// The ring an order's ground wears while its row is hovered: the arrow's own
+// colour, so the two ends and the line between them are one mark rather than
+// three. A deploy is green like a reinforcement -- soldiers landing on ground
+// you already hold is the same sentence with a shorter walk -- and a shield
+// keeps the neutral gold, because it names ground without sending anyone.
+//
+// Weight 4 rather than the faction hover's 3, and the DEPLOY is why. Its target
+// is always your own territory, whose resting edge is already a near-white 2;
+// gold at 3 against that is a difference you have to hunt for, and a highlight
+// you have to hunt for is not one.
+const ORDER_RING_WEIGHT = 4
+const orderRingColor = () =>
+  hoverOrder === null
+    ? null
+    : hoverOrder.kind === "attack"
+      ? ARROW_ATTACK
+      : hoverOrder.kind === "protect"
+        ? "#ffd479"
+        : ARROW_MOVE
+
 function paint() {
   const front = []
   for (const t of P.territories) {
@@ -543,16 +583,20 @@ function paint() {
     const isMine = mine(t.id)
     const isSel = selected === t.id
     const isLit = lit(t.id)
+    // The order ring outranks the selection ring. A hover is transient and
+    // answers the question being asked right now; the selection will still be
+    // there, saying the same thing, the moment the pointer leaves.
+    const ring = litOrder(t.id) ? orderRingColor() : null
     l.setStyle({
       fillColor: colorOf(owner(t.id)),
-      color: isSel ? "#fff" : isLit ? "#ffd479" : isMine ? "#e6edf3" : "#0b1a24",
-      weight: isSel ? 3.5 : isLit ? 3 : isMine ? 2 : 1,
+      color: ring ? ring : isSel ? "#fff" : isLit ? "#ffd479" : isMine ? "#e6edf3" : "#0b1a24",
+      weight: ring ? ORDER_RING_WEIGHT : isSel ? 3.5 : isLit ? 3 : isMine ? 2 : 1,
       // Lit territories keep their fill and gain an edge. Dimming everything
       // else instead would repaint 70 shapes on every pointer move and make the
       // rest of the board unreadable exactly when you are comparing against it.
       fillOpacity: isMine ? 0.9 : 0.55,
     })
-    if (isLit) front.push(l)
+    if (isLit || ring) front.push(l)
   }
   // Same reason the selection comes forward: SVG has no z-index, so a
   // neighbour drawn later would paint over the highlighted edge.
@@ -1018,8 +1062,7 @@ function onTap(id) {
 // browser. A reinforcement arrow is the sharper case: it runs between two of
 // YOUR territories, so it spends its whole length on the one colour it is most
 // likely to disappear into.
-const ARROW_ATTACK = "#ff6a3d"
-const ARROW_MOVE = "#35f0a0"
+// The two hexes are declared with the state, above paint() -- see there.
 
 const arrowLines = []
 const arrowMarks = []
@@ -1058,63 +1101,123 @@ function clearArrows() {
   arrowMarks.length = 0
 }
 
+/** Where an arrow touches a territory: its label anchor, or its centre. */
+const aimOf = (id) => (P.labels || {})[id] || P.centres[id]
+
+// One arc -- casing, line and head -- pushed into the caller's own arrays.
+// Shared by the neighbour fan and the plan-row hover on purpose: the hover's
+// whole job is to say "this is the arrow that order draws", so the two must be
+// the same drawing, not two that look alike until one of them is edited.
+// 'tap' is null for the hover, which is a readout rather than a control.
+function addArrow(from, to, color, tap, lines, marks) {
+  // Stop short of the target so the head sits in open ground rather than on
+  // top of the garrison count it is pointing at.
+  const pts = arcPoints(from, to, 0.72)
+  const tip = pts[pts.length - 1]
+
+  // Casing first: it is wider, carries the shadow, and being underneath makes
+  // it the fatter tap target for the same gesture.
+  const cast = L.polyline(pts, {
+    pane: "highlight", className: "arrow-cast",
+    color: "#0b1a24", weight: 6, opacity: 0.55,
+  }).addTo(map)
+  if (tap) cast.on("click", tap)
+  lines.push(cast)
+
+  const line = L.polyline(pts, {
+    pane: "highlight", color: color, weight: 2.5, opacity: 0.95,
+  }).addTo(map)
+  if (tap) line.on("click", tap)
+  lines.push(line)
+
+  // The head takes the bearing of the curve's LAST segment, not of the whole
+  // run: on an arc those differ, and the straight bearing points the head off
+  // the line it is meant to cap. Layer points rather than degrees, because
+  // the projection is what decides which way the tip actually leans.
+  const prev = pts[pts.length - 2] || [from.lat, from.lon]
+  const a = map.latLngToLayerPoint(prev)
+  const b = map.latLngToLayerPoint(tip)
+  const deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI
+  const mark = L.marker(tip, {
+    pane: "highlight",
+    keyboard: false,
+    icon: L.divIcon({
+      className: "arrow",
+      html:
+        '<span class="arrow-head" style="border-left-color:' + color +
+        ';transform:rotate(' + deg.toFixed(1) + 'deg)"></span>',
+      iconSize: null,
+      iconAnchor: null,
+    }),
+  }).addTo(map)
+  if (tap) {
+    const el = mark.getElement()
+    if (el) el.addEventListener("click", tap)
+  }
+  marks.push(mark)
+}
+
 function drawArrows() {
   clearArrows()
   // Only ever out of your OWN ground. An eliminated player selects anyone's
   // territory to shield it and has a reserve of zero, which cleared the spend
   // gate and drew a fan of routes off a stranger's border.
   if (P.locked || !selected || !mine(selected) || unspent() > 0) return
-  const from = (P.labels || {})[selected] || P.centres[selected]
+  const from = aimOf(selected)
   if (!from) return
 
   for (const n of byId[selected].neighbors) {
-    const to = (P.labels || {})[n] || P.centres[n]
+    const to = aimOf(n)
     if (!to) continue
     const color = mine(n) ? ARROW_MOVE : ARROW_ATTACK
-    // Stop short of the target so the head sits in open ground rather than on
-    // top of the garrison count it is pointing at.
-    const pts = arcPoints(from, to, 0.72)
-    const tip = pts[pts.length - 1]
-
-    // Casing first: it is wider, carries the shadow, and being underneath makes
-    // it the fatter tap target for the same gesture.
-    const cast = L.polyline(pts, {
-      pane: "highlight", className: "arrow-cast",
-      color: "#0b1a24", weight: 6, opacity: 0.55,
-    }).addTo(map)
-    cast.on("click", () => onTap(n))
-    arrowLines.push(cast)
-
-    const line = L.polyline(pts, {
-      pane: "highlight", color: color, weight: 2.5, opacity: 0.95,
-    }).addTo(map)
-    line.on("click", () => onTap(n))
-    arrowLines.push(line)
-
-    // The head takes the bearing of the curve's LAST segment, not of the whole
-    // run: on an arc those differ, and the straight bearing points the head off
-    // the line it is meant to cap. Layer points rather than degrees, because
-    // the projection is what decides which way the tip actually leans.
-    const prev = pts[pts.length - 2] || [from.lat, from.lon]
-    const a = map.latLngToLayerPoint(prev)
-    const b = map.latLngToLayerPoint(tip)
-    const deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI
-    const mark = L.marker(tip, {
-      pane: "highlight",
-      keyboard: false,
-      icon: L.divIcon({
-        className: "arrow",
-        html:
-          '<span class="arrow-head" style="border-left-color:' + color +
-          ';transform:rotate(' + deg.toFixed(1) + 'deg)"></span>',
-        iconSize: null,
-        iconAnchor: null,
-      }),
-    }).addTo(map)
-    const el = mark.getElement()
-    if (el) el.addEventListener("click", () => onTap(n))
-    arrowMarks.push(mark)
+    addArrow(from, to, color, () => onTap(n), arrowLines, arrowMarks)
   }
+}
+
+// ---- the hovered order ------------------------------------------------------
+// A saved order is a sentence in the rail: "Attack Kenya from Tanzania with 4".
+// Hovering it draws the same sentence on the board -- both territories lit, and
+// for the two orders that MOVE soldiers, the arrow the fan would have drawn,
+// in the colour that already means what it means here. Nothing new to learn.
+//
+// Its own layer arrays rather than the fan's, because the two are live at
+// different times and clearing one must never clear the other: the fan needs a
+// selection and a spent reserve, the hover needs neither.
+const hoverLines = []
+const hoverMarks = []
+
+function clearHoverArrow() {
+  for (const l of hoverLines) map.removeLayer(l)
+  for (const m of hoverMarks) map.removeLayer(m)
+  hoverLines.length = 0
+  hoverMarks.length = 0
+}
+
+function drawHoverArrow() {
+  clearHoverArrow()
+  // A deploy and a shield name one territory and no route, so they light the
+  // ground and draw nothing. An arrow from nowhere would be a lie about what
+  // the order does.
+  if (hoverOrder === null || !hoverOrder.from) return
+  const from = aimOf(hoverOrder.from)
+  const to = aimOf(hoverOrder.to)
+  if (!from || !to) return
+  addArrow(
+    from, to,
+    hoverOrder.kind === "attack" ? ARROW_ATTACK : ARROW_MOVE,
+    null, hoverLines, hoverMarks,
+  )
+}
+
+function setHoverOrder(next) {
+  const same =
+    (next === null && hoverOrder === null) ||
+    (next !== null && hoverOrder !== null &&
+      next.kind === hoverOrder.kind && next.from === hoverOrder.from && next.to === hoverOrder.to)
+  if (same) return
+  hoverOrder = next
+  paint()
+  drawHoverArrow()
 }
 
 function protect() {
@@ -1131,13 +1234,19 @@ function protect() {
 /** Adjust one line of the plan by +1, -1, or remove it entirely. */
 function adjust(kind, i, delta) {
   snapshot()
+  // The row under the pointer is about to be rebuilt. Stepping a count leaves
+  // it naming the same two territories, so the highlight is still true; a
+  // REMOVAL leaves it naming an order that no longer exists, and no mouseover
+  // is guaranteed to fire under a pointer that never moved.
+  let gone = false
   if (kind === "protect") {
     plan.protect = null
+    gone = true
   } else {
     const list = kind === "deploy" ? plan.deploys : kind === "move" ? plan.moves : plan.attacks
     const entry = list[i]
     if (!entry) return
-    if (delta === 0) list.splice(i, 1)
+    if (delta === 0) { list.splice(i, 1); gone = true }
     else {
       // A deploy cannot grow past what is left in the reserve, and an attack
       // cannot grow past what its origin can still send -- the same per-origin
@@ -1151,9 +1260,10 @@ function adjust(kind, i, delta) {
         return flash("Nothing left in " + nameOf(entry.from) + " to send.")
       }
       entry.count += delta
-      if (entry.count <= 0) list.splice(i, 1)
+      if (entry.count <= 0) { list.splice(i, 1); gone = true }
     }
   }
+  if (gone) setHoverOrder(null)
   save()
   drawArrows()
 }
@@ -1207,12 +1317,16 @@ function render() {
 
   const rows = []
   plan.deploys.forEach((d, i) =>
-    rows.push(row("deploy", i, "Deploy " + d.count + " to " + esc(nameOf(d.territory)), true)))
+    rows.push(row("deploy", i, "Deploy " + d.count + " to " + esc(nameOf(d.territory)), true,
+      null, d.territory)))
   plan.attacks.forEach((a, i) =>
-    rows.push(row("attack", i, "Attack " + esc(nameOf(a.to)) + " from " + esc(nameOf(a.from)) + " with " + a.count, true)))
+    rows.push(row("attack", i, "Attack " + esc(nameOf(a.to)) + " from " + esc(nameOf(a.from)) + " with " + a.count, true,
+      a.from, a.to)))
   plan.moves.forEach((m, i) =>
-    rows.push(row("move", i, "Move " + m.count + " from " + esc(nameOf(m.from)) + " to " + esc(nameOf(m.to)), true)))
-  if (plan.protect) rows.push(row("protect", 0, "Protect " + esc(nameOf(plan.protect)), false))
+    rows.push(row("move", i, "Move " + m.count + " from " + esc(nameOf(m.from)) + " to " + esc(nameOf(m.to)), true,
+      m.from, m.to)))
+  if (plan.protect) rows.push(row("protect", 0, "Protect " + esc(nameOf(plan.protect)), false,
+    null, plan.protect))
   const emptyPlan = eliminated
     ? "Nothing yet. Pick a territory to Protect."
     : "No orders yet. Tap one of your territories."
@@ -1252,11 +1366,16 @@ function render() {
   $("btn-undo").disabled = history.length === 0 || P.locked
 }
 
-function row(kind, i, text, steppable) {
+// 'from' and 'to' are the GROUND the order names, carried on the row so the
+// hover can read it back without a second copy of the plan to index into --
+// the same reason the buttons carry their kind and index.
+function row(kind, i, text, steppable, from, to) {
   const btn = (delta, glyph, label) =>
     '<button data-kind="' + kind + '" data-i="' + i + '" data-delta="' + delta +
     '" aria-label="' + label + '">' + glyph + '</button>'
-  return '<div class="prow"><span>' + text + '</span><span class="pbtns">' +
+  return '<div class="prow" data-order="' + kind + '"' +
+    (from ? ' data-from="' + esc(from) + '"' : "") + ' data-to="' + esc(to) + '">' +
+    '<span>' + text + '</span><span class="pbtns">' +
     (steppable ? btn(-1, "−", "one fewer") + btn(1, "+", "one more") : "") +
     btn(0, "×", "remove") + '</span></div>'
 }
@@ -1265,6 +1384,25 @@ $("plan").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-kind]")
   if (b) adjust(b.dataset.kind, Number(b.dataset.i), Number(b.dataset.delta))
 })
+
+// Hover by DELEGATION, for the reason the region badges use it: render()
+// replaces this list's whole innerHTML on every keystroke of the plan, so a
+// listener per row would be stale the moment anything changed.
+//
+// mouseover plus mouseleave rather than mouseover/mouseout: mouseout fires on
+// the way into a row's OWN stepper buttons, and clearing there would strobe the
+// highlight off and on as the pointer crossed them. mouseover alone answers
+// "what is under the pointer now" -- including the gaps between rows, which
+// resolve to no order -- and mouseleave is bound to the list itself.
+$("plan").addEventListener("mouseover", (e) => {
+  const el = e.target && e.target.closest ? e.target.closest("[data-order]") : null
+  setHoverOrder(el === null ? null : {
+    kind: el.getAttribute("data-order"),
+    from: el.getAttribute("data-from"),
+    to: el.getAttribute("data-to"),
+  })
+})
+$("plan").addEventListener("mouseleave", () => setHoverOrder(null))
 $("btn-protect").addEventListener("click", protect)
 $("btn-undo").addEventListener("click", undo)
 

@@ -177,12 +177,21 @@ function fakeLeaflet(
   }
 }
 
-/** Records the events bound to it, so wiring can be asserted, not just survival. */
+/**
+ * Records the events bound to it, so wiring can be asserted, not just survival.
+ *
+ * The handlers are KEPT, not just counted: the plan rail's hover is delegated
+ * -- one listener on a list whose innerHTML is rebuilt on every change -- so the
+ * only way to reach it is to hand that listener an event, which is what
+ * `__fire` is for.
+ */
 function element(tag = ""): Record<string, unknown> {
   const events: string[] = []
+  const handlers = new Map<string, (e: unknown) => void>()
   const el: Record<string, unknown> = {
     __tag: tag,
     __events: events,
+    __fire: (type: string, ev: unknown) => handlers.get(type)?.(ev),
     style: {},
     className: "",
     textContent: "",
@@ -190,8 +199,9 @@ function element(tag = ""): Record<string, unknown> {
     dataset: {},
     disabled: false,
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
-    addEventListener(type: string) {
+    addEventListener(type: string, fn: (e: unknown) => void) {
       events.push(type)
+      handlers.set(type, fn)
     },
     // The attack/move panel focuses its slider as it opens, so any test that
     // drives a tap far enough to open it reaches this.
@@ -226,7 +236,11 @@ type Projection = {
   ownership: Record<string, string>
   reserve: number
   income: number
-  plan: { deploys: { territory: string; count: number }[] }
+  plan: {
+    deploys: { territory: string; count: number }[]
+    attacks: { from: string; to: string; count: number }[]
+    moves: { from: string; to: string; count: number }[]
+  }
   territories: { id: string; neighbors: string[] }[]
   shapes: Record<string, unknown[] | undefined>
   labels: Record<string, { lat: number; lon: number } | undefined>
@@ -612,6 +626,149 @@ describe("the client script", () => {
         if (Math.abs(tail - bearing(pts[0]!, pts[1]!)) > 5) curved++
       }
       expect(curved, "the lines actually bow").toBe(lines.length)
+    })
+  })
+
+  /**
+   * Hovering a saved order in the rail.
+   *
+   * A plan row is a sentence about ground -- "Attack Kenya from Tanzania with
+   * 4" -- and the board is where that ground is. The hover answers it there:
+   * both ends lit, and for the orders that MOVE soldiers, the same arrow the
+   * neighbour fan draws, in the same two colours. What these can check is that
+   * the row carries the territories the hover needs, that the arrow is the
+   * shared drawing rather than a lookalike, and that a deploy draws none.
+   */
+  describe("hovering a saved order", () => {
+    const ATTACK = "#ff6a3d"
+    const MOVE = "#35f0a0"
+
+    /** Two territories with somewhere to draw, the first one the viewer's. */
+    function pair(P: Projection): { from: string; to: string } {
+      const aimed = (id: string): boolean => Boolean(P.labels[id] ?? P.centres[id])
+      const from = P.territories.find(
+        (t) => P.ownership[t.id] === P.factionId && aimed(t.id) && t.neighbors.some(aimed),
+      )
+      if (!from) throw new Error("no aimed territory with an aimed neighbour")
+      return { from: from.id, to: from.neighbors.find(aimed)! }
+    }
+
+    /**
+     * Run with one saved order of `kind`, then hand the rail's delegated
+     * listener a pointer over that row. The row element is a stand-in carrying
+     * the attributes the real markup carries -- asserted separately, below.
+     *
+     * `fresh` is only what the hover drew; `log` keeps the board, whose
+     * polygons are where the highlight lands.
+     */
+    function hover(kind: "attack" | "move" | "deploy"): {
+      P: Projection
+      log: LayerCall[]
+      fresh: LayerCall[]
+      from: string
+      to: string
+    } {
+      const h = harness(WORLD)
+      const { from, to } = pair(h.P)
+      if (kind === "attack") h.P.plan.attacks = [{ from, to, count: 2 }]
+      if (kind === "move") h.P.plan.moves = [{ from, to, count: 2 }]
+      if (kind === "deploy") h.P.plan.deploys = [{ territory: from, count: 2 }]
+      h.ran()
+      const plan = h.byId.get("plan")!
+      expect(plan["__events"], "the rail listens for a pointer over a row").toContain("mouseover")
+      expect(plan["__events"], "and for one leaving the list").toContain("mouseleave")
+
+      const attrs: Record<string, string | null> =
+        kind === "deploy"
+          ? { "data-order": "deploy", "data-from": null, "data-to": from }
+          : { "data-order": kind, "data-from": from, "data-to": to }
+      const rowEl = { getAttribute: (k: string) => attrs[k] ?? null }
+      const mark = h.log.length
+      ;(plan["__fire"] as (t: string, e: unknown) => void)("mouseover", {
+        target: { closest: () => rowEl },
+      })
+      return { P: h.P, log: h.log, fresh: h.log.slice(mark), from, to }
+    }
+
+    /** The hover's own arcs, casings and heads excluded. */
+    const arcs = (l: LayerCall[]): LayerCall[] =>
+      l.filter((c) => c.kind === "polyline" && c.opts["className"] !== "arrow-cast")
+
+    it("puts the ground each order names on the row itself", () => {
+      const h = harness(WORLD)
+      const { from, to } = pair(h.P)
+      h.P.plan.attacks = [{ from, to, count: 2 }]
+      h.P.plan.deploys = [{ territory: from, count: 1 }]
+      h.ran()
+      const html = h.byId.get("plan")!["innerHTML"] as string
+
+      // Without these the hover would need its own copy of the plan to index
+      // into, and the two would drift the first time an order was removed.
+      expect(html).toContain('data-order="attack"')
+      expect(html).toContain('data-from="' + from + '"')
+      expect(html).toContain('data-to="' + to + '"')
+      // A deploy names one territory and no route, so it carries no origin.
+      expect(html).toContain('data-order="deploy"')
+      expect(html.match(/data-from=/g) ?? []).toHaveLength(1)
+    })
+
+    it("draws the attack arrow in the colour an attack already means", () => {
+      const { fresh } = hover("attack")
+      expect(arcs(fresh).map((c) => c.opts["color"])).toEqual([ATTACK])
+      // The shared drawing, not a lookalike: casing beneath, head on top, and
+      // an arc rather than a chord -- the three the neighbour fan is checked
+      // for. A second implementation would pass the colour and fail these.
+      expect(fresh.filter((c) => c.opts["className"] === "arrow-cast")).toHaveLength(1)
+      expect(
+        fresh.filter(
+          (c) =>
+            c.kind === "marker" &&
+            (c.opts["icon"] as { className?: string })?.className === "arrow",
+        ),
+      ).toHaveLength(1)
+      expect((arcs(fresh)[0]!.latlngs as number[][]).length).toBeGreaterThan(2)
+    })
+
+    it("draws a reinforcement in green, and a deploy not at all", () => {
+      expect(arcs(hover("move").fresh).map((c) => c.opts["color"])).toEqual([MOVE])
+      // A deploy moves nothing across a border. An arrow would say it did.
+      expect(arcs(hover("deploy").fresh)).toHaveLength(0)
+    })
+
+    /** The territories wearing the order ring after the hover repainted. */
+    function ringed(P: Projection, log: LayerCall[]): { id: string; color: unknown; weight: unknown }[] {
+      const drawn = P.territories.filter((t) => (P.shapes[t.id] ?? []).length)
+      const polys = log.filter((c) => c.kind === "polygon" && c.opts["fillOpacity"] === 0.85)
+      expect(polys, "one polygon per drawn territory, in order").toHaveLength(drawn.length)
+      return drawn
+        .map((t, i) => {
+          const styles = polys[i]!.styles
+          const last = styles[styles.length - 1]!
+          return { id: t.id, color: last["color"], weight: last["weight"] }
+        })
+        .filter((r) => r.color === ATTACK || r.color === MOVE)
+    }
+
+    it("rings both ends of the order in the arrow's own colour", () => {
+      const { P, log, from, to } = hover("attack")
+      const lit = ringed(P, log)
+      // The pair, because an order is the pair: the target alone leaves the
+      // arrow's tail unexplained, and a wider light stops meaning this order.
+      expect(new Set(lit.map((r) => r.id))).toEqual(new Set([from, to]))
+      // Sharing the arrow's colour is what makes the two ends and the line
+      // between them read as one mark rather than three.
+      expect(new Set(lit.map((r) => r.color))).toEqual(new Set([ATTACK]))
+    })
+
+    it("rings the deploy's territory too, heavily enough to see on your own ground", () => {
+      const { P, log, from } = hover("deploy")
+      const lit = ringed(P, log)
+      // A deploy draws no arrow, so the ring is the ENTIRE answer -- and its
+      // target is always your own territory, which already wears a near-white
+      // edge. At the faction hover's weight 3 this was invisible in a browser.
+      expect(lit.map((r) => r.id)).toEqual([from])
+      expect(lit[0]!.color, "green: soldiers landing on ground you hold").toBe(MOVE)
+      expect(lit[0]!.weight as number).toBeGreaterThan(3)
     })
   })
 })

@@ -280,6 +280,15 @@ body {
   font: 600 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .prow button:hover, .prow button:focus-visible { color: var(--accent); border-color: var(--accent); }
+/* Hovering a saved order lights its ground on the map, and draws its arrow if
+   it moves soldiers. The row needs to say it is doing that -- without a cue on
+   this side the map appears to light up on its own. Inset rather than a plain
+   background so the padding stays even with the rows above and below. */
+.prow[data-order]:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 2px;
+}
 
 .chip:disabled { opacity: 0.45; cursor: default; }
 .chip:disabled:hover { border-color: var(--rule); color: var(--muted); }
