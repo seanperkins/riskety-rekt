@@ -198,6 +198,11 @@ function element(tag = ""): Record<string, unknown> {
     innerHTML: "",
     dataset: {},
     disabled: false,
+    // Hidden by default, like the markup: every panel this stub stands in for
+    // (`atk`, `rename`, `wagers`) ships with the attribute set, and code that
+    // asks "is the sheet open" reads `.hidden` -- an undefined would answer
+    // "open" for a sheet nobody has touched.
+    hidden: true,
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
     addEventListener(type: string, fn: (e: unknown) => void) {
       events.push(type)
@@ -222,6 +227,8 @@ type Harness = {
   factionRow: Record<string, unknown>
   byId: Map<string, Record<string, unknown>>
   docEvents: string[]
+  /** Fires every handler the client bound to that event on the document. */
+  fireDoc: (type: string, ev: unknown) => void
   winEvents: string[]
   P: Projection
   log: LayerCall[]
@@ -251,6 +258,7 @@ function harness(map: GameMap = RISK_MAP): Harness {
   const mapEl = element("map")
   const factionRow = element("row")
   const docEvents: string[] = []
+  const docHandlers = new Map<string, ((e: unknown) => void)[]>()
   // Stable per id, so the wiring on a specific control can be asserted.
   const byId = new Map<string, Record<string, unknown>>([["map", mapEl]])
   const doc = {
@@ -263,8 +271,15 @@ function harness(map: GameMap = RISK_MAP): Harness {
     createElement: () => element(),
     body: element(),
     __events: docEvents,
-    addEventListener(type: string) {
+    // Handlers are KEPT, and every one bound to a type is fired: the client
+    // binds `keydown` on the document more than once (undo, and the wagers
+    // sheet), so a single-handler map would silently drop whichever came
+    // first and report a green test for a key nobody handled.
+    addEventListener(type: string, fn: (e: unknown) => void) {
       docEvents.push(type)
+      const list = docHandlers.get(type) ?? []
+      list.push(fn)
+      docHandlers.set(type, list)
     },
   }
   const winEvents: string[] = []
@@ -321,6 +336,9 @@ function harness(map: GameMap = RISK_MAP): Harness {
     factionRow,
     byId,
     docEvents,
+    fireDoc: (type, ev) => {
+      for (const fn of docHandlers.get(type) ?? []) fn(ev)
+    },
     winEvents,
     P,
     log,
@@ -509,6 +527,40 @@ describe("the client script", () => {
     expect(
       afterStroke?.["weight"],
       "a tap on unreachable ground lets the selection go",
+    ).not.toBe(3.5)
+  })
+
+  /**
+   * Escape lets a territory go.
+   *
+   * Every other way out of a selection needs somewhere to put it: another of
+   * your own to tap, or foreign ground out of reach. Neither exists when the
+   * one you picked is the only territory you hold, and a stuck selection keeps
+   * the fan of arrows on the board and "Protect" pointed at ground you no
+   * longer mean.
+   *
+   * The key peels ONE layer: while the attack panel is open Escape still just
+   * cancels it, so the launch point survives a cancelled assault.
+   */
+  it("drops the selection on Escape", () => {
+    const h = harness(WORLD)
+    h.ran()
+    const { P, log, fireDoc } = h
+    const drawn = P.territories.filter((t) => (P.shapes[t.id] ?? []).length)
+    const from = drawn.find((t) => P.ownership[t.id] === P.factionId)!
+    const polys = log.filter((c) => c.kind === "polygon" && c.opts["fillOpacity"] === 0.85)
+    const fromPoly = polys[drawn.indexOf(from)]!
+
+    fromPoly.fire("click")
+    expect(
+      fromPoly.styles[fromPoly.styles.length - 1]?.["weight"],
+      "tapping your own territory selects it",
+    ).toBe(3.5)
+
+    fireDoc("keydown", { key: "Escape" })
+    expect(
+      fromPoly.styles[fromPoly.styles.length - 1]?.["weight"],
+      "Escape lets it go",
     ).not.toBe(3.5)
   })
 

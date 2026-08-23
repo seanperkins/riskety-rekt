@@ -1477,7 +1477,24 @@ $("atk-cancel").addEventListener("click", closeAttack)
 // Guarded on the event target: if a text field ever lands in the rail, the
 // browser's own undo has to keep working inside it.
 document.addEventListener("keydown", (e) => {
-  if ((e.key || "") === "Escape") return closeAttack()
+  if ((e.key || "") === "Escape") {
+    // Escape peels ONE layer at a time, outermost first: the attack/move panel
+    // if it is open, otherwise the selection. Clearing both at once would let a
+    // cancelled assault also drop the territory it was launched from, which is
+    // the one thing the panel's own Cancel has never done.
+    //
+    // The wagers sheet owns the key while it is open -- its handler is bound
+    // separately below -- so this leaves the selection alone underneath it.
+    if (atkPending) return closeAttack()
+    const sheet = $("wagers")
+    if (sheet && !sheet.hidden) return
+    if (!selected) return
+    selected = null
+    paint()
+    drawArrows()
+    render()
+    return
+  }
   const k = e.key || ""
   if (k.toLowerCase() !== "z" || !(e.metaKey || e.ctrlKey) || e.shiftKey) return
   const tag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : ""
