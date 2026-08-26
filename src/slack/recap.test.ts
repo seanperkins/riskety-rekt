@@ -536,13 +536,29 @@ describe("recap event coverage", () => {
     }
   })
 
-  it("renders a module grant with its source", () => {
+  it("labels a rule grant with the rule's NAME, not its frozen id", () => {
+    // The block above says "Rule in force: Quantitative Easing"; the number
+    // used to say "(boom)". Two labels for one grant, and on a doubled-income
+    // day "+16 income, +16 (boom)" reads as the same 16 counted twice.
     const { blocks } = renderRecap({
       state: stateWith([{ t: "grant", source: "boom", faction: "f1", amount: 5 }]),
       previous: stateWith([], 2),
       lengthDays: 21,
     })
-    expect(texts(blocks).join("\n")).toContain("(boom)")
+    const all = texts(blocks).join("\n")
+    expect(all).toContain("(Quantitative Easing)")
+    expect(all, "the internal id never reaches a player").not.toContain("(boom)")
+  })
+
+  it("falls back to the bare source when the catalogue does not know it", () => {
+    // A retired rule, or a grant sourced by a module rather than a rule. Same
+    // fallback the rule block uses; a missing name must not blank the label.
+    const { blocks } = renderRecap({
+      state: stateWith([{ t: "grant", source: "retired-rule", faction: "f1", amount: 5 }]),
+      previous: stateWith([], 2),
+      lengthDays: 21,
+    })
+    expect(texts(blocks).join("\n")).toContain("(retired-rule)")
   })
 
   it("announces the day's rule with name AND description", () => {

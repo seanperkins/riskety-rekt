@@ -98,6 +98,17 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
       : `“${safeText(q, RECAP_MARKET_MAX_CHARS)}”`
   }
   const place = (id: string) => safeText(titleCase(id), RECAP_NAME_MAX_CHARS)
+  /**
+   * A grant's `source` is a mechanic id — permanent, frozen into
+   * `tick_context` and the log — while the display copy lives in the registry
+   * and may change freely. The rule block above already prints the NAME, so
+   * labelling the number with the raw id put two different labels on one
+   * grant: a doubled income read as `+16 income, +16 (boom)`, which looks
+   * like the same 16 counted twice rather than Quantitative Easing paying it
+   * again. Unknown ids — a retired rule, or a module-sourced grant — fall
+   * back to the id, exactly as the rule block does.
+   */
+  const sourceName = (id: string): string => RULE_REGISTRY.get(id)?.name ?? id
   const blocks: Block[] = [header(`Day ${state.day} of ${lengthDays}`)]
   const fallback: string[] = [`Riskety Rekt — day ${state.day} of ${lengthDays}`]
   const addTable = (title: string, headers: string[], rows: TableRow[]): void => {
@@ -136,7 +147,10 @@ export function renderRecap(input: RecapInput): { text: string; blocks: Block[] 
       ])
     }
     for (const e of grants) {
-      byFaction.set(e.faction, [...(byFaction.get(e.faction) ?? []), `+${e.amount} (${e.source})`])
+      byFaction.set(e.faction, [
+        ...(byFaction.get(e.faction) ?? []),
+        `+${e.amount} (${sourceName(e.source)})`,
+      ])
     }
     addTable(
       "Reinforcements",
